@@ -105,6 +105,9 @@ endif
 	install -pm 644 $(DEPTH)/modules/lua-core/src/external/* $(OPT_AS)/sys/udf/lua/external
 	install -pm 644 $(DEPTH)/modules/lua-core/src/ldt/* $(OPT_AS)/sys/udf/lua/ldt
 
+	install -d $(OPT_AS)/bin
+	install -pm 755 $(DEPTH)/tools/memacct/asparsemem $(OPT_AS)/bin
+
 package:
 	install -d $(SOURCE_ROOT)/RPMS/x86_64
 
