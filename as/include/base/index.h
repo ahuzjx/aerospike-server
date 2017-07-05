@@ -147,9 +147,9 @@ typedef struct as_index_flag_bits_s {
 } as_index_flag_bits;
 
 typedef enum {
-	AS_INDEX_FLAG_SPECIAL_BINS	= 0x01, // first user of this is LDT (to denote sub-records)
-	AS_INDEX_FLAG_CHILD_REC		= 0x02, // child record of a regular record (LDT)
-	AS_INDEX_FLAG_CHILD_ESR		= 0x04, // special child existence sub-record (ESR)
+	AS_INDEX_FLAG_UNUSED_1		= 0x01,
+	AS_INDEX_FLAG_UNUSED_2		= 0x02,
+	AS_INDEX_FLAG_UNUSED_4		= 0x04,
 	AS_INDEX_FLAG_KEY_STORED	= 0x08, // for data-in-memory, dim points to as_rec_space
 
 	// Combinations:

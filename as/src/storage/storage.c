@@ -40,7 +40,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/rec_props.h"
 #include "base/thr_info.h"
 #include "fabric/partition.h"
@@ -616,8 +615,7 @@ as_storage_record_get_key(as_storage_rd *rd)
 size_t
 as_storage_record_rec_props_size(as_storage_rd *rd)
 {
-	size_t rec_props_data_size = as_ldt_record_get_rectype_bits(rd->r) != 0 ?
-			as_rec_props_sizeof_field(sizeof(uint16_t)) : 0;
+	size_t rec_props_data_size = 0;
 
 	const char *set_name = as_index_get_set_name(rd->r, rd->ns);
 
@@ -635,20 +633,12 @@ as_storage_record_rec_props_size(as_storage_rd *rd)
 // Populates rec_props struct in rd, using index info where possible. Assumes
 // relevant information is ready:
 // - set name
-// - LDT flags
 // - record key
 // Relies on caller's properly allocated rec_props_data.
 void
 as_storage_record_set_rec_props(as_storage_rd *rd, uint8_t* rec_props_data)
 {
 	as_rec_props_init(&(rd->rec_props), rec_props_data);
-
-	uint16_t ldt_rectype_bits = as_ldt_record_get_rectype_bits(rd->r);
-
-	if (ldt_rectype_bits != 0) {
-		as_rec_props_add_field(&(rd->rec_props), CL_REC_PROPS_FIELD_LDT_TYPE,
-				sizeof(uint16_t), (uint8_t *)&ldt_rectype_bits);
-	}
 
 	if (as_index_has_set(rd->r)) {
 		const char *set_name = as_index_get_set_name(rd->r, rd->ns);
@@ -674,13 +664,6 @@ as_storage_record_copy_rec_props(as_storage_rd *rd, as_rec_props *p_rec_props)
 	}
 
 	as_rec_props_init_malloc(p_rec_props, malloc_size);
-
-	uint64_t ldt_rectype_bits = as_ldt_record_get_rectype_bits(rd->r);
-
-	if (ldt_rectype_bits != 0) {
-		as_rec_props_add_field(p_rec_props, CL_REC_PROPS_FIELD_LDT_TYPE,
-				sizeof(uint16_t), (uint8_t *)&ldt_rectype_bits);
-	}
 
 	if (as_index_has_set(rd->r)) {
 		const char *set_name = as_index_get_set_name(rd->r, rd->ns);

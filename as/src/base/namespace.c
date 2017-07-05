@@ -165,10 +165,6 @@ as_namespace_create(char *name)
 	ns->evict_tenths_pct = 5; // default eviction amount is 0.5%
 	ns->hwm_disk_pct = 50; // evict when device usage exceeds 50%
 	ns->hwm_memory_pct = 60; // evict when memory usage exceeds 50% of namespace memory-size
-	ns->ldt_enabled = false; // By default ldt is not enabled
-	ns->ldt_gc_sleep_us = 500; // Default is sleep for .5Ms. This translates to constant 2k Subrecord
-							   // GC per second.
-	ns->ldt_page_size = 8192; // default ldt page size is 8192
 	ns->max_ttl = MAX_ALLOWED_TTL; // 10 years
 	ns->migrate_order = 5;
 	ns->migrate_retransmit_ms = 1000 * 5; // 5 seconds
@@ -408,11 +404,10 @@ as_namespace_eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_w
 	// compute memory size of namespace
 	// compute index size - index is always stored in memory
 	uint64_t index_sz = cf_atomic64_get(ns->n_objects) * as_index_size_get(ns);
-	uint64_t sub_index_sz = cf_atomic64_get(ns->n_sub_objects) * as_index_size_get(ns);
 	uint64_t tombstone_index_sz = cf_atomic64_get(ns->n_tombstones) * as_index_size_get(ns);
 	uint64_t sindex_sz = cf_atomic64_get(ns->n_bytes_sindex_memory);
 	uint64_t data_in_memory_sz = cf_atomic_int_get(ns->n_bytes_memory);
-	uint64_t memory_sz = index_sz + sub_index_sz + tombstone_index_sz + data_in_memory_sz + sindex_sz;
+	uint64_t memory_sz = index_sz + tombstone_index_sz + data_in_memory_sz + sindex_sz;
 
 	// Possible reasons for eviction or stopping writes.
 	// (We don't use all combinations, but in case we change our minds...)

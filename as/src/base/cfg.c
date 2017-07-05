@@ -56,7 +56,6 @@
 #include "tls.h"
 
 #include "base/datamodel.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "base/secondary_index.h"
 #include "base/security_config.h"
@@ -143,7 +142,6 @@ cfg_set_defaults()
 	c->hist_track_back = 300;
 	c->hist_track_slice = 10;
 	c->n_info_threads = 16;
-	c->ldt_benchmarks = false;
 	c->migrate_max_num_incoming = AS_MIGRATE_DEFAULT_MAX_NUM_INCOMING; // for receiver-side migration flow-control
 	c->n_migrate_threads = 1;
 	c->nsup_delete_sleep = 100; // 100 microseconds means a delete rate of 10k TPS
@@ -276,7 +274,6 @@ typedef enum {
 	CASE_SERVICE_HIST_TRACK_SLICE,
 	CASE_SERVICE_HIST_TRACK_THRESHOLDS,
 	CASE_SERVICE_INFO_THREADS,
-	CASE_SERVICE_LDT_BENCHMARKS,
 	CASE_SERVICE_LOG_LOCAL_TIME,
 	CASE_SERVICE_LOG_MILLIS,
 	CASE_SERVICE_MIGRATE_MAX_NUM_INCOMING,
@@ -527,9 +524,6 @@ typedef enum {
 	CASE_NAMESPACE_EVICT_TENTHS_PCT,
 	CASE_NAMESPACE_HIGH_WATER_DISK_PCT,
 	CASE_NAMESPACE_HIGH_WATER_MEMORY_PCT,
-	CASE_NAMESPACE_LDT_ENABLED,
-	CASE_NAMESPACE_LDT_GC_RATE,
-	CASE_NAMESPACE_LDT_PAGE_SIZE,
 	CASE_NAMESPACE_MAX_TTL,
 	CASE_NAMESPACE_MIGRATE_ORDER,
 	CASE_NAMESPACE_MIGRATE_RETRANSMIT_MS,
@@ -765,7 +759,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "hist-track-slice",				CASE_SERVICE_HIST_TRACK_SLICE },
 		{ "hist-track-thresholds",			CASE_SERVICE_HIST_TRACK_THRESHOLDS },
 		{ "info-threads",					CASE_SERVICE_INFO_THREADS },
-		{ "ldt-benchmarks",					CASE_SERVICE_LDT_BENCHMARKS },
 		{ "log-local-time",					CASE_SERVICE_LOG_LOCAL_TIME },
 		{ "log-millis",						CASE_SERVICE_LOG_MILLIS},
 		{ "migrate-max-num-incoming",		CASE_SERVICE_MIGRATE_MAX_NUM_INCOMING },
@@ -1017,9 +1010,6 @@ const cfg_opt NAMESPACE_OPTS[] = {
 		{ "evict-tenths-pct",				CASE_NAMESPACE_EVICT_TENTHS_PCT },
 		{ "high-water-disk-pct",			CASE_NAMESPACE_HIGH_WATER_DISK_PCT },
 		{ "high-water-memory-pct",			CASE_NAMESPACE_HIGH_WATER_MEMORY_PCT },
-		{ "ldt-enabled",					CASE_NAMESPACE_LDT_ENABLED },
-		{ "ldt-gc-rate",					CASE_NAMESPACE_LDT_GC_RATE },
-		{ "ldt-page-size",					CASE_NAMESPACE_LDT_PAGE_SIZE },
 		{ "max-ttl",						CASE_NAMESPACE_MAX_TTL },
 		{ "migrate-order",					CASE_NAMESPACE_MIGRATE_ORDER },
 		{ "migrate-retransmit-ms",			CASE_NAMESPACE_MIGRATE_RETRANSMIT_MS },
@@ -2160,9 +2150,6 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_INFO_THREADS:
 				c->n_info_threads = cfg_int_no_checks(&line);
 				break;
-			case CASE_SERVICE_LDT_BENCHMARKS:
-				c->ldt_benchmarks = cfg_bool(&line);
-				break;
 			case CASE_SERVICE_LOG_LOCAL_TIME:
 				cf_fault_use_local_time(cfg_bool(&line));
 				break;
@@ -2874,15 +2861,6 @@ as_config_init(const char* config_file)
 			case CASE_NAMESPACE_HIGH_WATER_MEMORY_PCT:
 				ns->hwm_memory_pct = cfg_u32(&line, 0, 100);
 				break;
-			case CASE_NAMESPACE_LDT_ENABLED:
-				ns->ldt_enabled = cfg_bool(&line);
-				break;
-			case CASE_NAMESPACE_LDT_GC_RATE:
-				ns->ldt_gc_sleep_us = cfg_u64(&line, 1, LDT_SUB_GC_MAX_RATE) * 1000000;
-				break;
-			case CASE_NAMESPACE_LDT_PAGE_SIZE:
-				ns->ldt_page_size = cfg_u32_no_checks(&line);
-				break;
 			case CASE_NAMESPACE_MAX_TTL:
 				ns->max_ttl = cfg_seconds(&line, 1, MAX_ALLOWED_TTL);
 				break;
@@ -2987,9 +2965,6 @@ as_config_init(const char* config_file)
 				if (ns->data_in_index && ! (ns->single_bin && ns->storage_data_in_memory && ns->storage_type == AS_STORAGE_ENGINE_SSD)) {
 					cf_crash_nostack(AS_CFG, "ns %s data-in-index can't be true unless storage-engine is device and both single-bin and data-in-memory are true", ns->name);
 				}
-				if (ns->ldt_enabled && ns->single_bin) {
-					cf_crash_nostack(AS_CFG, "ns %s ldt-enabled and single-bin can't both be true", ns->name);
-				}
 				if (ns->default_ttl > ns->max_ttl) {
 					cf_crash_nostack(AS_CFG, "ns %s default-ttl can't be > max-ttl", ns->name);
 				}
@@ -3002,9 +2977,6 @@ as_config_init(const char* config_file)
 				}
 				else {
 					c->n_namespaces_not_in_memory++;
-				}
-				if (ns->ldt_page_size > ns->storage_write_block_size) {
-					ns->ldt_page_size = ns->storage_write_block_size - 1024; // 1K headroom
 				}
 				ns = NULL;
 				cfg_end_context(&state);
@@ -4388,12 +4360,6 @@ cfg_create_all_histograms()
 	create_and_check_hist(&g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-send-fragment", HIST_MILLISECONDS);
 	create_and_check_hist(&g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-recv-fragment", HIST_MILLISECONDS);
 	create_and_check_hist(&g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-recv-cb", HIST_MILLISECONDS);
-
-	create_and_check_hist(&g_stats.ldt_multiop_prole_hist, "ldt_multiop_prole", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.ldt_io_record_cnt_hist, "ldt_rec_io_count", HIST_COUNT);
-	create_and_check_hist(&g_stats.ldt_update_record_cnt_hist, "ldt_rec_update_count", HIST_COUNT);
-	create_and_check_hist(&g_stats.ldt_update_io_bytes_hist, "ldt_rec_update_bytes", HIST_SIZE);
-	create_and_check_hist(&g_stats.ldt_hist, "ldt", HIST_MILLISECONDS);
 }
 
 void

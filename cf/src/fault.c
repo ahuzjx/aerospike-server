@@ -85,7 +85,6 @@ char *cf_fault_context_strings[] = {
 		"info",
 		"info-port",
 		"job",
-		"ldt",
 		"migrate",
 		"mon",
 		"namespace",

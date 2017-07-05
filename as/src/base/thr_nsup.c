@@ -50,7 +50,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "base/thr_sindex.h"
 #include "base/thr_tsvc.h"
@@ -510,7 +509,6 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 
 static cf_queue* g_p_nsup_delete_q = NULL;
 static pthread_t g_nsup_delete_thread;
-static pthread_t g_ldt_sub_gc_thread;
 
 int
 as_nsup_queue_get_size()
@@ -521,7 +519,6 @@ as_nsup_queue_get_size()
 // Make sure a huge nsup deletion wave won't blow delete queue up.
 #define DELETE_Q_SAFETY_THRESHOLD	10000
 #define DELETE_Q_SAFETY_SLEEP_us	1000 // 1 millisecond
-#define LDT_SUB_GC_SAFETY_SLEEP_us  1000
 
 // Wait for delete queue to clear.
 #define DELETE_Q_CLEAR_SLEEP_us		1000 // 1 millisecond
@@ -801,32 +798,6 @@ reduce_master_partitions(as_namespace* ns, as_index_reduce_fn cb, void* udata, u
 }
 
 //------------------------------------------------
-// Reduce all subtrees, using specified
-// functionality.
-//
-static void
-sub_reduce_partitions(as_namespace* ns, as_index_reduce_fn cb, void* udata, uint32_t* p_n_waits, const char* tag)
-{
-	as_partition_reservation rsv;
-
-	for (int n = 0; n < AS_PARTITIONS; n++) {
-		as_partition_reserve_migrate(ns, n, &rsv, 0);
-
-		as_index_reduce(rsv.sub_tree, cb, udata);
-
-		as_partition_release(&rsv);
-
-		usleep(LDT_SUB_GC_SAFETY_SLEEP_us);
-
-		// TODO - add more throttling logic? Also need to become smart about not
-		// reading the record. Can't rely on disk defrag for this because it may
-		// choose not to defrag a block at all.
-
-		cf_debug(AS_NSUP, "{%s} %s done partition index %d, waits %u", ns->name, tag, n, *p_n_waits);
-	}
-}
-
-//------------------------------------------------
 // Lazily create and clear a set's size histogram.
 //
 static void
@@ -962,41 +933,6 @@ update_stats(as_namespace* ns, uint64_t n_master, uint64_t n_0_void_time,
 			evict_ttl,
 			n_general_waits, n_clear_waits,
 			total_duration_ms);
-}
-
-//------------------------------------------------
-// LDT supervisor thread "run" function.
-//
-void *
-thr_ldt_sup(void *arg)
-{
-	for ( ; ; ) {
-		// Skip 1 second between LDT nsup cycles.
-		struct timespec delay = { 1, 0 };
-		nanosleep(&delay, NULL);
-
-		// Iterate over every namespace.
-		for (int i = 0; i < g_config.n_namespaces; i++) {
-			as_namespace *ns = g_config.namespaces[i];
-
-			if (! ns->ldt_enabled) {
-				cf_detail(AS_LDT, "{%s} ldt sub skip", ns->name);
-				continue;
-			}
-
-			cf_detail(AS_LDT, "{%s} ldt sup start", ns->name);
-
-			ldt_sub_gc_info linfo;
-			linfo.ns = ns;
-
-			uint32_t n_general_waits;
-
-			// Reduce all partitions, cleaning up stale sub-records.
-			sub_reduce_partitions(ns, as_ldt_sub_gc_fn, &linfo, &n_general_waits, "ldt subtree gc");
-		}
-	}
-
-	return NULL;
 }
 
 //------------------------------------------------
@@ -1227,10 +1163,5 @@ as_nsup_start()
 	// Start namespace supervisor thread to do expiration & eviction.
 	if (0 != pthread_create(&g_nsup_thread, NULL, thr_nsup, NULL)) {
 		cf_crash(AS_NSUP, "nsup thread create failed");
-	}
-
-	// Start LDT supervisor thread to do all sub-record deletions.
-	if (0 != pthread_create(&g_ldt_sub_gc_thread, 0, thr_ldt_sup, NULL)) {
-		cf_crash(AS_NSUP, "ldt nsup thread create failed");
 	}
 }

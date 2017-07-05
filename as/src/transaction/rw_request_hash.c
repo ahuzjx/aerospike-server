@@ -65,7 +65,7 @@ const msg_template rw_mt[] = {
 		{ RW_FIELD_NS_ID, M_FT_UINT32 },
 		{ RW_FIELD_GENERATION, M_FT_UINT32 },
 		{ RW_FIELD_DIGEST, M_FT_BUF },
-		{ RW_FIELD_VINFOSET, M_FT_BUF },
+		{ RW_FIELD_UNUSED_6, M_FT_BUF },
 		{ RW_FIELD_UNUSED_7, M_FT_BUF },
 		{ RW_FIELD_CLUSTER_KEY, M_FT_UINT64 },
 		{ RW_FIELD_RECORD, M_FT_BUF },
@@ -73,12 +73,12 @@ const msg_template rw_mt[] = {
 		{ RW_FIELD_VOID_TIME, M_FT_UINT32 },
 		{ RW_FIELD_INFO, M_FT_UINT32 },
 		{ RW_FIELD_UNUSED_13, M_FT_BUF },
-		{ RW_FIELD_MULTIOP, M_FT_BUF },
-		{ RW_FIELD_LDT_VERSION, M_FT_UINT64 },
+		{ RW_FIELD_UNUSED_14, M_FT_BUF },
+		{ RW_FIELD_UNUSED_15, M_FT_UINT64 },
 		{ RW_FIELD_LAST_UPDATE_TIME, M_FT_UINT64 },
 		{ RW_FIELD_SET_NAME, M_FT_BUF },
 		{ RW_FIELD_KEY, M_FT_BUF },
-		{ RW_FIELD_LDT_BITS, M_FT_UINT32 }
+		{ RW_FIELD_UNUSED_19, M_FT_UINT32 }
 };
 
 COMPILER_ASSERT(sizeof(rw_mt) / sizeof(msg_template) == NUM_RW_FIELDS);
@@ -431,25 +431,6 @@ rw_msg_cb(cf_node id, msg* m, void* udata)
 		break;
 	case RW_OP_WRITE_ACK:
 		repl_write_handle_ack(id, m);
-		break;
-
-	//--------------------------------------------
-	// LDT-related:
-	//
-	case RW_OP_MULTI:
-		{
-			uint64_t start_ns = g_config.ldt_benchmarks ?  cf_getns() : 0;
-
-			repl_write_handle_multiop(id, m);
-
-			if (start_ns != 0) {
-				histogram_insert_data_point(g_stats.ldt_multiop_prole_hist,
-						start_ns);
-			}
-		}
-		break;
-	case RW_OP_MULTI_ACK:
-		repl_write_handle_multiop_ack(id, m);
 		break;
 
 	default:

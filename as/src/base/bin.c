@@ -485,12 +485,6 @@ as_bin_get_or_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz,
 			}
 
 			if ((uint32_t)b->id == id) {
-				if (as_bin_is_hidden(b)) {
-					cf_warning(AS_BIN, "cannot manipulate hidden bin directly");
-					*p_result = AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-					return NULL;
-				}
-
 				return b;
 			}
 		}

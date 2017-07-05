@@ -34,7 +34,6 @@
 
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "storage/storage.h"
 
 
@@ -69,12 +68,7 @@ as_record_drop_stats(as_record* r, as_namespace* ns)
 {
 	as_namespace_release_set_id(ns, as_index_get_set_id(r));
 
-	if (as_ldt_record_is_sub(r)) {
-		cf_atomic64_decr(&ns->n_sub_objects);
-	}
-	else {
-		cf_atomic64_decr(&ns->n_objects);
-	}
+	cf_atomic64_decr(&ns->n_objects);
 }
 
 

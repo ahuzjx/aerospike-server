@@ -41,7 +41,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "base/secondary_index.h"
 #include "base/transaction.h"
@@ -119,7 +118,6 @@ int write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 		as_bin* result_bins, uint32_t* p_n_result_bins,
 		cf_ll_buf* particles_llb, as_bin* cleanup_bins,
 		uint32_t* p_n_cleanup_bins, xdr_dirty_bins* dirty_bins);
-int write_master_bin_check(as_transaction* tr, as_bin* bin);
 bool write_master_sindex_update(as_namespace* ns, const char* set_name,
 		cf_digest* keyd, as_bin* old_bins, uint32_t n_old_bins,
 		as_bin* new_bins, uint32_t n_new_bins);
@@ -459,9 +457,8 @@ write_timeout_cb(rw_request* rw)
 		as_msg_send_reply(rw->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT, 0,
 				0, NULL, NULL, 0, NULL, rw_request_trid(rw), NULL);
 		// Timeouts aren't included in histograms.
-		// Note - rw->msgp can be null if it's a ship-op.
 		client_write_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT,
-				rw->msgp ? as_msg_is_xdr(&rw->msgp->msg) : false);
+				as_msg_is_xdr(&rw->msgp->msg));
 		break;
 	case FROM_PROXY:
 		break;
@@ -524,7 +521,7 @@ write_master(rw_request* rw, as_transaction* tr)
 	// Shortcut pointers.
 	as_msg* m = &tr->msgp->msg;
 	as_namespace* ns = tr->rsv.ns;
-	as_index_tree* tree = tr->rsv.tree; // sub-records don't use write_master()
+	as_index_tree* tree = tr->rsv.tree;
 
 	// Find or create as_index, populate as_index_ref, lock record.
 	as_index_ref r_ref;
@@ -546,7 +543,7 @@ write_master(rw_request* rw, as_transaction* tr)
 		}
 	}
 	else {
-		int rv = as_record_get_create(tree, &tr->keyd, &r_ref, ns, false);
+		int rv = as_record_get_create(tree, &tr->keyd, &r_ref, ns);
 
 		if (rv < 0) {
 			cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: fail as_record_get_create() ", ns->name);
@@ -633,14 +630,6 @@ write_master(rw_request* rw, as_transaction* tr)
 		return TRANS_DONE_ERROR;
 	}
 
-	bool was_ldt_parent = false;
-
-	// Record-level replace can't maintain an LDT.
-	if (ns->ldt_enabled && as_ldt_record_is_parent(r) && record_level_replace) {
-		as_index_clear_flags(r, AS_INDEX_FLAG_SPECIAL_BINS);
-		was_ldt_parent = true; // so we can unwind
-	}
-
 	// Assemble record properties from index information.
 	size_t rec_props_data_size = as_storage_record_rec_props_size(&rd);
 	uint8_t rec_props_data[rec_props_data_size];
@@ -690,10 +679,6 @@ write_master(rw_request* rw, as_transaction* tr)
 	}
 
 	if (result != 0) {
-		if (was_ldt_parent) {
-			as_index_set_flags(r, AS_INDEX_FLAG_SPECIAL_BINS);
-		}
-
 		write_master_failed(tr, &r_ref, record_created, tree, &rd, result);
 		return TRANS_DONE_ERROR;
 	}
@@ -1751,10 +1736,6 @@ write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 		else if (op->op == AS_MSG_OP_READ) {
 			as_bin* b = as_bin_get_from_buf(rd, op->name, op->name_sz);
 
-			if ((result = write_master_bin_check(tr, b)) != 0) {
-				return result;
-			}
-
 			if (b) {
 				ops[*p_n_response_bins] = op;
 				as_bin_copy(ns, &response_bins[(*p_n_response_bins)++], b);
@@ -1818,10 +1799,6 @@ write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 		else if (op->op == AS_MSG_OP_CDT_READ) {
 			as_bin* b = as_bin_get_from_buf(rd, op->name, op->name_sz);
 
-			if ((result = write_master_bin_check(tr, b)) != 0) {
-				return result;
-			}
-
 			if (b) {
 				as_bin result_bin;
 				as_bin_set_empty(&result_bin);
@@ -1844,20 +1821,6 @@ write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 			cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: unknown bin op %u ", ns->name, op->op);
 			return AS_PROTO_RESULT_FAIL_PARAMETER;
 		}
-	}
-
-	return 0;
-}
-
-
-// For now, used only for read ops.
-int
-write_master_bin_check(as_transaction* tr, as_bin* bin)
-{
-	if (bin && as_bin_is_hidden(bin)) {
-		// Note - if single-bin, this likely means the bin state is corrupt.
-		cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: cannot manipulate hidden bin directly ", tr->rsv.ns->name);
-		return AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
 	}
 
 	return 0;

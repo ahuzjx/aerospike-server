@@ -72,8 +72,8 @@ typedef enum {
 	PROXY_FIELD_REDIRECT,
 	PROXY_FIELD_AS_PROTO, // request as_proto - currently contains only as_msg's
 	PROXY_FIELD_CLUSTER_KEY,
-	PROXY_FIELD_TIMEOUT_MS, // deprecated
-	PROXY_FIELD_INFO,
+	PROXY_FIELD_UNUSED_6,
+	PROXY_FIELD_UNUSED_7,
 
 	NUM_PROXY_FIELDS
 } proxy_msg_field;
@@ -82,9 +82,6 @@ typedef enum {
 #define PROXY_OP_RESPONSE 2
 #define PROXY_OP_RETURN_TO_SENDER 3
 
-// LDT-related.
-#define PROXY_INFO_SHIPPED_OP 0x0001
-
 const msg_template proxy_mt[] = {
 	{ PROXY_FIELD_OP, M_FT_UINT32 },
 	{ PROXY_FIELD_TID, M_FT_UINT32 },
@@ -92,8 +89,8 @@ const msg_template proxy_mt[] = {
 	{ PROXY_FIELD_REDIRECT, M_FT_UINT64 },
 	{ PROXY_FIELD_AS_PROTO, M_FT_BUF },
 	{ PROXY_FIELD_CLUSTER_KEY, M_FT_UINT64 },
-	{ PROXY_FIELD_TIMEOUT_MS, M_FT_UINT32 },
-	{ PROXY_FIELD_INFO, M_FT_UINT32 },
+	{ PROXY_FIELD_UNUSED_6, M_FT_UINT32 },
+	{ PROXY_FIELD_UNUSED_7, M_FT_UINT32 },
 };
 
 COMPILER_ASSERT(sizeof(proxy_mt) / sizeof(msg_template) == NUM_PROXY_FIELDS);
@@ -130,9 +127,6 @@ typedef struct proxy_request_s {
 	uint32_t		pid;
 
 	as_namespace*	ns;
-
-	// LDT-related.
-	rw_request*		rw; // origin of 'ship-op' proxies
 } proxy_request;
 
 
@@ -152,10 +146,6 @@ int proxyer_handle_batch_response(msg* m, proxy_request* pr);
 void proxyer_handle_return_to_sender(msg* m, uint32_t tid);
 
 void proxyee_handle_request(cf_node src, msg* m, uint32_t tid);
-
-void shipop_response_handler(msg* m, proxy_request* pr);
-void shipop_handle_client_response(msg* m, rw_request* rw);
-void shipop_timeout_handler(proxy_request* pr);
 
 static inline uint32_t
 proxy_hash_fn(const void* value)
@@ -293,8 +283,6 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns,
 	pr.pid = pid;
 	pr.ns = ns;
 
-	pr.rw = NULL;
-
 	if (shash_put(g_proxy_hash, &tid, &pr) != SHASH_OK) {
 		cf_warning(AS_PROXY, "failed shash put");
 		as_fabric_msg_put(m);
@@ -401,73 +389,6 @@ as_proxy_send_ops_response(cf_node dst, uint32_t proxy_tid, cf_dyn_buf* db)
 }
 
 
-// LDT-related.
-void
-as_proxy_shipop(cf_node dst, rw_request* rw)
-{
-	uint32_t pid = as_partition_getid(&rw->keyd);
-
-	// Get a fabric message and fill it out.
-
-	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
-
-	if (! m) {
-		return;
-	}
-
-	uint32_t tid = cf_atomic32_incr(&g_proxy_tid);
-
-	msg_set_uint32(m, PROXY_FIELD_OP, PROXY_OP_REQUEST);
-	msg_set_uint32(m, PROXY_FIELD_TID, tid);
-	msg_set_buf(m, PROXY_FIELD_DIGEST, (void*)&rw->keyd, sizeof(cf_digest),
-			MSG_SET_COPY);
-	msg_set_buf(m, PROXY_FIELD_AS_PROTO, (void*)rw->msgp,
-			as_proto_size_get(&rw->msgp->proto), MSG_SET_HANDOFF_MALLOC);
-	msg_set_uint64(m, PROXY_FIELD_CLUSTER_KEY, as_exchange_cluster_key());
-	msg_set_uint32(m, PROXY_FIELD_INFO, PROXY_INFO_SHIPPED_OP);
-
-	rw->msgp = NULL;
-
-	// Set up a proxy_request and insert it in the hash.
-
-	proxy_request pr;
-
-	pr.msg_fields = rw->msg_fields;
-
-	pr.origin = 0;
-	pr.from_flags = 0;
-	pr.from.any = NULL;
-	pr.batch_index = 0;
-
-	pr.start_time = rw->start_time;
-	pr.end_time = rw->end_time;
-
-	pr.fab_msg = m;
-	pr.xmit_ms = cf_getms() + g_config.transaction_retry_ms;
-	pr.retry_interval_ms = g_config.transaction_retry_ms;
-
-	pr.dest = dst;
-	pr.pid = pid;
-	pr.ns = NULL; // needed only for retry, which ship-op doesn't do
-
-	cf_rc_reserve(rw);
-	pr.rw = rw;
-
-	if (shash_put(g_proxy_hash, &tid, &pr) != SHASH_OK) {
-		as_fabric_msg_put(m);
-		return;
-	}
-
-	// Send fabric message to remote node.
-
-	msg_incr_ref(m);
-
-	if (as_fabric_send(dst, m, AS_FABRIC_CHANNEL_RW) != AS_FABRIC_SUCCESS) {
-		as_fabric_msg_put(m);
-	}
-}
-
-
 //==========================================================
 // Local helpers - proxyer.
 //
@@ -479,11 +400,6 @@ proxyer_handle_response(msg* m, uint32_t tid)
 
 	if (shash_get_and_delete(g_proxy_hash, &tid, &pr) != SHASH_OK) {
 		// Some other response (or timeout) has already finished this pr.
-		return;
-	}
-
-	if (pr.rw) {
-		shipop_response_handler(m, &pr);
 		return;
 	}
 
@@ -680,20 +596,6 @@ proxyee_handle_request(cf_node src, msg* m, uint32_t tid)
 		return;
 	}
 
-	uint32_t info = 0;
-
-	msg_get_uint32(m, PROXY_FIELD_INFO, &info);
-
-	if ((info & PROXY_INFO_SHIPPED_OP) != 0) {
-		uint64_t cluster_key;
-
-		if (msg_get_uint64(m, PROXY_FIELD_CLUSTER_KEY, &cluster_key) == 0 &&
-				cluster_key != as_exchange_cluster_key()) {
-			error_response(src, tid, AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
-			return;
-		}
-	}
-
 	// Put the as_msg on the normal queue for processing.
 	as_transaction tr;
 	as_transaction_init_head(&tr, keyd, msgp);
@@ -711,11 +613,6 @@ proxyee_handle_request(cf_node src, msg* m, uint32_t tid)
 	// mistaken for multi-record transactions (which never proxy).
 	if (as_transaction_has_no_key_or_digest(&tr)) {
 		tr.from_flags |= FROM_FLAG_BATCH_SUB;
-	}
-
-	// Flag shipped ops.
-	if ((info & PROXY_INFO_SHIPPED_OP) != 0) {
-		tr.from_flags |= FROM_FLAG_SHIPPED_OP;
 	}
 
 	as_tsvc_enqueue(&tr);
@@ -753,12 +650,6 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 	// Handle timeouts.
 
 	if (now->now_ns > pr->end_time) {
-		if (pr->rw) {
-			shipop_timeout_handler(pr);
-			as_fabric_msg_put(pr->fab_msg);
-			return SHASH_REDUCE_DELETE;
-		}
-
 		cf_assert(pr->from.any, AS_PROXY,
 				"origin %u has null 'from'", pr->origin);
 
@@ -790,9 +681,9 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 		return SHASH_REDUCE_DELETE;
 	}
 
-	// Handle retransmits. (Ship-ops are exempt.)
+	// Handle retransmits.
 
-	if (pr->xmit_ms < now->now_ms && ! pr->rw) {
+	if (pr->xmit_ms < now->now_ms) {
 		// Update the retry interval, exponentially.
 		pr->xmit_ms = now->now_ms + pr->retry_interval_ms;
 		pr->retry_interval_ms *= 2;
@@ -922,112 +813,4 @@ proxy_msg_cb(cf_node src, msg* m, void* udata)
 
 	as_fabric_msg_put(m);
 	return 0;
-}
-
-
-//==========================================================
-// Local helpers - LDT-related.
-//
-
-void
-shipop_response_handler(msg* m, proxy_request* pr)
-{
-	cf_assert(pr->origin == 0, AS_PROXY, "ship-op pr origin not 0");
-
-	rw_request* rw = pr->rw;
-
-	pthread_mutex_lock(&rw->lock);
-
-	if (! rw->from.any) {
-		// Lost race against timeout.
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		return;
-	}
-
-	// This node is the resolving node (node @ which duplicate resolution was
-	// triggered) - respond to various possible origins.
-
-	switch (rw->origin) {
-	case FROM_CLIENT:
-		shipop_handle_client_response(m, rw);
-		break;
-	case FROM_PROXY:
-		msg_preserve_fields(m, 2, PROXY_FIELD_OP, PROXY_FIELD_AS_PROTO);
-		// Fake the ORIGINATING proxy tid.
-		msg_set_uint32(m, PROXY_FIELD_TID, rw->from_data.proxy_tid);
-		msg_incr_ref(m);
-		if (as_fabric_send(rw->from.proxy_node, m, AS_FABRIC_CHANNEL_RW) !=
-				AS_FABRIC_SUCCESS) {
-			as_fabric_msg_put(pr->fab_msg);
-		}
-		break;
-	case FROM_IUDF:
-		rw->from.iudf_orig->cb(rw->from.iudf_orig->udata, 0);
-		break;
-	case FROM_BATCH:
-	case FROM_NSUP:
-		// Should be impossible for batch reads and nsup deletes to get here.
-	default:
-		cf_crash(AS_PROXY, "unexpected transaction origin %u", rw->origin);
-		break;
-	}
-
-	// Signal to destructor and timeout that origin response is handled.
-	rw->from.any = NULL;
-
-	pthread_mutex_unlock(&rw->lock);
-
-	// This node is the ship-op initiator - remove rw_request from hash.
-
-	rw_request_hkey hkey = { rw->rsv.ns->id, rw->keyd };
-
-	rw_request_hash_delete(&hkey, rw);
-	rw_request_release(rw);
-	pr->rw = NULL;
-}
-
-
-void
-shipop_handle_client_response(msg* m, rw_request* rw)
-{
-	uint8_t* proto;
-	size_t proto_sz;
-
-	if (msg_get_buf(m, PROXY_FIELD_AS_PROTO, &proto, &proto_sz,
-			MSG_GET_DIRECT) != 0) {
-		cf_warning(AS_PROXY, "msg get for proto failed");
-		return;
-	}
-
-	as_file_handle* fd_h = rw->from.proto_fd_h;
-
-	if (cf_socket_send_all(&fd_h->sock, proto, proto_sz, MSG_NOSIGNAL,
-			CF_SOCKET_TIMEOUT) < 0) {
-		// Common when a client aborts.
-		as_end_of_transaction_force_close(fd_h);
-		return;
-	}
-
-	as_end_of_transaction_ok(fd_h);
-}
-
-
-void
-shipop_timeout_handler(proxy_request* pr)
-{
-	rw_request* rw = pr->rw;
-
-	pthread_mutex_lock(&rw->lock);
-
-	// Invoke the "original" timeout handler - it knows which stats to affect.
-	rw->timeout_cb(rw);
-
-	pthread_mutex_unlock(&rw->lock);
-
-	rw_request_hkey hkey = { rw->rsv.ns->id, rw->keyd };
-
-	rw_request_hash_delete(&hkey, rw);
-	rw_request_release(rw);
-	pr->rw = NULL;
 }

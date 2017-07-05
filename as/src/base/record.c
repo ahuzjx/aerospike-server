@@ -40,7 +40,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/rec_props.h"
 #include "base/secondary_index.h"
 #include "base/stats.h"
@@ -67,7 +66,7 @@ as_record_rescue(as_index_ref *r_ref, as_namespace *ns)
 // -1 - failure - found "half created" or deleted record
 // -2 - failure - could not allocate arena stage
 int
-as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, as_namespace *ns, bool is_subrec)
+as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, as_namespace *ns)
 {
 	int rv = as_index_get_insert_vlock(tree, keyd, r_ref);
 
@@ -77,13 +76,7 @@ as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, 
 	else if (rv == 1) {
 		cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" new record %p", *(uint64_t *)keyd, r_ref->r);
 
-		// this is decremented by the destructor here, so best tracked on the constructor
-		if (is_subrec) {
-			cf_atomic64_incr(&ns->n_sub_objects);
-		}
-		else {
-			cf_atomic64_incr(&ns->n_objects);
-		}
+		cf_atomic64_incr(&ns->n_objects);
 	}
 
 	return rv;
@@ -467,11 +460,6 @@ as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p
 
 		as_index_clear_flags(r, AS_INDEX_FLAG_KEY_STORED);
 	}
-
-	if (ns->ldt_enabled) {
-		as_index_clear_flags(r, AS_INDEX_FLAG_SPECIAL_BINS | AS_INDEX_FLAG_CHILD_REC | AS_INDEX_FLAG_CHILD_ESR);
-		as_ldt_record_set_rectype_bits(r, p_rec_props);
-	}
 }
 
 void
@@ -487,10 +475,6 @@ as_record_clear_properties(as_record *r, as_namespace *ns)
 		}
 
 		as_index_clear_flags(r, AS_INDEX_FLAG_KEY_STORED);
-	}
-
-	if (ns->ldt_enabled) {
-		as_index_clear_flags(r, AS_INDEX_FLAG_SPECIAL_BINS | AS_INDEX_FLAG_CHILD_REC | AS_INDEX_FLAG_CHILD_ESR);
 	}
 }
 
@@ -544,8 +528,7 @@ as_record_flatten_component(as_storage_rd *rd, as_index_ref *r_ref,
 		}
 	}
 
-	// 256 as upper bound on the LDT control bin, we may write version below
-	uint8_t stack_particles[stack_particles_sz + 256]; // stack allocate space for new particles when data on device
+	uint8_t stack_particles[stack_particles_sz]; // stack allocate space for new particles when data on device
 	uint8_t *p_stack_particles = stack_particles;
 
 	// Cleanup old info and put new info
@@ -565,7 +548,7 @@ as_record_flatten_component(as_storage_rd *rd, as_index_ref *r_ref,
 
 	int rv = as_record_unpickle_replace(r, rd, c->record_buf, c->record_buf_sz, &p_stack_particles, has_sindex);
 	if (0 != rv) {
-		cf_warning_digest(AS_LDT, &rd->r->keyd, "Unpickled replace failed rv=%d",rv);
+		cf_warning_digest(AS_RECORD, &rd->r->keyd, "Unpickled replace failed rv=%d",rv);
 		as_storage_record_close(rd);
 		return rv;
 	}
@@ -573,17 +556,6 @@ as_record_flatten_component(as_storage_rd *rd, as_index_ref *r_ref,
 	r->void_time = truncate_void_time(rd->ns, c->void_time);
 	r->last_update_time  = c->last_update_time;
 	r->generation = c->generation;
-	// Update the version in the parent. In case it is incoming migration
-	//
-	// Should it be done only in case of migration ?? for LDT currently
-	// flatten gets called only for migration .. because there is no duplicate
-	// resolution .. there is only winner resolution
-	if (COMPONENT_IS_MIG(c) && as_ldt_record_is_parent(rd->r)) {
-		int ldt_rv = as_ldt_parent_storage_set_version(rd, c->version, p_stack_particles, __FILE__, __LINE__);
-		if (ldt_rv < 0) {
-			cf_warning_digest(AS_LDT, &rd->r->keyd, "LDT_MERGE Failed to write version in rv=%d", ldt_rv);
-		}
-	}
 
 	as_record_apply_pickle(rd);
 	as_storage_record_adjust_mem_stats(rd, memory_bytes);
@@ -689,12 +661,6 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 {
 	as_namespace *ns = rsv->ns;
 
-	if (COMPONENT_IS_LDT(&components[0]) && ! ns->ldt_enabled) {
-		// Ignore LDT migrations. (And if LDT is disabled, LDT dummies won't get
-		// here via duplicate resolution.)
-		return 0;
-	}
-
 	if (! as_storage_has_space(ns)) {
 		cf_warning(AS_RECORD, "{%s}: record_flatten: drives full", ns->name);
 		return -1;
@@ -702,72 +668,47 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 
 	CF_ALLOC_SET_NS_ARENA(ns);
 
-	bool is_subrec = false;
-
-	// LDT subrecords (which get here only via migration) have their own
-	// conflict resolution method.
-	if (COMPONENT_IS_MIG(&components[0]) &&
-			COMPONENT_IS_LDT_SUB(&components[0])) {
-		if (! as_ldt_merge_component_is_candidate(rsv, &components[0])) {
-			// Remote subrecord loses comparison - ignore it.
-			return 0;
-		}
-		// else - remote subrecord wins - apply it.
-
-		is_subrec = true;
-		*winner_idx = 0;
-	}
-
-	as_index_tree *tree = is_subrec ? rsv->sub_tree : rsv->tree;
+	as_index_tree *tree = rsv->tree;
 
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;
 
-	int rv = as_record_get_create(tree, keyd, &r_ref, ns, is_subrec);
+	int rv = as_record_get_create(tree, keyd, &r_ref, ns);
 
 	if (rv < 0) {
-		cf_debug_digest(AS_RECORD, keyd, "{%s} record flatten: could not get-create record %d", ns->name, is_subrec);
+		cf_debug_digest(AS_RECORD, keyd, "{%s} record flatten: could not get-create record ", ns->name);
 		return -3;
 	}
 
 	bool is_create = rv == 1;
 	as_index *r = r_ref.r;
 
-	if (! is_subrec) {
-		*winner_idx = as_record_component_winner(ns->conflict_resolution_policy,
-				n_components, components, is_create ? NULL : r);
-	}
+	*winner_idx = as_record_component_winner(ns->conflict_resolution_policy,
+			n_components, components, is_create ? NULL : r);
 
 	// If the winner is the local copy, nothing to do.
 	if (*winner_idx == -1) {
 		as_record_done(&r_ref, ns);
 		return 0;
 	}
-	// else - remote winner - apply it (unless it's an LDT dummy).
+	// else - remote winner - apply it.
 
 	int flatten_rv;
 	as_record_merge_component *c = &components[*winner_idx];
 
-	if (COMPONENT_IS_LDT_DUMMY(c)) {
-		// LDT dummy won - don't apply locally, trigger a ship-op.
-		flatten_rv = -7; // -7 is special - do not change!
+	as_storage_rd rd;
+
+	if (is_create) {
+		as_storage_record_create(ns, r, &rd);
 	}
 	else {
-		// Normal remote winner.
-		as_storage_rd rd;
-
-		if (is_create) {
-			as_storage_record_create(ns, r, &rd);
-		}
-		else {
-			as_storage_record_open(ns, r, &rd);
-		}
-
-		// Apply remote winner locally. (Yes, call closes as_storage_rd.)
-		flatten_rv = as_record_flatten_component(&rd, &r_ref, c, is_create);
+		as_storage_record_open(ns, r, &rd);
 	}
 
-	// On failure or ship-op, delete index element if created above.
+	// Apply remote winner locally. (Yes, call closes as_storage_rd.)
+	flatten_rv = as_record_flatten_component(&rd, &r_ref, c, is_create);
+
+	// On failure, delete index element if created above.
 	if (flatten_rv != 0 && is_create) {
 		as_index_delete(rsv->tree, keyd);
 	}

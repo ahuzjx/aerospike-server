@@ -205,8 +205,7 @@ typedef struct as_transaction_s {
 // 'from_flags' bits - set before queuing transaction head:
 #define FROM_FLAG_NSUP_DELETE	0x0001
 #define FROM_FLAG_BATCH_SUB		0x0002
-#define FROM_FLAG_SHIPPED_OP	0x0004
-#define FROM_FLAG_RESTART		0x0008
+#define FROM_FLAG_RESTART		0x0004
 
 // 'flags' bits - set in transaction body after queuing:
 #define AS_TRANSACTION_FLAG_SINDEX_TOUCHED	0x01

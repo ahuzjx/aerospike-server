@@ -562,18 +562,6 @@ list_to_flat(const as_particle *p, uint8_t *flat)
 //
 
 void
-as_bin_particle_list_set_hidden(as_bin *b)
-{
-	// Caller must ensure this is called only for LIST particles.
-	list_wrapper *p_list_wrapped = (list_wrapper *)b->particle;
-
-	p_list_wrapped->type = AS_PARTICLE_TYPE_HIDDEN_LIST;
-
-	// Set the bin's iparticle metadata.
-	as_bin_state_set_from_type(b, AS_PARTICLE_TYPE_HIDDEN_LIST);
-}
-
-void
 as_bin_particle_list_get_packed_val(const as_bin *b, cdt_payload *packed)
 {
 	if (list_is_wrapped(b->particle)) {

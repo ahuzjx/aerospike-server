@@ -66,29 +66,13 @@
 
 #define MAX_ALLOWED_TTL (3600 * 24 * 365 * 10) // 10 years
 
-/*
- * Subrecord Digest Scramble Position
- */
-// [0-1] For Partitionid
-// [1-2] For tree sprigs and locks
-// [2-3] For the Lock
-// [4-6] Scrambled bytes (4-7 used for rw_request hash)
-#define DIGEST_SCRAMBLE_BYTE1       4
-#define DIGEST_SCRAMBLE_BYTE2       5
-#define DIGEST_SCRAMBLE_BYTE3       6
-// [8-11]   SSD device hash
-// Note - overlaps 3 old LDT clock bytes (9-11), meaning old subrecords of one
-// LDT can now be spread to different devices.
+// [0-1] for partition-id
+// [1-2] for tree sprigs and locks
+// [2-3] for the olock
+// [4-7] for rw_request hash
+#define DIGEST_SCRAMBLE_BYTE1		4
+// [8-11] for SSD device hash
 #define DIGEST_STORAGE_BASE_BYTE	8
-
-// [7] [12-13]  // 3 byte clock
-#define DIGEST_CLOCK_ZERO_BYTE      7
-#define DIGEST_CLOCK_START_BYTE     12 // up to 13
-
-// [14-19]  // 6 byte version
-#define DIGEST_VERSION_START_POS   14 // up to 19
-// Define the size of the Version Info that we'll write into the LDT control Map
-#define LDT_VERSION_SIZE  6
 
 /* SYNOPSIS
  * Data model
@@ -170,8 +154,6 @@ typedef enum {
 	AS_PARTICLE_TYPE_ERLANG_BLOB = 12,
 	AS_PARTICLE_TYPE_MAP = 19,
 	AS_PARTICLE_TYPE_LIST = 20,
-	AS_PARTICLE_TYPE_HIDDEN_LIST = 21,
-	AS_PARTICLE_TYPE_HIDDEN_MAP = 22, // hidden map/list - can only be manipulated by system UDF
 	AS_PARTICLE_TYPE_GEOJSON = 23,
 	AS_PARTICLE_TYPE_MAX = 24,
 	AS_PARTICLE_TYPE_BAD = AS_PARTICLE_TYPE_MAX
@@ -190,7 +172,7 @@ typedef struct as_particle_s {
 // Bit Flag constants used for the particle state value (4 bits, 16 values)
 #define AS_BIN_STATE_UNUSED			0
 #define AS_BIN_STATE_INUSE_INTEGER	1
-#define AS_BIN_STATE_INUSE_HIDDEN	2 // Denotes a server-side, hidden bin
+#define AS_BIN_STATE_RECYCLE_ME		2 // was - hidden bin
 #define AS_BIN_STATE_INUSE_OTHER	3
 #define AS_BIN_STATE_INUSE_FLOAT	4
 
@@ -244,11 +226,6 @@ extern int as_bin_cdt_read_from_client(const as_bin *b, as_msg_op *op, as_bin *r
 extern int as_bin_cdt_alloc_modify_from_client(as_bin *b, as_msg_op *op, as_bin *result);
 extern int as_bin_cdt_stack_modify_from_client(as_bin *b, cf_ll_buf *particles_llb, as_msg_op *op, as_bin *result);
 
-// Different for LDTs - an LDT's as_list is expensive to generate, so we return
-// it from the sizing method, and cache it for later use by the packing method:
-extern uint32_t as_ldt_particle_client_value_size(as_storage_rd *rd, as_bin *b, as_val **p_val);
-extern uint32_t as_ldt_particle_to_client(as_val *val, as_msg_op *op);
-
 // as_val:
 extern int as_bin_particle_replace_from_asval(as_bin *b, const as_val *val);
 extern void as_bin_particle_stack_from_asval(as_bin *b, uint8_t* stack, const as_val *val);
@@ -284,15 +261,11 @@ char const *as_geojson_mem_jsonstr(const as_particle *p, size_t *p_jsonsz);
 // list:
 struct cdt_payload_s;
 struct rollback_alloc_s;
-extern void as_bin_particle_list_set_hidden(as_bin *b);
 extern void as_bin_particle_list_get_packed_val(const as_bin *b, struct cdt_payload_s *packed);
 extern int as_bin_cdt_packed_read(const as_bin *b, as_msg_op *op, as_bin *result);
 extern int as_bin_cdt_packed_modify(as_bin *b, as_msg_op *op, as_bin *result, cf_ll_buf *particles_llb);
 extern as_particle *packed_list_simple_create_from_buf(struct rollback_alloc_s *alloc_buf, uint32_t ele_count, const uint8_t *buf, uint32_t size);
 extern as_particle *packed_list_simple_create_empty(struct rollback_alloc_s *alloc_buf);
-
-// map:
-extern void as_bin_particle_map_set_hidden(as_bin *b);
 
 
 /* as_bin
@@ -373,10 +346,6 @@ as_bin_state_set_from_type(as_bin *b, as_particle_type type)
 		// TODO - unsupported
 		((as_particle_iparticle *)b)->state = AS_BIN_STATE_UNUSED;
 		break;
-	case AS_PARTICLE_TYPE_HIDDEN_LIST:
-	case AS_PARTICLE_TYPE_HIDDEN_MAP:
-		((as_particle_iparticle *)b)->state = AS_BIN_STATE_INUSE_HIDDEN;
-		break;
 	default:
 		((as_particle_iparticle *)b)->state = AS_BIN_STATE_INUSE_OTHER;
 		break;
@@ -443,13 +412,8 @@ as_bin_get_particle(as_bin *b) {
 	return as_bin_is_embedded_particle(b) ? &b->iparticle : b->particle;
 }
 
-static inline bool
-as_bin_is_hidden(const as_bin *b) {
-	return  (((as_particle_iparticle *)b)->state) == AS_BIN_STATE_INUSE_HIDDEN;
-}
-
 // "Embedded" types like integer are stored directly, but other bin types
-// ("other" or "hidden") must follow an indirection to get the actual type.
+// ("other") must follow an indirection to get the actual type.
 static inline uint8_t
 as_bin_get_particle_type(const as_bin *b) {
 	switch (((as_particle_iparticle *)b)->state) {
@@ -458,8 +422,6 @@ as_bin_get_particle_type(const as_bin *b) {
 		case AS_BIN_STATE_INUSE_FLOAT:
 			return AS_PARTICLE_TYPE_FLOAT;
 		case AS_BIN_STATE_INUSE_OTHER:
-			return b->particle->metadata;
-		case AS_BIN_STATE_INUSE_HIDDEN:
 			return b->particle->metadata;
 		default:
 			return AS_PARTICLE_TYPE_NULL;
@@ -503,7 +465,7 @@ typedef enum {
 
 /* Record function declarations */
 extern bool as_record_is_live(const as_record *r);
-extern int as_record_get_create(struct as_index_tree_s *tree, cf_digest *keyd, as_index_ref *r_ref, as_namespace *ns, bool);
+extern int as_record_get_create(struct as_index_tree_s *tree, cf_digest *keyd, as_index_ref *r_ref, as_namespace *ns);
 extern int as_record_get(struct as_index_tree_s *tree, cf_digest *keyd, as_index_ref *r_ref);
 extern int as_record_get_live(struct as_index_tree_s *tree, cf_digest *keyd, as_index_ref *r_ref, as_namespace *ns);
 extern int as_record_exists(struct as_index_tree_s *tree, cf_digest *keyd);
@@ -539,58 +501,13 @@ as_record_pickle_is_binless(const uint8_t *buf)
 
 extern int32_t as_record_buf_get_stack_particles_sz(uint8_t *buf);
 
-// Set in component if it is dummy (no data). This in
-// conjunction with LDT_REC is used to determine if merge
-// can be done or not. If this flag is not set then it is
-// normal record
-#define AS_COMPONENT_FLAG_LDT_DUMMY       0x01
-#define AS_COMPONENT_FLAG_LDT_REC         0x02
-#define AS_COMPONENT_FLAG_LDT_SUBREC   	  0x04
-#define AS_COMPONENT_FLAG_LDT_ESR         0x08
-#define AS_COMPONENT_FLAG_MIG             0x10
-#define AS_COMPONENT_FLAG_DUP             0x20
-#define AS_COMPONENT_FLAG_UNUSED3         0x40
-#define AS_COMPONENT_FLAG_UNUSED4         0x80
-
-#define COMPONENT_IS_MIG(c) \
-	((c)->flag & AS_COMPONENT_FLAG_MIG)
-
-#define COMPONENT_IS_DUP(c) \
-	((c)->flag & AS_COMPONENT_FLAG_DUP)
-
-#define COMPONENT_IS_LDT_PARENT(c) \
-	((c)->flag & AS_COMPONENT_FLAG_LDT_REC)
-
-#define COMPONENT_IS_LDT_DUMMY(c) \
-	((c)->flag & AS_COMPONENT_FLAG_LDT_DUMMY)
-
-#define COMPONENT_IS_LDT_SUBREC(c) \
-	((c)->flag & AS_COMPONENT_FLAG_LDT_SUBREC)
-
-#define COMPONENT_IS_LDT_ESR(c) \
-	((c)->flag & AS_COMPONENT_FLAG_LDT_ESR)
-
-#define COMPONENT_IS_LDT_SUB(c) \
-	(((c)->flag & AS_COMPONENT_FLAG_LDT_ESR) \
-		|| ((c)->flag & AS_COMPONENT_FLAG_LDT_SUBREC))
-
-#define COMPONENT_IS_LDT(c) \
-	(COMPONENT_IS_LDT_PARENT((c)) \
-		|| COMPONENT_IS_LDT_SUB((c)))
-
-typedef struct {
-	uint8_t					*record_buf;
-	size_t					record_buf_sz;
-	uint32_t				generation;
-	uint32_t				void_time;
-	uint64_t				last_update_time;
-	as_rec_props			rec_props;
-	char					flag;
-	cf_digest               pdigest;
-	cf_digest               edigest;
-	uint32_t                pgeneration;
-	uint32_t                pvoid_time;
-	uint64_t                version;
+typedef struct as_record_merge_component_s {
+	uint8_t *record_buf;
+	size_t record_buf_sz;
+	uint32_t generation;
+	uint32_t void_time;
+	uint64_t last_update_time;
+	as_rec_props rec_props;
 } as_record_merge_component;
 
 extern int as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
@@ -646,63 +563,6 @@ struct as_sindex_config_s;
  * A namespace container */
 typedef int32_t as_namespace_id; // signed to denote -1 bad namespace id
 
-typedef struct ns_ldt_stats_s {
-
-	/* LDT Operational Statistics */
-	cf_atomic_int	ldt_write_reqs;
-	cf_atomic_int	ldt_write_success;
-
-	cf_atomic_int	ldt_read_reqs;
-	cf_atomic_int	ldt_read_success;
-
-	cf_atomic_int	ldt_delete_reqs;
-	cf_atomic_int	ldt_delete_success;
-
-	cf_atomic_int	ldt_update_reqs;
-
-	cf_atomic_int	ldt_errs;
-	cf_atomic_int   ldt_err_unknown;
-	cf_atomic_int	ldt_err_toprec_not_found;
-	cf_atomic_int	ldt_err_item_not_found;
-	cf_atomic_int	ldt_err_internal;
-	cf_atomic_int	ldt_err_unique_key_violation;
-
-	cf_atomic_int	ldt_err_insert_fail;
-	cf_atomic_int	ldt_err_search_fail;
-	cf_atomic_int	ldt_err_delete_fail;
-	cf_atomic_int	ldt_err_version_mismatch;
-
-	cf_atomic_int	ldt_err_capacity_exceeded;
-	cf_atomic_int	ldt_err_param;
-
-	cf_atomic_int	ldt_err_op_bintype_mismatch;
-	cf_atomic_int	ldt_err_too_many_open_subrec;
-	cf_atomic_int	ldt_err_subrec_not_found;
-
-	cf_atomic_int	ldt_err_bin_does_not_exist;
-	cf_atomic_int	ldt_err_bin_exits;
-	cf_atomic_int	ldt_err_bin_damaged;
-
-	cf_atomic_int	ldt_err_subrec_internal;
-	cf_atomic_int	ldt_err_toprec_internal;
-	cf_atomic_int   ldt_err_filter;
-	cf_atomic_int	ldt_err_key;
-	cf_atomic_int	ldt_err_createspec;
-	cf_atomic_int	ldt_err_usermodule;
-	cf_atomic_int	ldt_err_input_too_large;
-	cf_atomic_int	ldt_err_ldt_not_enabled;
-
-	cf_atomic_int   ldt_gc_io;
-	cf_atomic_int   ldt_gc_cnt;
-	cf_atomic_int   ldt_gc_no_esr_cnt;
-	cf_atomic_int   ldt_gc_no_parent_cnt;
-	cf_atomic_int   ldt_gc_parent_version_mismatch_cnt;
-	cf_atomic_int   ldt_gc_processed;
-
-	cf_atomic_int	ldt_randomizer_retry;
-
-} ns_ldt_stats;
-
 
 // TODO - would be nice to put this in as_index.h:
 // Callback invoked when as_index is destroyed.
@@ -744,7 +604,6 @@ struct as_namespace_s {
 
 	// Pointer to partition tree info in persistent memory "treex" block.
 	as_treex*		xmem_roots;
-	as_treex*		sub_tree_roots; // pointer within treex block
 
 	// Pointer to arena structure (not stages) in persistent memory base block.
 	cf_arenax*		arena;
@@ -855,9 +714,6 @@ struct as_namespace_s {
 	uint32_t		evict_tenths_pct;
 	uint32_t		hwm_disk_pct;
 	uint32_t		hwm_memory_pct;
-	PAD_BOOL		ldt_enabled;
-	uint32_t		ldt_gc_sleep_us;
-	uint32_t		ldt_page_size;
 	uint64_t		max_ttl;
 	uint32_t		migrate_order;
 	uint32_t		migrate_retransmit_ms;
@@ -915,7 +771,6 @@ struct as_namespace_s {
 	// Object counts.
 
 	cf_atomic64		n_objects;
-	cf_atomic64		n_sub_objects;
 	cf_atomic64		n_tombstones; // relevant only for enterprise edition
 
 	// Expiration & eviction (nsup) stats.
@@ -1103,10 +958,6 @@ struct as_namespace_s {
 	// Special non-error counters:
 
 	cf_atomic64		n_deleted_last_bin;
-
-	// LDT stats.
-
-	ns_ldt_stats	lstats;
 
 	// One-way automatically activated histograms.
 

@@ -1097,23 +1097,6 @@ map_to_flat(const as_particle *p, uint8_t *flat)
 
 
 //==========================================================
-// as_bin particle functions specific to MAP.
-//
-
-void
-as_bin_particle_map_set_hidden(as_bin *b)
-{
-	// Caller must ensure this is called only for MAP particles.
-	map_mem *p_map_mem = (map_mem *)b->particle;
-
-	p_map_mem->type = AS_PARTICLE_TYPE_HIDDEN_MAP;
-
-	// Set the bin's iparticle metadata.
-	as_bin_state_set_from_type(b, AS_PARTICLE_TYPE_HIDDEN_MAP);
-}
-
-
-//==========================================================
 // Local helpers.
 //
 

@@ -41,7 +41,6 @@
 #include "node.h"
 
 #include "base/datamodel.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "base/thr_tsvc.h"
 #include "base/transaction.h"
@@ -60,8 +59,7 @@
 void done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref);
 void send_dup_res_ack(cf_node node, msg* m, uint32_t result);
 void send_ack_for_bad_request(cf_node node, msg* m);
-bool apply_winner(rw_request* rw);
-void get_ldt_info(const msg* m, as_record_merge_component* c);
+void apply_winner(rw_request* rw);
 
 
 //==========================================================
@@ -226,70 +224,51 @@ dup_res_handle_request(cf_node node, msg* m)
 		return;
 	}
 
-	if (ns->ldt_enabled && as_ldt_record_is_sub(r)) {
-		cf_warning(AS_RW, "invalid dup-res request: for ldt subrecord");
+	as_storage_rd rd;
+
+	as_storage_record_open(ns, r, &rd);
+
+	as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
+
+	as_bin stack_bins[rd.ns->storage_data_in_memory ? 0 : rd.n_bins];
+
+	as_storage_rd_load_bins(&rd, stack_bins); // TODO - handle error returned
+
+	uint8_t* buf;
+	size_t buf_len;
+
+	if (0 != as_record_pickle(r, &rd, &buf, &buf_len)) {
+		as_storage_record_close(&rd);
 		done_handle_request(&rsv, &r_ref);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_NOTFOUND); // ???
+		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
 		return;
 	}
 
-	if (ns->ldt_enabled && as_ldt_record_is_parent(r)) {
-		msg_set_uint32(m, RW_FIELD_INFO,
-				RW_INFO_LDT_PARENTREC | RW_INFO_LDT_DUMMY);
+	uint32_t info = 0;
+
+	dup_res_flag_pickle(buf, &info);
+
+	if (info != 0) {
+		msg_set_uint32(m, RW_FIELD_INFO, info);
 	}
-	else {
-		as_storage_rd rd;
 
-		as_storage_record_open(ns, r, &rd);
+	as_storage_record_get_key(&rd);
 
-		as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
+	const char* set_name = as_index_get_set_name(r, ns);
 
-		as_bin stack_bins[rd.ns->storage_data_in_memory ? 0 : rd.n_bins];
-
-		as_storage_rd_load_bins(&rd, stack_bins); // TODO - handle error returned
-
-		uint8_t* buf;
-		size_t buf_len;
-
-		if (0 != as_record_pickle(r, &rd, &buf, &buf_len)) {
-			as_storage_record_close(&rd);
-			done_handle_request(&rsv, &r_ref);
-			send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
-			return;
-		}
-
-		uint32_t info = 0;
-
-		dup_res_flag_pickle(buf, &info);
-
-		if (info != 0) {
-			msg_set_uint32(m, RW_FIELD_INFO, info);
-		}
-
-		as_storage_record_get_key(&rd);
-
-		const char* set_name = as_index_get_set_name(r, ns);
-
-		if (set_name) {
-			msg_set_buf(m, RW_FIELD_SET_NAME, (const uint8_t *)set_name,
-					strlen(set_name), MSG_SET_COPY);
-		}
-
-		if (rd.key) {
-			msg_set_buf(m, RW_FIELD_KEY, rd.key, rd.key_size, MSG_SET_COPY);
-		}
-
-		uint32_t ldt_bits = (uint32_t)as_ldt_record_get_rectype_bits(r);
-
-		if (ldt_bits != 0) {
-			msg_set_uint32(m, RW_FIELD_LDT_BITS, ldt_bits);
-		}
-
-		as_storage_record_close(&rd);
-
-		msg_set_buf(m, RW_FIELD_RECORD, (void*)buf, buf_len,
-				MSG_SET_HANDOFF_MALLOC);
+	if (set_name) {
+		msg_set_buf(m, RW_FIELD_SET_NAME, (const uint8_t *)set_name,
+				strlen(set_name), MSG_SET_COPY);
 	}
+
+	if (rd.key) {
+		msg_set_buf(m, RW_FIELD_KEY, rd.key, rd.key_size, MSG_SET_COPY);
+	}
+
+	as_storage_record_close(&rd);
+
+	msg_set_buf(m, RW_FIELD_RECORD, (void*)buf, buf_len,
+			MSG_SET_HANDOFF_MALLOC);
 
 	msg_set_uint32(m, RW_FIELD_GENERATION, r->generation);
 	msg_set_uint64(m, RW_FIELD_LAST_UPDATE_TIME, r->last_update_time);
@@ -435,17 +414,11 @@ dup_res_handle_ack(cf_node node, msg* m)
 		}
 	}
 
-	bool is_ldt_ship_op = apply_winner(rw);
+	apply_winner(rw);
 	// Note - apply_winner() puts all rw->dup_msg[]s including m, so don't call
 	// as_fabric_msg_put(m) afterwards.
 
 	rw->dup_res_complete = true;
-
-	if (is_ldt_ship_op) {
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		return;
-	}
 
 	// Check for lost race against timeout in retransmit thread *after* applying
 	// winner - may save a future transaction from re-fetching the duplicates.
@@ -511,7 +484,7 @@ send_ack_for_bad_request(cf_node node, msg* m)
 }
 
 
-bool
+void
 apply_winner(rw_request* rw)
 {
 	uint32_t n = 0;
@@ -550,15 +523,6 @@ apply_winner(rw_request* rw)
 
 		msg_get_uint32(m, RW_FIELD_VOID_TIME, &dups[n].void_time);
 
-		if (rw->rsv.ns->ldt_enabled) {
-			get_ldt_info(m, &dups[n]);
-
-			if (COMPONENT_IS_LDT(&dups[n])) {
-				n++;
-				continue;
-			}
-		}
-
 		if (msg_get_buf(m, RW_FIELD_RECORD, &dups[n].record_buf,
 				&dups[n].record_buf_sz, MSG_GET_DIRECT) != 0) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no record ");
@@ -581,12 +545,8 @@ apply_winner(rw_request* rw)
 
 		msg_get_buf(m, RW_FIELD_KEY, &key, &key_size, MSG_GET_DIRECT);
 
-		uint32_t ldt_bits = 0;
-
-		msg_get_uint32(m, RW_FIELD_LDT_BITS, &ldt_bits);
-
 		size_t rec_props_data_size = as_rec_props_size_all(set_name,
-				set_name_len, key, key_size, ldt_bits);
+				set_name_len, key, key_size);
 
 		if (rec_props_data_size != 0) {
 			// Use alloca() to last the scope of the function. Note that we're
@@ -595,17 +555,16 @@ apply_winner(rw_request* rw)
 
 			as_rec_props_fill_all(&dups[n].rec_props,
 					dups[n].rec_props.p_data, set_name, set_name_len, key,
-					key_size, ldt_bits);
+					key_size);
 		}
 
 		n++;
 	}
 
-	int rv = 0;
 	int winner_idx = -1;
 
 	if (n > 0) {
-		rv = as_record_flatten(&rw->rsv, &rw->keyd, n, dups, &winner_idx);
+		as_record_flatten(&rw->rsv, &rw->keyd, n, dups, &winner_idx);
 	}
 
 	for (int i = 0; i < rw->n_dest_nodes; i++) {
@@ -613,46 +572,5 @@ apply_winner(rw_request* rw)
 			as_fabric_msg_put(rw->dup_msg[i]);
 			rw->dup_msg[i] = NULL;
 		}
-	}
-
-	// LDT-specific:
-	if (rv == -7) {
-		if (winner_idx < 0) {
-			cf_warning(AS_LDT, "unexpected winner @ index %d.. resorting to 0",
-					winner_idx);
-			winner_idx = 0;
-		}
-
-		cf_detail_digest(AS_RW, &rw->keyd,
-				"SHIPPED_OP %s Shipping op to %"PRIx64"",
-				rw->origin == FROM_PROXY ? "NONORIG" : "ORIG",
-				rw->dest_nodes[winner_idx]);
-
-		as_ldt_shipop(rw, rw->dest_nodes[winner_idx]);
-
-		return true; // Don't delete rw from hash - we're not done with it!
-	}
-
-	return false;
-}
-
-
-void
-get_ldt_info(const msg* m, as_record_merge_component* c)
-{
-	c->flag = AS_COMPONENT_FLAG_DUP;
-
-	uint32_t info;
-
-	if (msg_get_uint32(m, RW_FIELD_INFO, &info) != 0) {
-		return;
-	}
-
-	if ((info & RW_INFO_LDT_PARENTREC) != 0) {
-		c->flag |= AS_COMPONENT_FLAG_LDT_REC;
-	}
-
-	if ((info & RW_INFO_LDT_DUMMY) != 0) {
-		c->flag |= AS_COMPONENT_FLAG_LDT_DUMMY;
 	}
 }

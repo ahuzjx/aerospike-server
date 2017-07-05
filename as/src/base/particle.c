@@ -39,7 +39,6 @@
 #include "fault.h"
 
 #include "base/datamodel.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "fabric/partition.h"
 #include "storage/storage.h"
@@ -73,8 +72,6 @@ const as_particle_vtable *particle_vtable[] = {
 		[AS_PARTICLE_TYPE_ERLANG_BLOB]	= &blob_vtable,
 		[AS_PARTICLE_TYPE_MAP]			= &map_vtable,
 		[AS_PARTICLE_TYPE_LIST]			= &list_vtable,
-		[AS_PARTICLE_TYPE_HIDDEN_LIST]	= &list_vtable,
-		[AS_PARTICLE_TYPE_HIDDEN_MAP]	= &map_vtable,
 		[AS_PARTICLE_TYPE_GEOJSON]		= &geojson_vtable
 };
 
@@ -101,8 +98,6 @@ safe_particle_type(uint8_t type)
 	case AS_PARTICLE_TYPE_ERLANG_BLOB:
 	case AS_PARTICLE_TYPE_MAP:
 	case AS_PARTICLE_TYPE_LIST:
-	case AS_PARTICLE_TYPE_HIDDEN_LIST:
-	case AS_PARTICLE_TYPE_HIDDEN_MAP:
 	case AS_PARTICLE_TYPE_GEOJSON:
 		return (as_particle_type)type;
 	// Note - AS_PARTICLE_TYPE_NULL is considered bad here.
@@ -837,10 +832,6 @@ as_bin_particle_client_value_size(const as_bin *b)
 		return 0;
 	}
 
-	if (as_bin_is_hidden(b)) {
-		return 0;
-	}
-
 	uint8_t type = as_bin_get_particle_type(b);
 
 	return particle_vtable[type]->wire_size_fn(b->particle);
@@ -852,11 +843,6 @@ as_bin_particle_to_client(const as_bin *b, as_msg_op *op)
 	if (! (b && as_bin_inuse(b))) {
 		// UDF result bin (bin name "SUCCESS" or "FAILURE") will get here.
 		// Ordered ops that find no bin will get here.
-		op->particle_type = AS_PARTICLE_TYPE_NULL;
-		return 0;
-	}
-
-	if (as_bin_is_hidden(b)) {
 		op->particle_type = AS_PARTICLE_TYPE_NULL;
 		return 0;
 	}
@@ -1109,59 +1095,6 @@ as_bin_particle_to_flat(const as_bin *b, uint8_t *flat)
 	*flat = type;
 
 	return particle_vtable[type]->to_flat_fn(b->particle, flat);
-}
-
-
-//==========================================================
-// Functions specific to LDTs.
-//
-
-//------------------------------------------------
-// Handle "wire" format.
-//
-
-uint32_t
-as_ldt_particle_client_value_size(as_storage_rd *rd, as_bin *b, as_val **p_val)
-{
-	*p_val = as_llist_scan(rd->ns, rd->ns->partitions[as_partition_getid(&rd->r->keyd)].sub_vp, rd, b);
-
-	if (! *p_val) {
-		return 0;
-	}
-
-	as_serializer s;
-	as_msgpack_init(&s);
-
-	uint32_t added_size = as_serializer_serialize_getsize(&s, *p_val);
-
-	as_serializer_destroy(&s);
-
-	return added_size;
-}
-
-uint32_t
-as_ldt_particle_to_client(as_val *val, as_msg_op *op)
-{
-	if (! val) {
-		op->particle_type = AS_PARTICLE_TYPE_NULL;
-		return 0;
-	}
-
-	op->particle_type = AS_PARTICLE_TYPE_HIDDEN_LIST;
-
-	uint8_t *value = (uint8_t *)op + sizeof(as_msg_op) + op->name_sz;
-
-	as_serializer s;
-	as_msgpack_init(&s);
-
-	uint32_t added_size = as_serializer_serialize_presized(&s, val, value);
-
-	as_serializer_destroy(&s);
-	as_val_destroy(val);
-
-	op->op_sz += added_size;
-
-	return added_size;
 }
 
 

@@ -55,7 +55,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/proto.h"
 #include "base/rec_props.h"
 #include "base/secondary_index.h"
@@ -637,27 +636,19 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 	r_ref.skip_lock = false;
 
 	bool found = 0 == as_record_get(rsv.tree, &block->keyd, &r_ref);
-	bool is_subrec = false;
-
-	if (ns->ldt_enabled && ! found) {
-		found = 0 == as_record_get(rsv.sub_tree, &block->keyd, &r_ref);
-		is_subrec = true;
-	}
 
 	if (found) {
 		as_index *r = r_ref.r;
 
 		if (r->file_id == ssd->file_id && r->rblock_id == rblock_id) {
 			if (r->generation != block->generation) {
-				cf_warning_digest(AS_DRV_SSD, &r->keyd, "device %s defrag: rblock_id %lu generation mismatch (%u:%u)%s ",
-						ssd->name, rblock_id, r->generation, block->generation,
-						is_subrec ? " subrec" : "");
+				cf_warning_digest(AS_DRV_SSD, &r->keyd, "device %s defrag: rblock_id %lu generation mismatch (%u:%u) ",
+						ssd->name, rblock_id, r->generation, block->generation);
 			}
 
 			if (r->n_rblocks != n_rblocks) {
-				cf_warning_digest(AS_DRV_SSD, &r->keyd, "device %s defrag: rblock_id %lu n_blocks mismatch (%u:%u)%s ",
-						ssd->name, rblock_id, r->n_rblocks, n_rblocks,
-						is_subrec ? " subrec" : "");
+				cf_warning_digest(AS_DRV_SSD, &r->keyd, "device %s defrag: rblock_id %lu n_blocks mismatch (%u:%u) ",
+						ssd->name, rblock_id, r->n_rblocks, n_rblocks);
 			}
 
 			defrag_move_record(ssd, block, r);
@@ -2012,16 +2003,6 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 
 			as_record_done(&r_ref, ns);
 		}
-		else if (ns->ldt_enabled &&
-				0 == as_record_get(rsv.sub_tree, &p_block->keyd, &r_ref)) {
-			as_index* r = r_ref.r;
-
-			if (r->rblock_id == rblock_id && r->n_rblocks == n_rblocks) {
-				living = true;
-			}
-
-			as_record_done(&r_ref, ns);
-		}
 		// else it was deleted (?) so call it a zombie...
 
 		as_partition_release(&rsv);
@@ -2759,27 +2740,11 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;
 
-	// Read LDT rec-prop.
+	// Prepare to read rec-props.
 	as_rec_props props;
 
 	props.p_data = block->data;
 	props.size = block->bins_offset;
-
-	bool is_ldt_sub;
-	bool is_ldt_parent;
-
-	as_ldt_get_property(&props, &is_ldt_parent, &is_ldt_sub);
-
-	if (ssd->sub_sweep) {
-		if (! is_ldt_sub) {
-			return -1;
-		}
-	}
-	else {
-		if (is_ldt_sub || (is_ldt_parent && ! ns->ldt_enabled)) {
-			return -1;
-		}
-	}
 
 	if (ssd_cold_start_is_record_truncated(ns, block, &props)) {
 		return -1;
@@ -2790,9 +2755,8 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	int retries = 0;
 
 	while (true) {
-		if ((rv = as_record_get_create(
-				is_ldt_sub ? p_partition->sub_vp : p_partition->vp,
-						&block->keyd, &r_ref, ns, is_ldt_sub)) != -1) {
+		if ((rv = as_record_get_create(p_partition->vp, &block->keyd, &r_ref,
+				ns)) != -1) {
 			break;
 		}
 
@@ -2833,9 +2797,8 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	}
 	// The record we're now reading is the latest version (so far) ...
 
-	// Skip records that have expired. (LDT subrecords are expired via their
-	// their parent record.)
-	if (! is_ldt_sub && is_record_expired(ns, block, &props)) {
+	// Skip records that have expired.
+	if (is_record_expired(ns, block, &props)) {
 		as_index_delete(p_partition->vp, &block->keyd);
 		as_record_done(&r_ref, ns);
 		ssd->record_add_expired_counter++;
@@ -2849,7 +2812,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	r->generation = block->generation;
 
 	// Set/reset the record's void-time, truncating it if beyond max-ttl.
-	if (! is_ldt_sub && block->void_time > ns->cold_start_max_void_time) {
+	if (block->void_time > ns->cold_start_max_void_time) {
 		cf_detail(AS_DRV_SSD, "record-add truncating void-time %lu > max %u",
 				block->void_time, ns->cold_start_max_void_time);
 
@@ -3003,11 +2966,6 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	r->rblock_id = rblock_id;
 	r->n_rblocks = n_rblocks;
 
-	// Make sure subrecord sweep happens.
-	if (is_ldt_parent) {
-		ssd->has_ldt = true;
-	}
-
 	as_record_done(&r_ref, ns);
 
 	return 0;
@@ -3015,15 +2973,12 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 
 
 // Sweep through storage devices and rebuild the index.
-//
-// If there are LDT records the sweep is done twice, once for LDT parent records
-// and then again for LDT subrecords.
 int
 ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
 {
 	uint8_t *buf = cf_valloc(LOAD_BUF_SIZE);
 
-	bool read_shadow = ssd->shadow_name && ! ssd->sub_sweep;
+	bool read_shadow = ssd->shadow_name;
 	char *read_ssd_name = read_shadow ? ssd->shadow_name : ssd->name;
 	int fd = read_shadow ? ssd_shadow_fd_get(ssd) : ssd_fd_get(ssd);
 	int write_fd = read_shadow ? ssd_fd_get(ssd) : -1;
@@ -3184,17 +3139,7 @@ ssd_load_devices_fn(void *udata)
 
 	CF_ALLOC_SET_NS_ARENA(ns);
 
-	ssd->sub_sweep	= false;
-	ssd->has_ldt	= false;
-
 	ssd_load_device_sweep(ssds, ssd);
-
-	if (ns->ldt_enabled && ssd->has_ldt) {
-		cf_info(AS_DRV_SSD, "device %s: reading device again to load subrecords",
-				ssd->name);
-		ssd->sub_sweep = true;
-		ssd_load_device_sweep(ssds, ssd);
-	}
 
 	cf_info(AS_DRV_SSD, "device %s: read complete: UNIQUE %"PRIu64" (REPLACED %"PRIu64") (OLDER %"PRIu64") (EXPIRED %"PRIu64") (MAX-TTL %"PRIu64") records",
 		ssd->name, ssd->record_add_unique_counter,
@@ -4004,16 +3949,14 @@ as_storage_cold_start_ticker_ssd()
 				pos += sprintf(buf + pos, ", %s %u%%", ssd->name, pct);
 			}
 
-			// TODO - selective on sub-records also?
 			// TODO - conform with new log standard?
 			if (ns->n_tombstones == 0) {
-				cf_info(AS_DRV_SSD, "{%s} loaded %lu records, %lu subrecords%s",
-						ns->name, ns->n_objects, ns->n_sub_objects, buf);
+				cf_info(AS_DRV_SSD, "{%s} loaded %lu objects%s", ns->name,
+						ns->n_objects, buf);
 			}
 			else {
-				cf_info(AS_DRV_SSD, "{%s} loaded %lu records, %lu subrecords, %lu tombstones%s",
-						ns->name, ns->n_objects, ns->n_sub_objects,
-						ns->n_tombstones, buf);
+				cf_info(AS_DRV_SSD, "{%s} loaded %lu objects, %lu tombstones%s",
+						ns->name, ns->n_objects, ns->n_tombstones, buf);
 			}
 		}
 	}

@@ -48,10 +48,3 @@ void repl_write_setup_rw(rw_request* rw, as_transaction* tr, repl_write_done_cb 
 void repl_write_reset_rw(rw_request* rw, as_transaction* tr, repl_write_done_cb cb);
 void repl_write_handle_op(cf_node node, msg* m);
 void repl_write_handle_ack(cf_node node, msg* m);
-
-// For LDTs only:
-void repl_write_ldt_make_message(msg* m, as_transaction* tr,
-		uint8_t** p_pickled_buf, size_t pickled_sz,
-		as_rec_props* p_pickled_rec_props, bool is_subrec);
-void repl_write_handle_multiop(cf_node node, msg* m);
-void repl_write_handle_multiop_ack(cf_node node, msg* m);

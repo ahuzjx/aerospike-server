@@ -56,6 +56,3 @@ void as_proxy_send_response(cf_node dst, uint32_t proxy_tid,
 		uint64_t trid, const char* set_name);
 void as_proxy_send_ops_response(cf_node dst, uint32_t proxy_tid,
 		cf_dyn_buf* db);
-
-// LDT-related.
-void as_proxy_shipop(cf_node dst, rw_request* rw);

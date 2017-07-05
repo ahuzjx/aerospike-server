@@ -1180,7 +1180,7 @@ query_add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 	}
 
 	ret = as_msg_make_response_bufbuilder(r, rd, &qtr->bb_r, false,
-			NULL, false, true, true, qtr->binlist);
+			NULL, true, true, qtr->binlist);
 	if (ret != 0) {
 		cf_warning(AS_QUERY, "Weird there is space but still the packing failed "
 				"available = %zd msg size = %zu",

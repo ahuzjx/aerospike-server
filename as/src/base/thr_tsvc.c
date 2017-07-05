@@ -355,27 +355,7 @@ as_tsvc_process_transaction(as_transaction *tr)
 	cf_node dest;
 	uint64_t partition_cluster_key = 0;
 
-	if ((tr->from_flags & FROM_FLAG_SHIPPED_OP) != 0) {
-		if (! is_write) {
-			cf_warning(AS_TSVC, "shipped-op is not write - unexpected");
-			as_transaction_error(tr, ns, AS_PROTO_RESULT_FAIL_UNKNOWN);
-			goto Cleanup;
-		}
-
-		// If the transaction is "shipped proxy op" to the winner node then
-		// just do a migrate reservation.
-		as_partition_reserve_migrate(ns, pid, &tr->rsv, &dest);
-
-		if (tr->rsv.n_dupl != 0) {
-			cf_warning(AS_TSVC, "shipped-op rsv has duplicates - unexpected");
-			as_partition_release(&tr->rsv);
-			as_transaction_error(tr, ns, AS_PROTO_RESULT_FAIL_UNKNOWN);
-			goto Cleanup;
-		}
-
-		rv = 0;
-	}
-	else if (is_write) {
+	if (is_write) {
 		if (should_security_check_data_op(tr) &&
 				! as_security_check_data_op(tr, ns, PERM_WRITE)) {
 			as_transaction_error(tr, ns, tr->result_code);

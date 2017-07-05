@@ -87,7 +87,6 @@ rw_request_create(cf_digest* keyd)
 
 	rw->is_set_up = false;
 	rw->has_udf = false;
-	rw->is_multiop = false;
 	rw->respond_client_on_master_completion = false;
 
 	rw->pickled_buf = NULL;

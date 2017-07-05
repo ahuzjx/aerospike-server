@@ -42,15 +42,11 @@
 #define UDF_RECORD_BIN_ULIMIT 512
 #define UDF_BIN_NONAME " "
 
-typedef struct ldt_record_s ldt_record;
-
 typedef struct udf_record_bin_s {
 	char				name[AS_ID_BIN_SZ];
 	as_val *			value;
 	as_val *			oldvalue; // keeps track of old value in case rollback is required
 	bool				dirty;
-	bool				ishidden;
-	bool				washidden;
 	void                *particle_buf;
 } udf_record_bin;
 
@@ -65,7 +61,6 @@ typedef struct udf_record_s {
 	as_bin				stack_bins[UDF_RECORD_BIN_ULIMIT]; // TODO increase bin limit?
 
 	// UDF CHANGE CACHE
-	int8_t				ldt_rectype_bit_update; // ESR  / LDT / PARENT LDT / NOTHING
 	udf_record_bin		updates[UDF_RECORD_BIN_ULIMIT]; // stores cache bin value
                                                         // if dirty flag is set the bin is being modified
 	uint32_t			nupdates; // reset after every cache free, incremented in every cache set
@@ -78,7 +73,6 @@ typedef struct udf_record_s {
 	cf_atomic_int		udf_runtime_memory_used;
 
 	// INTERNAL UTILITY
-	ldt_record 			*lrecord; // Parent lrecord
 	uint16_t			flag;
 
 	// FABRIC MESSAGE
@@ -90,7 +84,7 @@ typedef struct udf_record_s {
 
 #define UDF_RECORD_FLAG_ALLOW_UPDATES		0x0001   // Write/Updates Allowed
 #define UDF_RECORD_FLAG_TOO_MANY_BINS		0x0002   // UDF exceeds the bin limit
-#define UDF_RECORD_FLAG_IS_SUBRECORD		0x0004   // Is udf_record for SubRecord
+#define UDF_RECORD_FLAG_UNUSED_4			0x0004   // was - sub-record
 #define UDF_RECORD_FLAG_OPEN				0x0008   // as_record_open done
 #define UDF_RECORD_FLAG_STORAGE_OPEN		0x0010   // as_storage_record_open done
 #define UDF_RECORD_FLAG_HAS_UPDATES			0x0020   // Write/Update done
@@ -111,8 +105,6 @@ extern int      udf_storage_record_close(udf_record *);
 extern void     udf_record_init         (udf_record *, bool);
 extern void     udf_record_cleanup      (udf_record *, bool);
 extern as_val * udf_record_storage_get  (const udf_record *, const char *);
-extern bool     udf_record_bin_ishidden (const udf_record *urecord, const char *name);
-extern bool     udf_record_ldt_enabled  (const as_rec * rec);
 
 #define UDF_ERR_INTERNAL_PARAMETER   2
 #define UDF_ERR_RECORD_NOT_VALID     3

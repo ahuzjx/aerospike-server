@@ -56,7 +56,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/rec_props.h"
 #include "fabric/exchange.h"
 #include "fabric/fabric.h"
@@ -84,11 +83,11 @@ const msg_template migrate_mt[] = {
 		{ MIG_FIELD_UNUSED_11, M_FT_UINT32 },
 		{ MIG_FIELD_UNUSED_12, M_FT_BUF },
 		{ MIG_FIELD_INFO, M_FT_UINT32 },
-		{ MIG_FIELD_LDT_VERSION, M_FT_UINT64 },
-		{ MIG_FIELD_LDT_PDIGEST, M_FT_BUF },
-		{ MIG_FIELD_LDT_EDIGEST, M_FT_BUF },
-		{ MIG_FIELD_LDT_PGENERATION, M_FT_UINT32 },
-		{ MIG_FIELD_LDT_PVOID_TIME, M_FT_UINT32 },
+		{ MIG_FIELD_UNUSED_14, M_FT_UINT64 },
+		{ MIG_FIELD_UNUSED_15, M_FT_BUF },
+		{ MIG_FIELD_UNUSED_16, M_FT_BUF },
+		{ MIG_FIELD_UNUSED_17, M_FT_UINT32 },
+		{ MIG_FIELD_UNUSED_18, M_FT_UINT32 },
 		{ MIG_FIELD_LAST_UPDATE_TIME, M_FT_UINT64 },
 		{ MIG_FIELD_FEATURES, M_FT_UINT32 },
 		{ MIG_FIELD_UNUSED_21, M_FT_UINT32 },
@@ -98,7 +97,7 @@ const msg_template migrate_mt[] = {
 		{ MIG_FIELD_PARTITION_SIZE, M_FT_UINT64 },
 		{ MIG_FIELD_SET_NAME, M_FT_BUF },
 		{ MIG_FIELD_KEY, M_FT_BUF },
-		{ MIG_FIELD_LDT_BITS, M_FT_UINT32 },
+		{ MIG_FIELD_UNUSED_28, M_FT_UINT32 },
 		{ MIG_FIELD_EMIG_INSERT_ID, M_FT_UINT64 }
 };
 
@@ -119,11 +118,6 @@ typedef struct pickled_record_s {
 	uint64_t      last_update_time;
 	uint8_t       *record_buf; // pickled!
 	size_t        record_len;
-
-	// For LDT only:
-	cf_digest     pkeyd;
-	cf_digest     ekeyd;
-	uint64_t      ldt_version;
 } pickled_record;
 
 typedef enum {
@@ -154,11 +148,6 @@ typedef struct emigration_reinsert_ctrl_s {
 	msg *m;
 } emigration_reinsert_ctrl;
 
-typedef struct immigration_ldt_version_s {
-	uint64_t incoming_ldt_version;
-	uint16_t pid;
-} __attribute__((__packed__)) immigration_ldt_version;
-
 
 //==========================================================
 // Globals.
@@ -170,7 +159,6 @@ cf_rchash *g_immigration_hash = NULL;
 static uint64_t g_avoid_dest = 0;
 static cf_atomic32 g_emigration_id = 0;
 static cf_queue g_emigration_q;
-static shash *g_immigration_ldt_version_hash;
 
 
 //==========================================================
@@ -218,11 +206,6 @@ void emigration_handle_ctrl_ack(cf_node src, msg *m, uint32_t op);
 // Info API helpers.
 int emigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
 int immigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
-
-// LDT-related.
-int as_ldt_fill_mig_msg(const emigration *emig, msg *m, const pickled_record *pr, uint16_t ldt_bits, uint32_t *info);
-void as_ldt_fill_precord(pickled_record *pr, uint16_t ldt_bits, as_storage_rd *rd, const emigration *emig);
-int as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c, msg *m);
 
 
 static inline uint32_t
@@ -273,12 +256,6 @@ as_migrate_init()
 		cf_crash(AS_MIGRATE, "failed to create immigration reaper thread");
 	}
 
-	if (shash_create(&g_immigration_ldt_version_hash, cf_shash_fn_u32,
-			sizeof(immigration_ldt_version), sizeof(void *), 64,
-			SHASH_CR_MT_MANYLOCK) != SHASH_OK) {
-		cf_crash(AS_MIGRATE, "couldn't create immigration ldt version hash");
-	}
-
 	as_fabric_register_msg_fn(M_TYPE_MIGRATE, migrate_mt, sizeof(migrate_mt),
 			MIG_MSG_SCRATCH_SIZE, migrate_receive_msg_cb, NULL);
 }
@@ -312,53 +289,9 @@ as_migrate_emigrate(const partition_migrate_record *pmr)
 
 	cf_atomic_int_incr(&emig->rsv.ns->migrate_tx_instance_count);
 
-	// Generate new LDT version before starting the migration for a record.
-	// This would mean that every time an outgoing migration is triggered it
-	// will actually cause the system to create new version of the data.
-	// It could possibly blow up the versions of subrec... Look at the
-	// enhancement in migration algorithm which makes sure the migration
-	// only happens in case data is different based on the comparison of
-	// record rather than subrecord and cleans up old versions aggressively.
-	//
-	// No new version if data is migrating out of master.
-	if (emig->rsv.ns->ldt_enabled) {
-		emig->rsv.p->current_outgoing_ldt_version = as_ldt_generate_version();
-		emig->tx_state = AS_PARTITION_MIG_TX_STATE_SUBRECORD;
-	}
-	else {
-		emig->tx_state = AS_PARTITION_MIG_TX_STATE_RECORD;
-		emig->rsv.p->current_outgoing_ldt_version = 0;
-	}
-
 	if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
 		cf_crash(AS_MIGRATE, "failed emigration queue push");
 	}
-}
-
-
-// LDT-specific.
-//
-// Searches for incoming version based on passed in incoming migrate_ldt_vesion
-// and partition_id. migrate rxstate match is also performed if it is passed.
-// Check is skipped if zero.
-// Return:
-//     True:  If there is incoming migration
-//     False: if no matching incoming migration found
-bool
-as_migrate_is_incoming(cf_digest *subrec_digest, uint64_t version,
-		uint32_t partition_id, int rx_state)
-{
-	immigration *immig;
-	immigration_ldt_version ldtv;
-
-	ldtv.incoming_ldt_version = version;
-	ldtv.pid = partition_id;
-
-	if (shash_get(g_immigration_ldt_version_hash, &ldtv, &immig) == SHASH_OK) {
-		return rx_state != 0 ? immig->rx_state == rx_state : true;
-	}
-
-	return false;
 }
 
 
@@ -512,16 +445,10 @@ void
 immigration_destroy(void *parm)
 {
 	immigration *immig = (immigration *)parm;
-	immigration_ldt_version ldtv;
-
-	ldtv.incoming_ldt_version = immig->incoming_ldt_version;
-	ldtv.pid = immig->pid;
 
 	if (immig->rsv.p) {
 		as_partition_release(&immig->rsv);
 	}
-
-	shash_delete(g_immigration_ldt_version_hash, &ldtv);
 
 	immig_meta_q_destroy(&immig->meta_q);
 
@@ -715,8 +642,6 @@ emigrate_transfer(emigration *emig)
 				result);
 	}
 
-	emig->tx_state = AS_PARTITION_MIG_TX_STATE_NONE;
-
 	return false; // did not requeue
 }
 
@@ -732,17 +657,6 @@ emigrate(emigration *emig)
 	if ((result = emigration_send_start(emig)) != EMIG_RESULT_START) {
 		return result;
 	}
-
-	//--------------------------------------------
-	// Send whole sub-tree - may block a while.
-	//
-	if (emig->rsv.ns->ldt_enabled) {
-		if ((result = emigrate_tree(emig)) != EMIG_RESULT_DONE) {
-			return result;
-		}
-	}
-
-	emig->tx_state = AS_PARTITION_MIG_TX_STATE_RECORD;
 
 	//--------------------------------------------
 	// Send whole tree - may block a while.
@@ -761,10 +675,7 @@ emigrate(emigration *emig)
 emigration_result
 emigrate_tree(emigration *emig)
 {
-	bool is_subrecord = emig->tx_state == AS_PARTITION_MIG_TX_STATE_SUBRECORD;
-	as_index_tree *tree = is_subrecord ? emig->rsv.sub_tree : emig->rsv.tree;
-
-	if (as_index_tree_size(tree) == 0) {
+	if (as_index_tree_size(emig->rsv.tree) == 0) {
 		return EMIG_RESULT_DONE;
 	}
 
@@ -776,7 +687,7 @@ emigrate_tree(emigration *emig)
 		cf_crash(AS_MIGRATE, "could not start reinserter thread");
 	}
 
-	as_index_reduce(tree, emigrate_tree_reduce_fn, emig);
+	as_index_reduce(emig->rsv.tree, emigrate_tree_reduce_fn, emig);
 
 	// Sets EMIG_STATE_FINISHED only if not already EMIG_STATE_ABORTED.
 	cf_atomic32_setmax(&emig->state, EMIG_STATE_FINISHED);
@@ -874,15 +785,12 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 	as_storage_record_get_key(&rd);
 
 	const char *set_name = as_index_get_set_name(r, ns);
-	uint32_t ldt_bits = (uint32_t)as_ldt_record_get_rectype_bits(r);
 	uint32_t key_size = rd.key_size;
 	uint8_t key[key_size];
 
 	if (key_size != 0) {
 		memcpy(key, rd.key, key_size);
 	}
-
-	as_ldt_fill_precord(&pr, (uint16_t)ldt_bits, &rd, emig);
 
 	as_storage_record_close(&rd);
 	as_record_done(r_ref, ns);
@@ -903,13 +811,6 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 	}
 
 	uint32_t info = 0;
-
-	if (as_ldt_fill_mig_msg(emig, m, &pr, (uint16_t)ldt_bits, &info) != 0) {
-		// Skipping stale version subrecord shipping.
-		as_fabric_msg_put(m);
-		pickled_record_destroy(&pr);
-		return;
-	}
 
 	emigration_flag_pickle(pr.record_buf, &info);
 
@@ -937,10 +838,6 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 
 	if (key_size != 0) {
 		msg_set_buf(m, MIG_FIELD_KEY, key, key_size, MSG_SET_COPY);
-	}
-
-	if (ldt_bits != 0) {
-		msg_set_uint32(m, MIG_FIELD_LDT_BITS, ldt_bits);
 	}
 
 	msg_set_buf(m, MIG_FIELD_RECORD, pr.record_buf, pr.record_len,
@@ -1051,9 +948,6 @@ emigration_send_start(emigration *emig)
 	msg_set_buf(m, MIG_FIELD_NAMESPACE, (const uint8_t *)ns->name,
 			strlen(ns->name), MSG_SET_COPY);
 	msg_set_uint32(m, MIG_FIELD_PARTITION, emig->rsv.p->id);
-
-	msg_set_uint64(m, MIG_FIELD_LDT_VERSION,
-			emig->rsv.p->current_outgoing_ldt_version);
 
 	uint64_t start_xmit_ms = 0;
 
@@ -1402,10 +1296,6 @@ immigration_handle_start_request(cf_node src, msg *m)
 
 	msg_get_uint64(m, MIG_FIELD_PARTITION_SIZE, &emig_n_recs);
 
-	uint64_t incoming_ldt_version = 0;
-
-	msg_get_uint64(m, MIG_FIELD_LDT_VERSION, &incoming_ldt_version);
-
 	msg_preserve_fields(m, 1, MIG_FIELD_EMIG_ID);
 
 	immigration *immig = cf_rc_alloc(sizeof(immigration));
@@ -1417,8 +1307,6 @@ immigration_handle_start_request(cf_node src, msg *m)
 	immig->src = src;
 	immig->cluster_key = cluster_key;
 	immig->pid = pid;
-	immig->rx_state = AS_MIGRATE_RX_STATE_SUBRECORD; // always starts this way
-	immig->incoming_ldt_version = incoming_ldt_version;
 	immig->start_recv_ms = 0;
 	immig->done_recv = 0;
 	immig->done_recv_ms = 0;
@@ -1489,13 +1377,6 @@ immigration_handle_start_request(cf_node src, msg *m)
 	if (immig->start_recv_ms == 0) {
 		as_partition_reserve_migrate(ns, pid, &immig->rsv, NULL);
 		cf_atomic_int_incr(&immig->rsv.ns->migrate_rx_partitions_active);
-
-		immigration_ldt_version ldtv;
-
-		ldtv.incoming_ldt_version = immig->incoming_ldt_version;
-		ldtv.pid = immig->pid;
-
-		shash_put(g_immigration_ldt_version_hash, &ldtv, &immig);
 
 		if (! immigration_start_meta_sender(immig, emig_features,
 				emig_n_recs)) {
@@ -1624,25 +1505,15 @@ immigration_handle_insert_request(cf_node src, msg *m)
 
 		msg_get_buf(m, MIG_FIELD_KEY, &key, &key_size, MSG_GET_DIRECT);
 
-		uint32_t ldt_bits = 0;
-
-		msg_get_uint32(m, MIG_FIELD_LDT_BITS, &ldt_bits);
-
 		size_t rec_props_data_size = as_rec_props_size_all(set_name,
-				set_name_len, key, key_size, ldt_bits);
+				set_name_len, key, key_size);
 
 		if (rec_props_data_size != 0) {
 			// Use alloca() until after jump (remove new-cluster scope).
 			rec_props_data = alloca(rec_props_data_size);
 
 			as_rec_props_fill_all(&c.rec_props, rec_props_data, set_name,
-					set_name_len, key, key_size, ldt_bits);
-		}
-
-		if (as_ldt_get_migrate_info(immig, &c, m)) {
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
+					set_name_len, key, key_size);
 		}
 
 		if (immigration_ignore_pickle(c.record_buf, m)) {
@@ -1942,218 +1813,6 @@ immigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object,
 			immig->start_recv_ms, immig->done_recv_ms, immig->cluster_key);
 
 	*item_num += 1;
-
-	return 0;
-}
-
-
-//==========================================================
-// Local helpers - LDT-related.
-//
-
-// Set up the LDT information.
-// 1. Flag
-// 2. Parent Digest
-// 3. Esr Digest
-// 4. Version
-int
-as_ldt_fill_mig_msg(const emigration *emig, msg *m, const pickled_record *pr,
-		uint16_t ldt_bits, uint32_t *info)
-{
-	if (! emig->rsv.ns->ldt_enabled) {
-		return 0;
-	}
-
-	bool is_subrecord = emig->tx_state == AS_PARTITION_MIG_TX_STATE_SUBRECORD;
-
-	if (! is_subrecord) {
-		cf_assert((emig->tx_state == AS_PARTITION_MIG_TX_STATE_RECORD),
-				AS_PARTITION,
-				"unexpected partition migration state at source %d:%d",
-				emig->tx_state, emig->rsv.p->id);
-	}
-
-	if (is_subrecord) {
-		msg_set_uint64(m, MIG_FIELD_LDT_VERSION, pr->ldt_version);
-
-		as_index_ref r_ref;
-		r_ref.skip_lock = false;
-
-		int rv = as_record_get_live(emig->rsv.tree, (cf_digest *)&pr->pkeyd,
-				&r_ref, emig->rsv.ns);
-
-		if (rv == 0) {
-			msg_set_uint32(m, MIG_FIELD_LDT_PVOID_TIME, r_ref.r->void_time);
-			msg_set_uint32(m, MIG_FIELD_LDT_PGENERATION, r_ref.r->generation);
-			as_record_done(&r_ref, emig->rsv.ns);
-		}
-		else {
-			return -1;
-		}
-
-		msg_set_buf(m, MIG_FIELD_LDT_PDIGEST, (const uint8_t *)&pr->pkeyd,
-				sizeof(cf_digest), MSG_SET_COPY);
-
-		if (as_ldt_flag_has_esr(ldt_bits)) {
-			*info |= MIG_INFO_LDT_ESR;
-		}
-		else if (as_ldt_flag_has_subrec(ldt_bits)) {
-			*info |= MIG_INFO_LDT_SUBREC;
-			msg_set_buf(m, MIG_FIELD_LDT_EDIGEST, (const uint8_t *)&pr->ekeyd,
-					sizeof(cf_digest), MSG_SET_COPY);
-		}
-		else {
-			cf_warning(AS_MIGRATE, "expected subrec and esr bit not found");
-		}
-	}
-	else if (as_ldt_flag_has_parent(ldt_bits)) {
-		msg_set_uint64(m, MIG_FIELD_LDT_VERSION, pr->ldt_version);
-
-		*info |= MIG_INFO_LDT_PREC;
-	}
-
-	return 0;
-}
-
-
-void
-as_ldt_fill_precord(pickled_record *pr, uint16_t ldt_bits, as_storage_rd *rd,
-		const emigration *emig)
-{
-	pr->pkeyd = cf_digest_zero;
-	pr->ekeyd = cf_digest_zero;
-	pr->ldt_version = 0;
-
-	if (! rd->ns->ldt_enabled) {
-		return;
-	}
-
-	bool is_subrec = false;
-	bool is_parent = false;
-
-	if (as_ldt_flag_has_subrec(ldt_bits)) {
-		int rv = as_ldt_subrec_storage_get_digests(rd, &pr->ekeyd, &pr->pkeyd);
-
-		if (rv) {
-			cf_warning(AS_MIGRATE, "ldt_migration: could not find parent or esr key in subrec rv=%d",
-					rv);
-		}
-
-		is_subrec = true;
-	}
-	else if (as_ldt_flag_has_esr(ldt_bits)) {
-		as_ldt_subrec_storage_get_digests(rd, NULL, &pr->pkeyd);
-		is_subrec = true;
-	}
-	else {
-		// When tree is being reduced for the record the state should already
-		// be STATE_RECORD.
-		cf_assert((emig->tx_state == AS_PARTITION_MIG_TX_STATE_RECORD),
-				AS_PARTITION,
-				"unexpected partition migration state at source %d:%d",
-				emig->tx_state, emig->rsv.p->id);
-
-		if (as_ldt_flag_has_parent(ldt_bits)) {
-			is_parent = true;
-		}
-	}
-
-	uint64_t new_version = emig->rsv.p->current_outgoing_ldt_version;
-
-	if (is_parent) {
-		uint64_t old_version = 0;
-
-		as_ldt_parent_storage_get_version(rd, &old_version, true, __FILE__,
-				__LINE__);
-
-		pr->ldt_version = new_version ? new_version : old_version;
-	}
-	else if (is_subrec) {
-		cf_assert((emig->tx_state == AS_PARTITION_MIG_TX_STATE_SUBRECORD),
-				AS_PARTITION,
-				"unexpected partition migration state at source %d:%d",
-				emig->tx_state, emig->rsv.p->id);
-
-		uint64_t old_version = as_ldt_subdigest_getversion(&pr->keyd);
-
-		if (new_version) {
-			as_ldt_subdigest_setversion(&pr->keyd, new_version);
-			pr->ldt_version = new_version;
-		}
-		else {
-			pr->ldt_version = old_version;
-		}
-	}
-}
-
-
-// Extracts ldt related infrom the migration messages
-// return <0 in case of some sort of failure
-// returns 0 for success
-//
-// side effect component will be filled up
-int
-as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c,
-		msg *m)
-{
-	c->flag        = AS_COMPONENT_FLAG_MIG;
-	c->pdigest     = cf_digest_zero;
-	c->edigest     = cf_digest_zero;
-	c->version     = 0;
-	c->pgeneration = 0;
-	c->pvoid_time  = 0;
-
-	if (! immig->rsv.ns->ldt_enabled) {
-		return 0;
-	}
-
-	uint32_t info;
-
-	if (msg_get_uint32(m, MIG_FIELD_INFO, &info) == 0) {
-		if ((info & MIG_INFO_LDT_SUBREC) != 0) {
-			c->flag |= AS_COMPONENT_FLAG_LDT_SUBREC;
-		}
-		else if ((info & MIG_INFO_LDT_PREC) != 0) {
-			c->flag |= AS_COMPONENT_FLAG_LDT_REC;
-		}
-		else if ((info & MIG_INFO_LDT_ESR) != 0) {
-			c->flag |= AS_COMPONENT_FLAG_LDT_ESR;
-		}
-	}
-	// else - resort to defaults.
-
-	cf_digest *key = NULL;
-
-	msg_get_buf(m, MIG_FIELD_LDT_PDIGEST, (uint8_t **)&key, NULL,
-			MSG_GET_DIRECT);
-
-	if (key) {
-		c->pdigest = *key;
-		key = NULL;
-	}
-
-	msg_get_buf(m, MIG_FIELD_LDT_EDIGEST, (uint8_t **)&key, NULL,
-			MSG_GET_DIRECT);
-
-	if (key) {
-		c->edigest = *key;
-	}
-
-	msg_get_uint64(m, MIG_FIELD_LDT_VERSION, &c->version);
-	msg_get_uint32(m, MIG_FIELD_LDT_PGENERATION, &c->pgeneration);
-	msg_get_uint32(m, MIG_FIELD_LDT_PVOID_TIME, &c->pvoid_time);
-
-	if (COMPONENT_IS_LDT_SUB(c)) {
-		;
-	}
-	else if (COMPONENT_IS_LDT_DUMMY(c)) {
-		cf_crash(AS_MIGRATE, "Invalid Component Type Dummy received by migration");
-	}
-	else {
-		if (immig->rx_state == AS_MIGRATE_RX_STATE_SUBRECORD) {
-			immig->rx_state = AS_MIGRATE_RX_STATE_RECORD;
-		}
-	}
 
 	return 0;
 }

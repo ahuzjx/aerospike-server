@@ -455,8 +455,6 @@ as_partition_emigrate_done(as_namespace* ns, uint32_t pid,
 				ns->name, pid, p->pending_emigrations, migrates_tx_remaining);
 	}
 
-	p->current_outgoing_ldt_version = 0;
-
 	if (! is_self_final_master(p)) {
 		if ((tx_flags & TX_FLAGS_ACTING_MASTER) != 0) {
 			p->target = (cf_node)0;
@@ -734,13 +732,6 @@ drop_trees(as_partition* p, as_namespace* ns)
 	p->vp = as_index_tree_create(&ns->tree_shared, ns->arena);
 	as_index_tree_release(temp);
 
-	if (ns->ldt_enabled) {
-		as_index_tree* sub_temp = p->sub_vp;
-
-		p->sub_vp = as_index_tree_create(&ns->tree_shared, ns->arena);
-		as_index_tree_release(sub_temp);
-	}
-
 	// TODO - consider p->n_tombstones?
 	cf_atomic64_set(&p->max_void_time, 0);
 }
@@ -918,8 +909,6 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 		p->n_witnesses = 0;
 		memset(p->witnesses, 0, sizeof(p->witnesses));
-
-		p->current_outgoing_ldt_version = 0;
 
 		uint32_t self_n = find_self(ns_node_seq, ns);
 

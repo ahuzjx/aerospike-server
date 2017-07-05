@@ -172,7 +172,6 @@ typedef enum {
 	AS_INFO,
 	AS_INFO_PORT,
 	AS_JOB,
-	AS_LDT,
 	AS_MIGRATE,
 	AS_MON,
 	AS_NAMESPACE,

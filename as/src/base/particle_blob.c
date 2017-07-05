@@ -433,7 +433,6 @@ blob_bytes_type_to_particle_type(as_bytes_type type)
 	case AS_BYTES_MAP:
 	case AS_BYTES_LIST:
 	case AS_BYTES_UNDEF:
-	case AS_BYTES_LDT:
 	default:
 		break;
 	}

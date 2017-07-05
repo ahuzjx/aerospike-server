@@ -191,9 +191,6 @@ typedef struct drv_ssd_s
 
 	uint64_t		header_size;
 
-	bool			has_ldt;
-	bool			sub_sweep;
-
 	uint32_t		cold_start_block_counter;		// large blocks read
 	uint64_t		record_add_older_counter;		// records not inserted due to better existing one
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration

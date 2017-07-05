@@ -23,7 +23,7 @@ ifeq ($(USE_EE),1)
 endif
 
 BASE_HEADERS += aggr.h batch.h cdt.h cfg.h datamodel.h index.h job_manager.h json_init.h
-BASE_HEADERS += ldt.h ldt_aerospike.h ldt_record.h monitor.h packet_compression.h
+BASE_HEADERS += monitor.h packet_compression.h
 BASE_HEADERS += particle.h particle_blob.h particle_integer.h predexp.h
 BASE_HEADERS += proto.h rec_props.h scan.h secondary_index.h security.h security_config.h stats.h system_metadata.h
 BASE_HEADERS += thr_batch.h thr_info.h thr_query.h thr_sindex.h
@@ -33,7 +33,7 @@ BASE_HEADERS += udf_memtracker.h udf_record.h udf_timer.h
 BASE_HEADERS += xdr_serverside.h xdr_config.h
 
 BASE_SOURCES += aggr.c as.c batch.c bin.c cdt.c cfg.c index.c job_manager.c json_init.c
-BASE_SOURCES += ldt.c ldt_record.c ldt_aerospike.c monitor.c namespace.c packet_compression.c
+BASE_SOURCES += monitor.c namespace.c packet_compression.c
 BASE_SOURCES += particle.c particle_blob.c particle_float.c particle_geojson.c particle_integer.c
 BASE_SOURCES += particle_list.c particle_map.c particle_string.c predexp.c
 BASE_SOURCES += proto.c rec_props.c record.c scan.c signal.c secondary_index.c system_metadata.c

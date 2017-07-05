@@ -330,7 +330,7 @@ size_t as_msg_response_msgsize(as_record *r, as_storage_rd *rd, bool nobindata,
 
 
 int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
-		cf_buf_builder **bb_r, bool nobindata, char *nsname, bool include_ldt_data,
+		cf_buf_builder **bb_r, bool nobindata, char *nsname,
 		bool include_key, bool skip_empty_records, cf_vector *binlist)
 {
 	// Sanity checks. Either rd should be there or nobindata and nsname should be present.
@@ -390,7 +390,6 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 
 	int list_bins   = 0;
 	int in_use_bins = rd ? (int)as_bin_inuse_count(rd) : 0;
-	as_val *ldt_bin_vals[in_use_bins];
 
 	if (! nobindata) {
 		if (binlist) {
@@ -409,18 +408,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 
 				msg_sz += sizeof(as_msg_op);
 				msg_sz += rd->ns->single_bin ? 0 : strlen(binname);
-
-				if (as_bin_is_hidden(p_bin)) {
-					if (include_ldt_data) {
-						msg_sz += (int)as_ldt_particle_client_value_size(rd, p_bin, &ldt_bin_vals[list_bins]);
-					}
-					else {
-						ldt_bin_vals[list_bins] = NULL;
-					}
-				}
-				else {
-					msg_sz += (int)as_bin_particle_client_value_size(p_bin);
-				}
+				msg_sz += (int)as_bin_particle_client_value_size(p_bin);
 
 				list_bins++;
 			}
@@ -437,18 +425,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 				as_bin *p_bin = &rd->bins[i];
 
 				msg_sz += rd->ns->single_bin ? 0 : strlen(as_bin_get_name_from_id(rd->ns, p_bin->id));
-
-				if (as_bin_is_hidden(p_bin)) {
-					if (include_ldt_data) {
-						msg_sz += (int)as_ldt_particle_client_value_size(rd, p_bin, &ldt_bin_vals[i]);
-					}
-					else {
-						ldt_bin_vals[i] = NULL;
-					}
-				}
-				else {
-					msg_sz += (int)as_bin_particle_client_value_size(p_bin);
-				}
+				msg_sz += (int)as_bin_particle_client_value_size(p_bin);
 			}
 		}
 	}
@@ -545,13 +522,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 			op->op_sz = 4 + op->name_sz;
 
 			buf += sizeof(as_msg_op) + op->name_sz;
-
-			if (as_bin_is_hidden(p_bin)) {
-				buf += as_ldt_particle_to_client(ldt_bin_vals[list_bins], op);
-			}
-			else {
-				buf += as_bin_particle_to_client(p_bin, op);
-			}
+			buf += as_bin_particle_to_client(p_bin, op);
 
 			list_bins++;
 
@@ -568,13 +539,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 			op->op_sz = 4 + op->name_sz;
 
 			buf += sizeof(as_msg_op) + op->name_sz;
-
-			if (as_bin_is_hidden(&rd->bins[i])) {
-				buf += as_ldt_particle_to_client(ldt_bin_vals[i], op);
-			}
-			else {
-				buf += as_bin_particle_to_client(&rd->bins[i], op);
-			}
+			buf += as_bin_particle_to_client(&rd->bins[i], op);
 
 			as_msg_swap_op(op);
 		}

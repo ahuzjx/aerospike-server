@@ -121,7 +121,6 @@ typedef struct rw_request_s {
 
 	bool				is_set_up; // TODO - redundant with timeout_cb
 	bool				has_udf; // TODO - only for stats?
-	bool				is_multiop;
 	bool				respond_client_on_master_completion;
 
 	// Store pickled data, for use in replica write.

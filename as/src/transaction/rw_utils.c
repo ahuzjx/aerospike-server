@@ -40,7 +40,6 @@
 
 #include "base/cfg.h" // xdr_allows_write
 #include "base/datamodel.h"
-#include "base/ldt.h"
 #include "base/proto.h" // xdr_allows_write
 #include "base/secondary_index.h"
 #include "base/transaction.h"
@@ -230,11 +229,6 @@ update_metadata_in_index(as_transaction* tr, bool increment_generation,
 		// m->record_ttl <= 10 years, so no overflow etc.
 		r->void_time = (now / 1000) + m->record_ttl;
 		break;
-	}
-
-	if (as_ldt_record_is_sub(r)) {
-		// Sub-records never expire by themselves.
-		r->void_time = 0;
 	}
 
 	// Note - last-update-time is not allowed to go backwards!

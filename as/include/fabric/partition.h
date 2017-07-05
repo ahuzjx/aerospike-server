@@ -79,7 +79,6 @@ typedef struct as_partition_s {
 	uint32_t id;
 
 	struct as_index_tree_s* vp;
-	struct as_index_tree_s* sub_vp;
 
 	cf_atomic64 n_tombstones; // relevant only for enterprise edition
 	cf_atomic64 max_void_time; // TODO - convert to 32-bit ...
@@ -105,17 +104,12 @@ typedef struct as_partition_s {
 
 	uint32_t n_witnesses;
 	cf_node witnesses[AS_CLUSTER_SZ];
-
-	// LDT related.
-	uint64_t current_outgoing_ldt_version;
-	uint64_t current_incoming_ldt_version;
 } as_partition;
 
 typedef struct as_partition_reservation_s {
 	struct as_namespace_s* ns;
 	as_partition* p;
 	struct as_index_tree_s* tree;
-	struct as_index_tree_s* sub_tree;
 	uint64_t cluster_key;
 	bool reject_repl_write;
 	// 3 unused bytes
@@ -127,9 +121,6 @@ typedef struct repl_stats_s {
 	uint64_t n_master_objects;
 	uint64_t n_prole_objects;
 	uint64_t n_non_replica_objects;
-	uint64_t n_master_sub_objects;
-	uint64_t n_prole_sub_objects;
-	uint64_t n_non_replica_sub_objects;
 	uint64_t n_master_tombstones;
 	uint64_t n_prole_tombstones;
 	uint64_t n_non_replica_tombstones;
@@ -162,7 +153,6 @@ typedef enum {
 	__rsv.ns = NULL; \
 	__rsv.p = NULL; \
 	__rsv.tree = NULL; \
-	__rsv.sub_tree = NULL; \
 	__rsv.cluster_key = 0; \
 	__rsv.reject_repl_write = false; \
 	__rsv.n_dupl = 0;
@@ -171,7 +161,6 @@ typedef enum {
 	__rsv->ns = NULL; \
 	__rsv->p = NULL; \
 	__rsv->tree = NULL; \
-	__rsv->sub_tree = NULL; \
 	__rsv->cluster_key = 0; \
 	__rsv->reject_repl_write = false; \
 	__rsv->n_dupl = 0;

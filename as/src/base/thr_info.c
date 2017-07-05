@@ -56,7 +56,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/monitor.h"
 #include "base/scan.h"
 #include "base/thr_batch.h"
@@ -100,7 +99,6 @@
 extern int as_nsup_queue_get_size();
 
 int info_get_objects(char *name, cf_dyn_buf *db);
-void clear_ldt_histograms();
 int info_get_tree_sets(char *name, char *subtree, cf_dyn_buf *db);
 int info_get_tree_bins(char *name, char *subtree, cf_dyn_buf *db);
 int info_get_tree_sindexes(char *name, char *subtree, cf_dyn_buf *db);
@@ -202,19 +200,16 @@ void
 info_get_aggregated_namespace_stats(cf_dyn_buf *db)
 {
 	uint64_t total_objects = 0;
-	uint64_t total_sub_objects = 0;
 	uint64_t total_tombstones = 0;
 
 	for (uint32_t i = 0; i < g_config.n_namespaces; i++) {
 		as_namespace *ns = g_config.namespaces[i];
 
 		total_objects += ns->n_objects;
-		total_sub_objects += ns->n_sub_objects;
 		total_tombstones += ns->n_tombstones;
 	}
 
 	info_append_uint64(db, "objects", total_objects);
-	info_append_uint64(db, "sub_objects", total_sub_objects);
 	info_append_uint64(db, "tombstones", total_tombstones);
 }
 
@@ -1483,7 +1478,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "hist-track-slice", g_config.hist_track_slice);
 	info_append_string_safe(db, "hist-track-thresholds", g_config.hist_track_thresholds);
 	info_append_int(db, "info-threads", g_config.n_info_threads);
-	info_append_bool(db, "ldt-benchmarks", g_config.ldt_benchmarks);
 	info_append_bool(db, "log-local-time", cf_fault_is_using_local_time());
 	info_append_uint32(db, "migrate-max-num-incoming", g_config.migrate_max_num_incoming);
 	info_append_uint32(db, "migrate-threads", g_config.n_migrate_threads);
@@ -1646,9 +1640,6 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	info_append_uint32(db, "evict-tenths-pct", ns->evict_tenths_pct);
 	info_append_uint32(db, "high-water-disk-pct", ns->hwm_disk_pct);
 	info_append_uint32(db, "high-water-memory-pct", ns->hwm_memory_pct);
-	info_append_bool(db, "ldt-enabled", ns->ldt_enabled);
-	info_append_uint32(db, "ldt-gc-rate", ns->ldt_gc_sleep_us / 1000000);
-	info_append_uint32(db, "ldt-page-size", ns->ldt_page_size);
 	info_append_uint64(db, "max-ttl", ns->max_ttl);
 	info_append_uint32(db, "migrate-order", ns->migrate_order);
 	info_append_uint32(db, "migrate-retransmit-ms", ns->migrate_retransmit_ms);
@@ -1875,19 +1866,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of ticker-interval from %d to %d ", g_config.ticker_interval, val);
 			g_config.ticker_interval = val;
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-benchmarks", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				clear_ldt_histograms();
-				cf_info(AS_INFO, "Changing value of ldt-benchmarks from %s to %s", bool_val[g_config.ldt_benchmarks], context);
-				g_config.ldt_benchmarks = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-benchmarks from %s to %s", bool_val[g_config.ldt_benchmarks], context);
-				g_config.ldt_benchmarks = false;
-			}
-			else
-				goto Error;
 		}
 		else if (0 == as_info_parameter_get(params, "scan-max-active", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -2666,42 +2644,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			else {
 				goto Error;
 			}
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-enabled", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-enabled of ns %s from %s to %s", ns->name, bool_val[ns->ldt_enabled], context);
-				ns->ldt_enabled = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-enabled of ns %s from %s to %s", ns->name, bool_val[ns->ldt_enabled], context);
-				ns->ldt_enabled = false;
-			}
-			else {
-				goto Error;
-			}
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-page-size", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-	  		if (val > ns->storage_write_block_size) {
-				// 1Kb head room
-				val = ns->storage_write_block_size - 1024;
-			}
-			cf_info(AS_INFO, "Changing value of ldt-page-size of ns %s from %d to %d ", ns->name, ns->ldt_page_size, val);
-			ns->ldt_page_size = val;
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-gc-rate", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			uint64_t rate = (uint64_t)val;
-
-			if ((rate == 0) || (rate > LDT_SUB_GC_MAX_RATE)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of ldt-gc-rate of ns %s from %u to %d", ns->name, (1000 * 1000)/ns->ldt_gc_sleep_us , val);
-			ns->ldt_gc_sleep_us = 1000 * 1000 / rate;
 		}
 		else if (0 == as_info_parameter_get(params, "defrag-lwm-pct", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
@@ -5407,20 +5349,16 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	// Object counts.
 
 	info_append_uint64(db, "objects", ns->n_objects);
-	info_append_uint64(db, "sub_objects", ns->n_sub_objects);
 	info_append_uint64(db, "tombstones", ns->n_tombstones);
 
 	repl_stats mp;
 	as_partition_get_replica_stats(ns, &mp);
 
 	info_append_uint64(db, "master_objects", mp.n_master_objects);
-	info_append_uint64(db, "master_sub_objects", mp.n_master_sub_objects);
 	info_append_uint64(db, "master_tombstones", mp.n_master_tombstones);
 	info_append_uint64(db, "prole_objects", mp.n_prole_objects);
-	info_append_uint64(db, "prole_sub_objects", mp.n_prole_sub_objects);
 	info_append_uint64(db, "prole_tombstones", mp.n_prole_tombstones);
 	info_append_uint64(db, "non_replica_objects", mp.n_non_replica_objects);
-	info_append_uint64(db, "non_replica_sub_objects", mp.n_non_replica_sub_objects);
 	info_append_uint64(db, "non_replica_tombstones", mp.n_non_replica_tombstones);
 
 	// Expiration & eviction (nsup) stats.
@@ -5444,7 +5382,7 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	// Memory usage stats.
 
 	uint64_t data_memory = ns->n_bytes_memory;
-	uint64_t index_memory = as_index_size_get(ns) * (ns->n_objects + ns->n_sub_objects + ns->n_tombstones);
+	uint64_t index_memory = as_index_size_get(ns) * (ns->n_objects + ns->n_tombstones);
 	uint64_t sindex_memory = ns->n_bytes_sindex_memory;
 	uint64_t used_memory = data_memory + index_memory + sindex_memory;
 
@@ -5663,50 +5601,6 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	// Special non-error counters:
 
 	info_append_uint64(db, "deleted_last_bin", ns->n_deleted_last_bin);
-
-	// LDT stats.
-
-	if (ns->ldt_enabled) {
-		info_append_uint64(db, "ldt_reads", ns->lstats.ldt_read_reqs);
-		info_append_uint64(db, "ldt_read_success", ns->lstats.ldt_read_success);
-		info_append_uint64(db, "ldt_deletes", ns->lstats.ldt_delete_reqs);
-		info_append_uint64(db, "ldt_delete_success", ns->lstats.ldt_delete_success);
-		info_append_uint64(db, "ldt_writes", ns->lstats.ldt_write_reqs);
-		info_append_uint64(db, "ldt_write_success", ns->lstats.ldt_write_success);
-		info_append_uint64(db, "ldt_updates", ns->lstats.ldt_update_reqs);
-
-		info_append_uint64(db, "ldt_gc_io", ns->lstats.ldt_gc_io);
-		info_append_uint64(db, "ldt_gc_cnt", ns->lstats.ldt_gc_cnt);
-		info_append_uint64(db, "ldt_randomizer_retry", ns->lstats.ldt_randomizer_retry);
-
-		info_append_uint64(db, "ldt_errors", ns->lstats.ldt_errs);
-
-		info_append_uint64(db, "ldt_err_toprec_notfound", ns->lstats.ldt_err_toprec_not_found);
-		info_append_uint64(db, "ldt_err_item_notfound", ns->lstats.ldt_err_item_not_found);
-		info_append_uint64(db, "ldt_err_internal", ns->lstats.ldt_err_internal);
-		info_append_uint64(db, "ldt_err_unique_key_violation", ns->lstats.ldt_err_unique_key_violation);
-		info_append_uint64(db, "ldt_err_insert_fail", ns->lstats.ldt_err_insert_fail);
-		info_append_uint64(db, "ldt_err_delete_fail", ns->lstats.ldt_err_delete_fail);
-		info_append_uint64(db, "ldt_err_search_fail", ns->lstats.ldt_err_search_fail);
-		info_append_uint64(db, "ldt_err_version_mismatch", ns->lstats.ldt_err_version_mismatch);
-		info_append_uint64(db, "ldt_err_capacity_exceeded", ns->lstats.ldt_err_capacity_exceeded);
-		info_append_uint64(db, "ldt_err_param", ns->lstats.ldt_err_param);
-		info_append_uint64(db, "ldt_err_op_bintype_mismatch", ns->lstats.ldt_err_op_bintype_mismatch);
-		info_append_uint64(db, "ldt_err_too_many_open_subrec", ns->lstats.ldt_err_too_many_open_subrec);
-		info_append_uint64(db, "ldt_err_subrec_not_found", ns->lstats.ldt_err_subrec_not_found);
-		info_append_uint64(db, "ldt_err_bin_does_not_exist", ns->lstats.ldt_err_bin_does_not_exist);
-		info_append_uint64(db, "ldt_err_bin_exits", ns->lstats.ldt_err_bin_exits);
-		info_append_uint64(db, "ldt_err_bin_damaged", ns->lstats.ldt_err_bin_damaged);
-		info_append_uint64(db, "ldt_err_toprec_internal", ns->lstats.ldt_err_toprec_internal);
-		info_append_uint64(db, "ldt_err_subrec_internal", ns->lstats.ldt_err_subrec_internal);
-		info_append_uint64(db, "ldt_err_filer", ns->lstats.ldt_err_filter);
-		info_append_uint64(db, "ldt_err_key", ns->lstats.ldt_err_key);
-		info_append_uint64(db, "ldt_err_createspec", ns->lstats.ldt_err_createspec);
-		info_append_uint64(db, "ldt_err_usermodule", ns->lstats.ldt_err_usermodule);
-		info_append_uint64(db, "ldt_err_input_too_large", ns->lstats.ldt_err_input_too_large);
-		info_append_uint64(db, "ldt_err_ldt_not_enabled", ns->lstats.ldt_err_ldt_not_enabled);
-		info_append_uint64(db, "ldt_err_unknown", ns->lstats.ldt_err_unknown);
-	}
 }
 
 //
@@ -5985,16 +5879,6 @@ info_get_service_tls_alt(char *name, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, g_serv_tls_alt != NULL ? g_serv_tls_alt : "");
 	pthread_mutex_unlock(&g_serv_lock);
 	return 0;
-}
-
-void
-clear_ldt_histograms()
-{
-	histogram_clear(g_stats.ldt_multiop_prole_hist);
-	histogram_clear(g_stats.ldt_update_record_cnt_hist);
-	histogram_clear(g_stats.ldt_io_record_cnt_hist);
-	histogram_clear(g_stats.ldt_update_io_bytes_hist);
-	histogram_clear(g_stats.ldt_hist);
 }
 
 // SINDEX wire protocol examples:
