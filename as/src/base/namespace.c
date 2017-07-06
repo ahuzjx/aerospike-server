@@ -20,11 +20,6 @@
  * along with this program.  If not, see http://www.gnu.org/licenses/
  */
 
-/*
- * Operations on namespaces
- *
- */
-
 //==========================================================
 // Includes.
 //
@@ -67,8 +62,6 @@
 // Globals.
 //
 
-static as_namespace_id g_namespace_id_counter = 0;
-
 
 //==========================================================
 // Forward declarations.
@@ -79,17 +72,14 @@ static as_namespace_id g_namespace_id_counter = 0;
 // Inlines & macros.
 //
 
-// Generate a hash value which does not collide with nsid (32 to UINT32_MAX)
-// Note: For namespaces whose fnv hash value falls between 0-32 may collide with
-// namespaces whose value falls between 32-64 as we are adding 32. Hoping that
-// it is low probability. We will know if it happens as server crashes up front.
 static inline uint32_t
 ns_name_hash(char *name)
 {
 	uint32_t hv = cf_hash_fnv32((const uint8_t *)name, strlen(name));
 
-	if (hv <= NAMESPACE_MAX_NUM) {
-		hv += NAMESPACE_MAX_NUM;
+	// Don't collide with a ns-id.
+	if (hv <= AS_NAMESPACE_SZ) {
+		hv += AS_NAMESPACE_SZ;
 	}
 
 	return hv;
@@ -100,52 +90,46 @@ ns_name_hash(char *name)
 // Public API.
 //
 
-// Create a new namespace and hook it up in the data structure
 as_namespace *
 as_namespace_create(char *name)
 {
-	if (strlen(name) >= AS_ID_NAMESPACE_SZ) {
-		cf_warning(AS_NAMESPACE, "can't create namespace: name length too long");
-		return NULL;
-	}
+	cf_assert_nostack(strlen(name) < AS_ID_NAMESPACE_SZ,
+			AS_NAMESPACE, "{%s} namespace name too long (max length is %u)",
+			name, AS_ID_NAMESPACE_SZ - 1);
 
-	if (g_config.n_namespaces >= AS_NAMESPACE_SZ) {
-		cf_warning(AS_NAMESPACE, "can't create namespace: already have %d", AS_NAMESPACE_SZ);
-		return NULL;
-	}
+	cf_assert_nostack(g_config.n_namespaces < AS_NAMESPACE_SZ,
+			AS_NAMESPACE, "too many namespaces (max is %u)", AS_NAMESPACE_SZ);
 
-	for (int i = 0; i < g_config.n_namespaces; i++) {
-		if (0 == strcmp(g_config.namespaces[i]->name, name)) {
-			cf_warning(AS_NAMESPACE, "can't create namespace: namespace %s mentioned again in the configuration", name);
-			return NULL;
+	uint32_t namehash = ns_name_hash(name);
+
+	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
+		as_namespace *ns = g_config.namespaces[ns_ix];
+
+		if (strcmp(ns->name, name) == 0) {
+			cf_crash_nostack(AS_NAMESPACE, "{%s} duplicate namespace", name);
 		}
-	}
 
-	uint32_t cur_namehash = ns_name_hash(name);
-
-	for (int i = 0; i < g_config.n_namespaces; i++) {
-		if (g_config.namespaces[i]->namehash == cur_namehash) {
-			cf_crash_nostack(AS_XDR, "namespace %s's hash value collides with namespace %s",
-					g_config.namespaces[i]->name, name);
+		// Check for CE also, in case deployment later becomes EE with XDR.
+		if (ns->namehash == namehash) {
+			cf_crash_nostack(AS_XDR, "{%s} {%s} namespace name hashes collide",
+					ns->name, name);
 		}
 	}
 
 	as_namespace *ns = cf_malloc(sizeof(as_namespace));
-	cf_assert(ns, AS_NAMESPACE, "%s as_namespace allocation failed", name);
+	cf_assert(ns, AS_NAMESPACE, "{%s} as_namespace allocation failed", name);
+
+	g_config.namespaces[g_config.n_namespaces++] = ns;
 
 	// Set all members 0/NULL/false to start with.
 	memset(ns, 0, sizeof(as_namespace));
 
-	strncpy(ns->name, name, AS_ID_NAMESPACE_SZ - 1);
-	ns->name[AS_ID_NAMESPACE_SZ - 1] = '\0';
-	ns->id = ++g_namespace_id_counter; // note that id is 1-based
-	ns->namehash = cur_namehash;
+	strcpy(ns->name, name);
+	ns->id = g_config.n_namespaces; // note that id is 1-based
+	ns->namehash = namehash;
 
-	if (-1 == (ns->jem_arena = cf_alloc_create_arena())) {
-		cf_crash(AS_NAMESPACE, "can't create JEMalloc arena for namespace %s", name);
-	} else {
-		cf_info(AS_NAMESPACE, "Created JEMalloc arena #%d for namespace \"%s\"", ns->jem_arena, name);
-	}
+	ns->jem_arena = cf_alloc_create_arena();
+	cf_info(AS_NAMESPACE, "{%s} uses JEMalloc arena %d", name, ns->jem_arena);
 
 	ns->cold_start = false; // try warm restart unless told not to
 	ns->arena = NULL; // can't create the arena until the configuration has been done
@@ -222,13 +206,6 @@ as_namespace_create(char *name)
 	ns->geo2dsphere_within_max_cells = 12;
 	ns->geo2dsphere_within_level_mod = 1;
 	ns->geo2dsphere_within_earth_radius_meters = 6371000;  // Wikipedia, mean
-
-	//
-	// END - Configuration defaults.
-	//--------------------------------------------
-
-	g_config.namespaces[g_config.n_namespaces] = ns;
-	g_config.n_namespaces++;
 
 	return ns;
 }
@@ -329,7 +306,7 @@ as_namespace_get_byid(uint32_t id)
 	for (uint32_t i = 0; i < g_config.n_namespaces; i++) {
 		as_namespace *ns = g_config.namespaces[i];
 
-		if (id == (uint32_t)ns->id) {
+		if (id == ns->id) {
 			return ns;
 		}
 	}

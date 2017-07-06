@@ -30,7 +30,6 @@
 
 #include "citrusleaf/cf_digest.h"
 
-#include "base/datamodel.h"
 #include "base/transaction.h"
 #include "transaction/rw_request.h"
 
@@ -83,8 +82,8 @@ typedef enum {
 #define RW_INFO_TOMBSTONE		0x0400 // enterprise only
 
 typedef struct rw_request_hkey_s {
-	as_namespace_id	ns_id;
-	cf_digest		keyd;
+	uint32_t	ns_id;
+	cf_digest	keyd;
 } rw_request_hkey;
 
 

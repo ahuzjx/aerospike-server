@@ -559,10 +559,6 @@ struct as_sindex_config_s;
 	 (AS_POLICY_COMMIT_LEVEL_ALL == ns->write_commit_level ? "all" : "master") \
 	 : "off")
 
-/* as_namespace[_id]
- * A namespace container */
-typedef int32_t as_namespace_id; // signed to denote -1 bad namespace id
-
 
 // TODO - would be nice to put this in as_index.h:
 // Callback invoked when as_index is destroyed.
@@ -589,7 +585,7 @@ typedef struct as_index_tree_shared_s {
 struct as_namespace_s {
 
 	char name[AS_ID_NAMESPACE_SZ];
-	as_namespace_id id;
+	uint32_t id; // this is 1-based
 	uint32_t namehash;
 
 	//--------------------------------------------

@@ -119,20 +119,19 @@ as_truncate_init(as_namespace* ns)
 
 	ns->truncate.state = TRUNCATE_IDLE;
 	pthread_mutex_init(&ns->truncate.state_lock, 0);
-
-	// Lazily create the global filter shash used on the SMD principal.
-	if (! g_truncate_filter_hash &&
-			shash_create(&g_truncate_filter_hash, cf_shash_fn_zstr,
-					TRUNCATE_KEY_SIZE, sizeof(truncate_hval),
-					1024 * g_config.n_namespaces, 0) != SHASH_OK) {
-		cf_crash(AS_TRUNCATE, "truncate init - failed filter-hash create");
-	}
 }
 
 
 void
 as_truncate_init_smd()
 {
+	// Create the global filter shash used on the SMD principal.
+	if (shash_create(&g_truncate_filter_hash, cf_shash_fn_zstr,
+			TRUNCATE_KEY_SIZE, sizeof(truncate_hval),
+			1024 * g_config.n_namespaces, 0) != SHASH_OK) {
+		cf_crash(AS_TRUNCATE, "truncate init - failed filter-hash create");
+	}
+
 	// Register the system metadata custom callbacks.
 	if (as_smd_create_module(TRUNCATE_MODULE,
 			NULL, NULL,
