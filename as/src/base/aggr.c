@@ -271,10 +271,6 @@ as_aggr_aerospike_log(const as_aerospike * a, const char * file, const int line,
 }
 
 static const as_aerospike_hooks as_aggr_aerospike_hooks = {
-	.open_subrec      = NULL,
-	.close_subrec     = NULL,
-	.update_subrec    = NULL,
-	.create_subrec    = NULL,
 	.rec_update       = NULL,
 	.rec_remove       = NULL,
 	.rec_exists       = NULL,

@@ -668,18 +668,6 @@ udf_aerospike__execute_updates(udf_record * urecord)
 	return rc;
 }
 
-as_aerospike *
-udf_aerospike_new()
-{
-	return as_aerospike_new(NULL, &udf_aerospike_hooks);
-}
-
-as_aerospike *
-udf_aerospike_init(as_aerospike * as)
-{
-	return as_aerospike_init(as, NULL, &udf_aerospike_hooks);
-}
-
 static void
 udf_aerospike_destroy(as_aerospike * as)
 {
@@ -979,10 +967,6 @@ udf_aerospike_log(const as_aerospike * a, const char * file, const int line, con
 // Would someone please explain the structure of these hooks?  Why are some null?
 const as_aerospike_hooks udf_aerospike_hooks = {
 	.rec_create       = udf_aerospike_rec_create,
-	.open_subrec      = NULL,
-	.close_subrec     = NULL,
-	.update_subrec    = NULL,
-	.create_subrec    = NULL,
 	.rec_update       = udf_aerospike_rec_update,
 	.rec_remove       = udf_aerospike_rec_remove,
 	.rec_exists       = udf_aerospike_rec_exists,
