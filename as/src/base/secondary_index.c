@@ -81,6 +81,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
@@ -4112,7 +4113,24 @@ as_sindex_put_rd(as_sindex *si, as_storage_rd *rd)
  */
 
 // Global flag to signal that all secondary index SMD is restored.
-bool g_sindex_smd_restored = false;
+static bool g_sindex_smd_restored = false;
+
+void
+as_sindex_init_smd()
+{
+	int retval = as_smd_create_module(SINDEX_MODULE,
+				as_smd_majority_consensus_merge, NULL,
+				NULL, NULL,
+				as_sindex_smd_accept_cb, NULL,
+				NULL, NULL);
+
+	cf_assert(retval == 0, AS_SINDEX, "failed to create sindex SMD module (rv %d)", retval);
+
+	// Wait for Secondary Index SMD to be completely restored.
+	while (! g_sindex_smd_restored) {
+		usleep(1000);
+	}
+}
 
 /*
  * This function is called when the SMD has resolved the correct state of

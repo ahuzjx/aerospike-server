@@ -649,7 +649,7 @@ do {                                            \
  * APIs for SMD
  */
 // **************************************************************************************************
-extern bool g_sindex_smd_restored;
+extern void as_sindex_init_smd();
 extern void as_sindex_imd_to_smd_key(const as_sindex_metadata *imd, char *smd_key);
 extern bool as_sindex_delete_imd_to_smd_key(as_namespace *ns, as_sindex_metadata *imd, char *smd_key);
 extern int  as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, 

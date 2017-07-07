@@ -396,9 +396,6 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 	as_namespace * ns			= rd->ns;
 	bool has_sindex				= record_has_sindex(rd->r, ns);
 	bool is_record_dirty		= false;
-	bool is_record_flag_dirty	= false;
-	uint8_t old_index_flags		= as_index_get_flags(rd->r);
-	uint8_t new_index_flags		= 0;
 
 	// This will iterate over all the updates and apply them to storage.
 	// The items will remain, and be used as cache values. If an error
@@ -544,7 +541,6 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 	// If there were updates do miscellaneous successful commit
 	// tasks
 	if (is_record_dirty 
-			|| is_record_flag_dirty
 			|| (urecord->flag & UDF_RECORD_FLAG_METADATA_UPDATED)) {
 		urecord->flag |= UDF_RECORD_FLAG_HAS_UPDATES; // will write to storage
 	}
@@ -592,12 +588,6 @@ Rollback:
 
 	if (is_record_dirty && urecord->dirty != NULL) {
 		xdr_clear_dirty_bins(urecord->dirty);
-	}
-
-	if (is_record_flag_dirty) {
-		as_index_clear_flags(rd->r, new_index_flags);
-		as_index_set_flags(rd->r, old_index_flags);
-		is_record_flag_dirty = false;
 	}
 
 	if (has_sindex) {

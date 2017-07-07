@@ -323,11 +323,6 @@ retransmit_reduce_fn(const void* key, uint32_t keylen, void* data, void* udata)
 void
 update_retransmit_stats(const rw_request* rw)
 {
-	// Note - rw->msgp can be null if it's a ship-op.
-	if (! rw->msgp) {
-		return;
-	}
-
 	as_namespace* ns = rw->rsv.ns;
 	as_msg* m = &rw->msgp->msg;
 	bool is_dup_res = rw->repl_write_cb == NULL;
