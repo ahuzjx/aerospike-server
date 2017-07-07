@@ -20,11 +20,11 @@
  * along with this program.  If not, see http://www.gnu.org/licenses/
  */
 
+#pragma once
+
 //==========================================================
 // Includes.
 //
-
-#pragma once
 
 #include <pthread.h>
 #include <stdbool.h>
@@ -33,6 +33,14 @@
 
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_shash.h"
+
+
+//==========================================================
+// Forward declarations.
+//
+
+struct as_index_s;
+struct as_namespace_s;
 
 
 //==========================================================
@@ -55,14 +63,6 @@ typedef struct as_truncate_s {
 	cf_atomic64 n_records_this_run;
 	uint64_t n_records;
 } as_truncate;
-
-
-//==========================================================
-// Forward declarations.
-//
-
-struct as_index_s;
-struct as_namespace_s;
 
 
 //==========================================================

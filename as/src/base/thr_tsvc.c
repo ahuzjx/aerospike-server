@@ -66,21 +66,6 @@
 
 
 //==========================================================
-// Forward declarations.
-//
-
-void tsvc_add_threads(uint32_t qid, uint32_t n_threads);
-void tsvc_remove_threads(uint32_t qid, uint32_t n_threads);
-void *run_tsvc(void *arg);
-
-static inline bool
-should_security_check_data_op(const as_transaction *tr)
-{
-	return tr->origin == FROM_CLIENT || tr->origin == FROM_BATCH;
-}
-
-
-//==========================================================
 // Globals.
 //
 
@@ -92,6 +77,26 @@ static uint32_t g_queues_n_threads[MAX_TRANSACTION_QUEUES] = { 0 };
 // It's ok for this to not be atomic - might not round-robin perfectly, but will
 // be cache friendly.
 static uint32_t g_current_q = 0;
+
+
+//==========================================================
+// Forward declarations.
+//
+
+void tsvc_add_threads(uint32_t qid, uint32_t n_threads);
+void tsvc_remove_threads(uint32_t qid, uint32_t n_threads);
+void *run_tsvc(void *arg);
+
+
+//==========================================================
+// Inlines & macros.
+//
+
+static inline bool
+should_security_check_data_op(const as_transaction *tr)
+{
+	return tr->origin == FROM_CLIENT || tr->origin == FROM_BATCH;
+}
 
 
 //==========================================================

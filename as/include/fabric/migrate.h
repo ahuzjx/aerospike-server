@@ -20,11 +20,11 @@
  * along with this program.  If not, see http://www.gnu.org/licenses/
  */
 
-/*
- * The migration module moves partition data from node to node
-*/
-
 #pragma once
+
+//==========================================================
+// Includes.
+//
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -41,8 +41,18 @@
 #include "fabric/hb.h"
 #include "fabric/partition.h"
 
+
+//==========================================================
+// Forward declarations.
+//
+
 struct as_index_ref_s;
 struct as_namespace_s;
+
+
+//==========================================================
+// Typedefs & constants.
+//
 
 // For receiver-side migration flow-control.
 // TODO - move to namespace? Go even lower than 4?
@@ -70,7 +80,11 @@ typedef struct partition_migrate_record_s {
 	uint32_t tx_flags;
 } partition_migrate_record;
 
+
+//==========================================================
 // Public API.
+//
+
 void as_migrate_init();
 void as_migrate_emigrate(const partition_migrate_record *pmr);
 void as_migrate_set_num_xmit_threads(uint32_t n_threads);

@@ -84,7 +84,7 @@ static bool g_truncate_smd_loaded = false;
 
 
 //==========================================================
-// Forward declarations & inlines.
+// Forward declarations.
 //
 
 bool filter_hash_put(const as_smd_item_t* item);
@@ -100,6 +100,11 @@ void truncate_all(as_namespace* ns);
 void* run_truncate(void* arg);
 void truncate_finish(as_namespace* ns);
 void truncate_reduce_cb(as_index_ref* r_ref, void* udata);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline uint64_t
 lut_from_smd(const as_smd_item_t* item)

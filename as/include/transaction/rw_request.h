@@ -34,7 +34,6 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_byte_order.h"
-#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
 
 #include "dynbuf.h"
@@ -44,7 +43,6 @@
 #include "base/proto.h"
 #include "base/rec_props.h"
 #include "base/transaction.h"
-#include "base/transaction_policy.h"
 #include "fabric/partition.h"
 
 
@@ -52,19 +50,20 @@
 // Forward declarations.
 //
 
-struct rw_request_s;
-struct iudf_origin_s;
 struct as_batch_shared_s;
+struct as_file_handle_s;
+struct cl_msg_s;
+struct iudf_origin_s;
+struct rw_request_s;
 
 
 //==========================================================
-// Typedefs.
+// Typedefs & constants.
 //
 
 typedef bool (*dup_res_done_cb) (struct rw_request_s* rw);
 typedef void (*repl_write_done_cb) (struct rw_request_s* rw);
 typedef void (*timeout_done_cb) (struct rw_request_s* rw);
-
 
 typedef struct rw_wait_ele_s {
 	as_transaction			tr; // TODO - only needs to be transaction head
@@ -78,7 +77,7 @@ typedef struct rw_request_s {
 	// Matches as_transaction.
 	//
 
-	cl_msg*				msgp;
+	struct cl_msg_s*	msgp;
 	uint32_t			msg_fields;
 
 	uint8_t				origin;
@@ -86,7 +85,7 @@ typedef struct rw_request_s {
 
 	union {
 		void*						any;
-		as_file_handle*				proto_fd_h;
+		struct as_file_handle_s*	proto_fd_h;
 		cf_node						proxy_node;
 		struct iudf_origin_s*		iudf_orig;
 		struct as_batch_shared_s*	batch_shared;
@@ -100,12 +99,12 @@ typedef struct rw_request_s {
 
 	cf_digest			keyd;
 
-	cf_clock			start_time;
-	cf_clock			benchmark_time;
+	uint64_t			start_time;
+	uint64_t			benchmark_time;
 
 	as_partition_reservation rsv;
 
-	cf_clock			end_time;
+	uint64_t			end_time;
 	// Don't (yet) need result or flags.
 	uint16_t			generation;
 	uint32_t			void_time;
@@ -143,7 +142,7 @@ typedef struct rw_request_s {
 	// write request. Message is kept in case it needs to be retransmitted.
 	msg*				dest_msg;
 
-	cf_clock			xmit_ms; // time of next retransmit
+	uint64_t			xmit_ms; // time of next retransmit
 	uint32_t			retry_interval_ms; // interval to add for next retransmit
 
 	// Destination info for duplicate resolution and replica write requests.
@@ -201,8 +200,7 @@ rw_request_wait_q_depth(rw_request* rw)
 static inline uint64_t
 rw_request_trid(const rw_request* rw)
 {
-	// Note - rw->msgp can be null if it's a ship-op.
-	if ((rw->msg_fields & AS_MSG_FIELD_BIT_TRID) == 0 || ! rw->msgp) {
+	if ((rw->msg_fields & AS_MSG_FIELD_BIT_TRID) == 0) {
 		return 0;
 	}
 

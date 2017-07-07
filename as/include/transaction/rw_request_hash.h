@@ -31,11 +31,18 @@
 #include "citrusleaf/cf_digest.h"
 
 #include "base/transaction.h"
-#include "transaction/rw_request.h"
 
 
 //==========================================================
-// Typedefs.
+// Forward declarations.
+//
+
+struct as_transaction_s;
+struct rw_request_s;
+
+
+//==========================================================
+// Typedefs & constants.
 //
 
 typedef enum {
@@ -94,8 +101,8 @@ typedef struct rw_request_hkey_s {
 void as_rw_init();
 
 uint32_t rw_request_hash_count();
-transaction_status rw_request_hash_insert(rw_request_hkey* hkey, rw_request* rw, as_transaction* tr);
-void rw_request_hash_delete(rw_request_hkey* hkey, rw_request* rw);
-rw_request* rw_request_hash_get(rw_request_hkey* hkey);
+transaction_status rw_request_hash_insert(rw_request_hkey* hkey, struct rw_request_s* rw, struct as_transaction_s* tr);
+void rw_request_hash_delete(rw_request_hkey* hkey, struct rw_request_s* rw);
+struct rw_request_s* rw_request_hash_get(rw_request_hkey* hkey);
 
 void rw_request_hash_dump();

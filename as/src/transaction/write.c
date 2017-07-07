@@ -71,7 +71,7 @@ typedef struct index_metadata_s {
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 bool start_write_dup_res(rw_request* rw, as_transaction* tr);
@@ -128,6 +128,11 @@ void write_master_dim_single_bin_unwind(as_bin* old_bin, as_bin* new_bin,
 void write_master_dim_unwind(as_bin* old_bins, uint32_t n_old_bins,
 		as_bin* new_bins, uint32_t n_new_bins, as_bin* cleanup_bins,
 		uint32_t n_cleanup_bins);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline void
 client_write_update_stats(as_namespace* ns, uint8_t result_code, bool is_xdr_op)

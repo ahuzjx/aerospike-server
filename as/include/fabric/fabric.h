@@ -20,9 +20,11 @@
  * along with this program.  If not, see http://www.gnu.org/licenses/
  */
 
-// Internode network communications.
-
 #pragma once
+
+//==========================================================
+// Includes.
+//
 
 #include <stdbool.h>
 #include <stddef.h>

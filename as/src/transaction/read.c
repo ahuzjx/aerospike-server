@@ -54,7 +54,7 @@
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 bool start_read_dup_res(rw_request* rw, as_transaction* tr);
@@ -68,6 +68,11 @@ void read_timeout_cb(rw_request* rw);
 transaction_status read_local(as_transaction* tr);
 void read_local_done(as_transaction* tr, as_index_ref* r_ref, as_storage_rd* rd,
 		int result_code);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline void
 client_read_update_stats(as_namespace* ns, uint8_t result_code)

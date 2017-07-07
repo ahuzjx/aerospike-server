@@ -96,7 +96,14 @@ typedef struct pickle_info_s {
 
 
 //==========================================================
-// Forward Declarations.
+// Globals.
+//
+
+as_aerospike g_as_aerospike;
+
+
+//==========================================================
+// Forward declarations.
 //
 
 bool log_callback(as_log_level level, const char* func, const char* file,
@@ -133,6 +140,11 @@ void process_failure_str(udf_call* call, const char* err_str, size_t len,
 void process_result(const as_result* result, udf_call* call, cf_dyn_buf* db);
 void process_response(udf_call* call, const char* bin_name, const as_val* val,
 		cf_dyn_buf* db);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline void
 client_udf_update_stats(as_namespace* ns, uint8_t result_code)
@@ -184,13 +196,6 @@ process_success(udf_call* call, const as_val* val, cf_dyn_buf* db)
 {
 	process_response(call, "SUCCESS", val, db);
 }
-
-
-//==========================================================
-// Globals.
-//
-
-as_aerospike g_as_aerospike;
 
 
 //==========================================================

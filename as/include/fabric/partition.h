@@ -50,7 +50,7 @@ struct as_namespace_s;
 
 
 //==========================================================
-// Typedefs and constants.
+// Typedefs & constants.
 //
 
 #define AS_PARTITIONS 4096
@@ -144,31 +144,6 @@ typedef enum {
 
 
 //==========================================================
-// Macros.
-//
-
-#define AS_PARTITION_ID_UNDEF ((uint16_t)0xFFFF)
-
-#define AS_PARTITION_RESERVATION_INIT(__rsv) \
-	__rsv.ns = NULL; \
-	__rsv.p = NULL; \
-	__rsv.tree = NULL; \
-	__rsv.cluster_key = 0; \
-	__rsv.reject_repl_write = false; \
-	__rsv.n_dupl = 0;
-
-#define AS_PARTITION_RESERVATION_INITP(__rsv) \
-	__rsv->ns = NULL; \
-	__rsv->p = NULL; \
-	__rsv->tree = NULL; \
-	__rsv->cluster_key = 0; \
-	__rsv->reject_repl_write = false; \
-	__rsv->n_dupl = 0;
-
-#define VERSION_AS_STRING(v_ptr) (as_partition_version_as_string(v_ptr).s)
-
-
-//==========================================================
 // Public API.
 //
 
@@ -201,7 +176,7 @@ void as_partition_release(as_partition_reservation* rsv);
 
 void as_partition_getinfo_str(cf_dyn_buf* db);
 
-// Use VERSION_AS_STRING() - see above.
+// Use VERSION_AS_STRING() - see below.
 static inline as_partition_version_string
 as_partition_version_as_string(const as_partition_version* version)
 {
@@ -263,6 +238,26 @@ contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
 {
 	return index_of_node(nodes, n_nodes, node) != -1;
 }
+
+#define AS_PARTITION_ID_UNDEF ((uint16_t)0xFFFF)
+
+#define AS_PARTITION_RESERVATION_INIT(__rsv) \
+	__rsv.ns = NULL; \
+	__rsv.p = NULL; \
+	__rsv.tree = NULL; \
+	__rsv.cluster_key = 0; \
+	__rsv.reject_repl_write = false; \
+	__rsv.n_dupl = 0;
+
+#define AS_PARTITION_RESERVATION_INITP(__rsv) \
+	__rsv->ns = NULL; \
+	__rsv->p = NULL; \
+	__rsv->tree = NULL; \
+	__rsv->cluster_key = 0; \
+	__rsv->reject_repl_write = false; \
+	__rsv->n_dupl = 0;
+
+#define VERSION_AS_STRING(v_ptr) (as_partition_version_as_string(v_ptr).s)
 
 
 //==========================================================

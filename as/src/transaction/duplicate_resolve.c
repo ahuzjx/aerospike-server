@@ -53,7 +53,7 @@
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 void done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref);

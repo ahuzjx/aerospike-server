@@ -47,6 +47,7 @@
 #include "base/secondary_index.h"
 #include "base/transaction.h"
 #include "base/truncate.h"
+#include "base/xdr_serverside.h"
 #include "fabric/fabric.h"
 #include "fabric/partition.h"
 #include "transaction/delete.h"

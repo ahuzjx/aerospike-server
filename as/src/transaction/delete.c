@@ -57,7 +57,7 @@
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 bool start_delete_dup_res(rw_request* rw, as_transaction* tr);
@@ -68,6 +68,11 @@ void delete_repl_write_cb(rw_request* rw);
 
 void send_delete_response(as_transaction* tr);
 void delete_timeout_cb(rw_request* rw);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline void
 client_delete_update_stats(as_namespace* ns, uint8_t result_code)

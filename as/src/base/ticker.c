@@ -64,7 +64,7 @@
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 extern int as_nsup_queue_get_size();

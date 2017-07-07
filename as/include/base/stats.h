@@ -36,7 +36,7 @@
 
 
 //==========================================================
-// Typedefs.
+// Typedefs & constants.
 //
 
 typedef struct as_stats_s {

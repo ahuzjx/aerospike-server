@@ -131,7 +131,15 @@ typedef struct proxy_request_s {
 
 
 //==========================================================
-// Forward Declarations.
+// Globals.
+//
+
+static shash* g_proxy_hash = NULL;
+static cf_atomic32 g_proxy_tid = 0;
+
+
+//==========================================================
+// Forward declarations.
 //
 
 void* run_proxy_retransmit(void* arg);
@@ -146,6 +154,11 @@ int proxyer_handle_batch_response(msg* m, proxy_request* pr);
 void proxyer_handle_return_to_sender(msg* m, uint32_t tid);
 
 void proxyee_handle_request(cf_node src, msg* m, uint32_t tid);
+
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline uint32_t
 proxy_hash_fn(const void* value)
@@ -190,14 +203,6 @@ batch_sub_proxy_update_stats(as_namespace* ns, uint8_t result_code)
 		break;
 	}
 }
-
-
-//==========================================================
-// Globals.
-//
-
-static shash* g_proxy_hash = NULL;
-static cf_atomic32 g_proxy_tid = 0;
 
 
 //==========================================================

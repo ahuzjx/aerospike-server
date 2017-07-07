@@ -87,7 +87,14 @@ COMPILER_ASSERT(sizeof(rw_mt) / sizeof(msg_template) == NUM_RW_FIELDS);
 
 
 //==========================================================
-// Forward Declarations.
+// Globals.
+//
+
+static cf_rchash* g_rw_request_hash = NULL;
+
+
+//==========================================================
+// Forward declarations.
 //
 
 uint32_t rw_request_hash_fn(const void* value, uint32_t value_len);
@@ -98,13 +105,6 @@ int retransmit_reduce_fn(const void* key, uint32_t keylen, void* data, void* uda
 void update_retransmit_stats(const rw_request* rw);
 
 int rw_msg_cb(cf_node id, msg* m, void* udata);
-
-
-//==========================================================
-// Globals.
-//
-
-static cf_rchash* g_rw_request_hash = NULL;
 
 
 //==========================================================

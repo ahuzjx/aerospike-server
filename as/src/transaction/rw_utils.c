@@ -43,6 +43,7 @@
 #include "base/proto.h" // xdr_allows_write
 #include "base/secondary_index.h"
 #include "base/transaction.h"
+#include "base/xdr_serverside.h"
 #include "fabric/fabric.h"
 #include "storage/storage.h"
 #include "transaction/rw_request.h"

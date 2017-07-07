@@ -65,7 +65,7 @@
 
 
 //==========================================================
-// Constants and typedefs.
+// Typedefs & constants.
 //
 
 const msg_template migrate_mt[] = {
@@ -162,7 +162,7 @@ static cf_queue g_emigration_q;
 
 
 //==========================================================
-// Forward declarations and inlines.
+// Forward declarations.
 //
 
 // Various initializers and destructors.
@@ -207,6 +207,10 @@ void emigration_handle_ctrl_ack(cf_node src, msg *m, uint32_t op);
 int emigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
 int immigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
 
+
+//==========================================================
+// Inlines & macros.
+//
 
 static inline uint32_t
 immigration_hashfn(const void *value, uint32_t value_len)

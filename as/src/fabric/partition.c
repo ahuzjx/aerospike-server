@@ -57,7 +57,12 @@ cf_node partition_getreplica_prole(as_namespace* ns, uint32_t pid);
 char partition_descriptor(const as_partition* p);
 int partition_get_replica_self_lockfree(const as_namespace* ns, uint32_t pid);
 
-int
+
+//==========================================================
+// Inlines & macros.
+//
+
+static inline int
 find_self_in_replicas(const as_partition* p)
 {
 	return index_of_node(p->replicas, p->n_replicas, g_config.self_node);

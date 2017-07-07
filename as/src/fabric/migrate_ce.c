@@ -39,7 +39,7 @@
 
 
 //==========================================================
-// Constants.
+// Typedefs & constants.
 //
 
 const uint32_t MY_MIG_FEATURES = 0;
