@@ -2884,7 +2884,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 				sbins_populated += as_sindex_sbins_from_rd(&rd, (uint16_t)block->n_bins, old_n_bins, sbins, AS_SINDEX_OP_DELETE);
 			}
 
-			as_bin_allocate_bin_space(r, &rd, delta_bins);
+			as_bin_allocate_bin_space(&rd, delta_bins);
 		}
 
 		for (uint16_t i = 0; i < block->n_bins; i++) {

@@ -1001,7 +1001,7 @@ write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
 bool
 udf_pickle_all(as_storage_rd* rd, pickle_info* pickle)
 {
-	if (as_record_pickle(rd->r, rd, &pickle->buf, &pickle->buf_size) != 0) {
+	if (as_record_pickle(rd, &pickle->buf, &pickle->buf_size) != 0) {
 		return false;
 	}
 

@@ -237,7 +237,7 @@ dup_res_handle_request(cf_node node, msg* m)
 	uint8_t* buf;
 	size_t buf_len;
 
-	if (0 != as_record_pickle(r, &rd, &buf, &buf_len)) {
+	if (as_record_pickle(&rd, &buf, &buf_len) != 0) {
 		as_storage_record_close(&rd);
 		done_handle_request(&rsv, &r_ref);
 		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);

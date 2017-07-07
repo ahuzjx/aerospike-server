@@ -228,7 +228,7 @@ as_record_remove_key(as_record* r)
 //
 
 int
-as_record_pickle(as_record *r, as_storage_rd *rd, uint8_t **buf_r, size_t *len_r)
+as_record_pickle(as_storage_rd *rd, uint8_t **buf_r, size_t *len_r)
 {
 	// Determine size
 	uint32_t sz = 2;
@@ -302,7 +302,7 @@ as_record_buf_get_stack_particles_sz(uint8_t *buf) {
 }
 
 int
-as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t **stack_particles, bool has_sindex)
+as_record_unpickle_replace(as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t **stack_particles, bool has_sindex)
 {
 	as_namespace *ns = rd->ns;
 
@@ -349,7 +349,7 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	if (ns->storage_data_in_memory && ! ns->single_bin) {
 		if (delta_bins) {
 			// If sizing down, this does destroy the excess particles.
-			as_bin_allocate_bin_space(r, rd, delta_bins);
+			as_bin_allocate_bin_space(rd, delta_bins);
 		}
 	}
 	else if (delta_bins < 0) {
@@ -546,7 +546,7 @@ as_record_flatten_component(as_storage_rd *rd, as_index_ref *r_ref,
 	// Check after applying set-id from rec-props, in case r just created.
 	bool has_sindex = record_has_sindex(r, rd->ns);
 
-	int rv = as_record_unpickle_replace(r, rd, c->record_buf, c->record_buf_sz, &p_stack_particles, has_sindex);
+	int rv = as_record_unpickle_replace(rd, c->record_buf, c->record_buf_sz, &p_stack_particles, has_sindex);
 	if (0 != rv) {
 		cf_warning_digest(AS_RECORD, &rd->r->keyd, "Unpickled replace failed rv=%d",rv);
 		as_storage_record_close(rd);

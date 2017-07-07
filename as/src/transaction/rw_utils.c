@@ -250,7 +250,7 @@ update_metadata_in_index(as_transaction* tr, bool increment_generation,
 bool
 pickle_all(as_storage_rd* rd, rw_request* rw)
 {
-	if (as_record_pickle(rd->r, rd, &rw->pickled_buf, &rw->pickled_sz) != 0) {
+	if (as_record_pickle(rd, &rw->pickled_buf, &rw->pickled_sz) != 0) {
 		return false;
 	}
 

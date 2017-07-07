@@ -644,7 +644,7 @@ write_replica(as_partition_reservation* rsv, cf_digest* keyd,
 		}
 	}
 
-	if (as_record_unpickle_replace(r, &rd, pickled_buf, pickled_sz,
+	if (as_record_unpickle_replace(&rd, pickled_buf, pickled_sz,
 			&p_stack_particles, has_sindex) != 0) {
 		if (is_create) {
 			as_index_delete(tree, keyd);

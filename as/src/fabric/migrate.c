@@ -770,7 +770,7 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 
 	pickled_record pr;
 
-	if (as_record_pickle(r, &rd, &pr.record_buf, &pr.record_len) != 0) {
+	if (as_record_pickle(&rd, &pr.record_buf, &pr.record_len) != 0) {
 		cf_warning(AS_MIGRATE, "failed migrate record pickle");
 		as_storage_record_close(&rd);
 		as_record_done(r_ref, ns);

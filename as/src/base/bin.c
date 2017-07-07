@@ -578,7 +578,10 @@ as_bin_get_index_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz)
 }
 
 void
-as_bin_allocate_bin_space(as_record *r, as_storage_rd *rd, int32_t delta) {
+as_bin_allocate_bin_space(as_storage_rd *rd, int32_t delta)
+{
+	as_record *r = rd->r;
+
 	if (rd->n_bins == 0) {
 		rd->n_bins = (uint16_t)delta;
 

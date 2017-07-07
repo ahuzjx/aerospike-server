@@ -440,7 +440,7 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 
 	// Allocate space for all the new bins that need to be created beforehand
 	if (delta_bins > 0 && rd->ns->storage_data_in_memory && ! rd->ns->single_bin) {
-		as_bin_allocate_bin_space(urecord->r_ref->r, rd, delta_bins);
+		as_bin_allocate_bin_space(rd, delta_bins);
 	}
 
 	if (!rd->ns->storage_data_in_memory && !urecord->particle_data) {
@@ -640,7 +640,6 @@ udf_aerospike__execute_updates(udf_record * urecord)
 {
 	int rc = 0;
 	as_storage_rd *rd    = urecord->rd;
-	as_index_ref * r_ref = urecord->r_ref;
 
 	if ( urecord->nupdates == 0  &&
 			(urecord->flag & UDF_RECORD_FLAG_METADATA_UPDATED) == 0 ) {
@@ -662,7 +661,7 @@ udf_aerospike__execute_updates(udf_record * urecord)
 	if (rd->ns && rd->ns->storage_data_in_memory && ! rd->ns->single_bin) {
 		int32_t delta_bins = (int32_t)as_bin_inuse_count(rd) - (int32_t)rd->n_bins;
 		if (delta_bins) {
-			as_bin_allocate_bin_space(r_ref->r, rd, delta_bins);
+			as_bin_allocate_bin_space(rd, delta_bins);
 		}
 	}
 	return rc;
