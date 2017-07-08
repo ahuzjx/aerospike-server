@@ -140,6 +140,23 @@ cf_dyn_buf_append_char (cf_dyn_buf *db, char c)
 }
 
 int
+cf_dyn_buf_append_bool(cf_dyn_buf *db, bool b)
+{
+	if (b) {
+		DB_RESERVE(4);
+		memcpy(&db->buf[db->used_sz], "true", 4);
+		db->used_sz += 4;
+	}
+	else {
+		DB_RESERVE(5);
+		memcpy(&db->buf[db->used_sz], "false", 5);
+		db->used_sz += 5;
+	}
+
+	return 0;
+}
+
+int
 cf_dyn_buf_append_int (cf_dyn_buf *db, int i)
 {
 	// overreserving isn't a crime
@@ -207,7 +224,7 @@ info_append_bool(cf_dyn_buf *db, const char *name, bool value)
 {
 	cf_dyn_buf_append_string(db, name);
 	cf_dyn_buf_append_char(db, '=');
-	cf_dyn_buf_append_string(db, value ? "true" : "false");
+	cf_dyn_buf_append_bool(db, value);
 	cf_dyn_buf_append_char(db, ';');
 }
 

@@ -735,6 +735,7 @@ struct as_namespace_s {
 	char*			storage_scheduler_mode; // relevant for devices only, not files
 	uint32_t		storage_write_block_size;
 	PAD_BOOL		storage_data_in_memory;
+
 	PAD_BOOL		storage_cold_start_empty;
 	uint32_t		storage_defrag_lwm_pct;
 	uint32_t		storage_defrag_queue_min;
@@ -1110,9 +1111,8 @@ extern void as_namespaces_setup(bool cold_start_cmd, uint32_t instance, uint32_t
 extern bool as_namespace_configure_sets(as_namespace *ns);
 extern as_namespace *as_namespace_get_byname(char *name);
 extern as_namespace *as_namespace_get_byid(uint32_t id);
-extern as_namespace *as_namespace_get_bymsgfield(struct as_msg_field_s *fp);
 extern as_namespace *as_namespace_get_bybuf(uint8_t *name, size_t len);
-extern void as_namespace_eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes);
+extern as_namespace *as_namespace_get_bymsgfield(struct as_msg_field_s *fp);
 extern const char *as_namespace_get_set_name(as_namespace *ns, uint16_t set_id);
 extern uint16_t as_namespace_get_set_id(as_namespace *ns, const char *set_name);
 extern uint16_t as_namespace_get_create_set_id(as_namespace *ns, const char *set_name);
@@ -1127,7 +1127,6 @@ extern void as_namespace_release_set_id(as_namespace *ns, uint16_t set_id);
 extern void as_namespace_get_bins_info(as_namespace *ns, cf_dyn_buf *db, bool show_ns);
 extern void as_namespace_get_hist_info(as_namespace *ns, char *set_name, char *hist_name,
 		cf_dyn_buf *db, bool show_ns);
-extern int as_namespace_check_set_limits(as_set * p_set, as_namespace * ns);
 
 // Persistent Memory Management
 
