@@ -475,16 +475,6 @@ if (!(expression)) {WARNING(message, ##__VA_ARGS__);}
  */
 
 /**
- * Put a key to a hash or crash with an error message on failure.
- */
-#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)		\
-({															\
-	if (cf_shash_put(hash, key, value) != CF_SHASH_OK) {	\
-		CRASH(error, ##__VA_ARGS__);						\
-	}														\
-})
-
-/**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
@@ -1623,7 +1613,7 @@ static void mesh_stop();
 static int mesh_node_endpoint_list_fill(as_hb_mesh_node* mesh_node);
 static int mesh_tend_reduce(const void* key, void* data, void* udata);
 void* mesh_tender(void* arg);
-static void mesh_node_add_update(as_hb_mesh_node_key* mesh_node_key, as_hb_mesh_node* mesh_node, char* add_error_message);
+static void mesh_node_add_update(as_hb_mesh_node_key* mesh_node_key, as_hb_mesh_node* mesh_node);
 static void mesh_node_destroy(as_hb_mesh_node* mesh_node);
 static void mesh_node_delete_no_destroy(as_hb_mesh_node_key* mesh_node_key, char* delete_error_message);
 static void mesh_node_delete(as_hb_mesh_node_key* mesh_node_key, char* delete_error_message);
@@ -3697,8 +3687,7 @@ channel_socket_register(cf_socket* socket, bool is_multicast, bool is_inbound,
 	cf_poll_add_socket(g_hb.channel_state.poll, socket,
 			EPOLLIN | EPOLLERR | EPOLLRDHUP, socket);
 
-	SHASH_PUT_OR_DIE(g_hb.channel_state.socket_to_channel, &socket, &channel,
-			"error allocating memory for channel fd %d", CSFD(socket));
+	cf_shash_put(g_hb.channel_state.socket_to_channel, &socket, &channel);
 
 	DEBUG("channel created for fd %d - polarity %s type: %s", CSFD(socket),
 			channel.is_inbound ? "inbound" : "outbound",
@@ -4085,14 +4074,10 @@ channel_node_attach(cf_socket* socket, as_hb_channel* channel, cf_node nodeid)
 
 	// Update the node information for the channel.
 	// This is the first time this node has a connection. Record the mapping.
-	SHASH_PUT_OR_DIE(g_hb.channel_state.nodeid_to_socket, &nodeid, &socket,
-			"error associating node %" PRIX64 " with fd %d", nodeid,
-			CSFD(socket));
+	cf_shash_put(g_hb.channel_state.nodeid_to_socket, &nodeid, &socket);
 
 	channel->nodeid = nodeid;
-	SHASH_PUT_OR_DIE(g_hb.channel_state.socket_to_channel, &socket, channel,
-			"error saving nodeid %" PRIx64 " to channel hash for fd %d", nodeid,
-			CSFD(socket));
+	cf_shash_put(g_hb.channel_state.socket_to_channel, &socket, channel);
 
 	DEBUG("attached fd %d to node %" PRIx64, CSFD(socket), nodeid);
 
@@ -4215,9 +4200,8 @@ channel_socket_resolve(cf_socket* socket1, cf_socket* socket2)
 		winner_channel->resolution_win_ts = now;
 		// Update the winning count of the winning channel in the channel data
 		// structures.
-		SHASH_PUT_OR_DIE(g_hb.channel_state.socket_to_channel, &winner_socket,
-				winner_channel, "error allocating memory for channel fd %d",
-				CSFD(winner_socket));
+		cf_shash_put(g_hb.channel_state.socket_to_channel, &winner_socket,
+				winner_channel);
 	}
 
 	if (winner_channel->resolution_win_ts > now + channel_win_grace_ms()) {
@@ -4391,8 +4375,7 @@ channel_msg_event_process(cf_socket* socket, as_hb_channel_event* event)
 	// Update the last received time for this node
 	channel.last_received = cf_getms();
 
-	SHASH_PUT_OR_DIE(g_hb.channel_state.socket_to_channel, &socket, &channel,
-			"error updating node %" PRIX64 " with fd %d", nodeid, CSFD(socket));
+	cf_shash_put(g_hb.channel_state.socket_to_channel, &socket, &channel);
 
 	cf_socket* existing_socket;
 	int get_result = SHASH_GET_OR_DIE(g_hb.channel_state.nodeid_to_socket,
@@ -4833,18 +4816,14 @@ channel_init()
 	}
 
 	// Initialize the nodeid to socket hash.
-	if (cf_shash_create(&g_hb.channel_state.nodeid_to_socket,
-			cf_nodeid_shash_fn, sizeof(cf_node), sizeof(cf_socket*),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating nodeid to fd hash");
-	}
+	g_hb.channel_state.nodeid_to_socket = cf_shash_create(cf_nodeid_shash_fn,
+			sizeof(cf_node), sizeof(cf_socket*), AS_HB_CLUSTER_MAX_SIZE_SOFT,
+			0);
 
 	// Initialize the socket to channel state hash.
-	if (cf_shash_create(&g_hb.channel_state.socket_to_channel,
-			hb_socket_hash_fn, sizeof(cf_socket*), sizeof(as_hb_channel),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating fd to channel hash");
-	}
+	g_hb.channel_state.socket_to_channel = cf_shash_create(hb_socket_hash_fn,
+			sizeof(cf_socket*), sizeof(as_hb_channel),
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	g_hb.channel_state.status = AS_HB_STATUS_STOPPED;
 
@@ -5481,7 +5460,7 @@ mesh_seed_node_real_nodeid_set(as_hb_mesh_node* mesh_node,
 	new_key.nodeid = nodeid;
 	new_key.is_real_nodeid = true;
 
-	mesh_node_add_update(&new_key, mesh_node, "error adding mesh node");
+	mesh_node_add_update(&new_key, mesh_node);
 
 	MESH_UNLOCK();
 
@@ -5842,13 +5821,12 @@ mesh_tender(void* arg)
  */
 static void
 mesh_node_add_update(as_hb_mesh_node_key* mesh_node_key,
-		as_hb_mesh_node* mesh_node, char* add_error_message)
+		as_hb_mesh_node* mesh_node)
 {
 	MESH_LOCK();
 
-	SHASH_PUT_OR_DIE(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
-			mesh_node_key, mesh_node, "%s (Mesh  node: %"PRIx64")",
-			add_error_message, mesh_node_key->nodeid);
+	cf_shash_put(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+			mesh_node_key, mesh_node);
 
 	MESH_UNLOCK();
 }
@@ -6191,8 +6169,7 @@ mesh_channel_on_node_disconnect(as_hb_channel_event* event)
 	node_key.nodeid = event->nodeid;
 
 	// Update the mesh entry.
-	mesh_node_add_update(&node_key, &mesh_node,
-			"error updating mesh node entry");
+	mesh_node_add_update(&node_key, &mesh_node);
 
 Exit:
 	MESH_UNLOCK();
@@ -6313,7 +6290,7 @@ mesh_node_try_add_new(as_hb_channel_event* event)
 
 	as_hb_mesh_node_key new_key = { true, new_node.nodeid };
 
-	mesh_node_add_update(&new_key, &new_node, "error adding mesh node");
+	mesh_node_add_update(&new_key, &new_node);
 
 	rv = true;
 
@@ -6603,8 +6580,7 @@ mesh_node_data_update(as_hb_channel_event* event)
 			AS_HB_MESH_NODE_CHANNEL_ACTIVE);
 
 	// Apply the update.
-	mesh_node_add_update(&existing_node_key, &existing_mesh_node,
-			"error updating mesh node status to active");
+	mesh_node_add_update(&existing_node_key, &existing_mesh_node);
 
 Exit:
 	MESH_UNLOCK();
@@ -6790,8 +6766,7 @@ mesh_channel_on_pulse(msg* msg)
 			new_key.nodeid = adj_list[i];
 
 			// Add as a new node
-			mesh_node_add_update(&new_key, &new_node,
-					"error adding new mesh non seed node");
+			mesh_node_add_update(&new_key, &new_node);
 		}
 
 		if (!mesh_node_endpoint_list_is_valid(adj_list[i])) {
@@ -6994,7 +6969,7 @@ mesh_channel_on_info_reply(msg* msg)
 					reply_ptr->nodeid, endpoint_list_str);
 
 			// Update the hash.
-			mesh_node_add_update(&new_key, &existing_node, "error updating endpoint");
+			mesh_node_add_update(&new_key, &existing_node);
 		}
 
 	NextReply:
@@ -7069,7 +7044,7 @@ mesh_seed_node_add(as_hb_mesh_node* new_node)
 				new_key.nodeid, endpoint_list_str);
 
 		// Add as a new node
-		mesh_node_add_update(&new_key, new_node, "error adding new mesh seed node");
+		mesh_node_add_update(&new_key, new_node);
 	}
 	else {
 		// Invalid entry. Should never happen in practice.
@@ -7145,8 +7120,7 @@ mesh_tip(char* host, int port)
 						host, port);
 
 				existing_node.is_seed = true;
-				mesh_node_add_update(&existing_node_key, &existing_node,
-						"error allocating space for mesh tip node");
+				mesh_node_add_update(&existing_node_key, &existing_node);
 				rv = CF_SHASH_OK;
 				goto Exit;
 			}
@@ -7212,12 +7186,9 @@ mesh_init()
 	g_hb.mode_state.mesh_state.status = AS_HB_STATUS_STOPPED;
 
 	// Initialize the mesh node dictionary.
-	if (cf_shash_create(&g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	g_hb.mode_state.mesh_state.nodeid_to_mesh_node = cf_shash_create(
 			hb_mesh_node_key_hash_fn, sizeof(as_hb_mesh_node_key),
-			sizeof(as_hb_mesh_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
-			!= CF_SHASH_OK) {
-		CRASH("error creating mesh node hash");
-	}
+			sizeof(as_hb_mesh_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	MESH_UNLOCK();
 }
@@ -8421,18 +8392,12 @@ hb_init()
 	memset(&g_hb, 0, sizeof(g_hb));
 
 	// Initialize the adjacencies.
-	if (cf_shash_create(&g_hb.adjacency, cf_nodeid_shash_fn, sizeof(cf_node),
-			sizeof(as_hb_adjacent_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
-			!= CF_SHASH_OK) {
-		CRASH("error creating adjacencies hash");
-	}
+	g_hb.adjacency = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node),
+			sizeof(as_hb_adjacent_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	// Initialize the temporary hash to map nodeid to index.
-	if (cf_shash_create(&g_hb.nodeid_to_index, cf_nodeid_shash_fn,
-			sizeof(cf_node), sizeof(int), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
-			!= CF_SHASH_OK) {
-		CRASH("error creating nodeid to index hash");
-	}
+	g_hb.nodeid_to_index = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node),
+			sizeof(int), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	// Initialize unpublished event queue.
 	if (!cf_queue_init(&g_hb_event_listeners.external_events_queue,
@@ -8633,8 +8598,7 @@ hb_channel_on_pulse(as_hb_channel_event* msg_event)
 	adjacent_node.cluster_name_mismatch_count = 0;
 
 	// Update plugin data, update times, etc.
-	SHASH_PUT_OR_DIE(g_hb.adjacency, &source, &adjacent_node,
-			"error allocating space for adjacent node %" PRIx64, source);
+	cf_shash_put(g_hb.adjacency, &source, &adjacent_node);
 
 	// Publish event if this is a new node.
 	if (is_new) {
@@ -8700,8 +8664,7 @@ hb_handle_cluster_name_mismatch(as_hb_channel_event* event)
 
 	// Update the cluster_name_mismatch counter.
 	adjacent_node.cluster_name_mismatch_count++;
-	SHASH_PUT_OR_DIE(g_hb.adjacency, &event->nodeid, &adjacent_node,
-			"error allocating space for adjacent node %" PRIx64, event->nodeid);
+	cf_shash_put(g_hb.adjacency, &event->nodeid, &adjacent_node);
 Exit:
 	HB_UNLOCK();
 }
@@ -8808,8 +8771,7 @@ hb_adjacency_graph_invert(cf_vector* nodes, uint8_t** inverted_graph)
 		}
 		cf_node nodeid = 0;
 		cf_vector_get(nodes, i, &nodeid);
-		SHASH_PUT_OR_DIE(g_hb.nodeid_to_index, &nodeid, &i,
-				"error adding element to nodeid to index hash");
+		cf_shash_put(g_hb.nodeid_to_index, &nodeid, &i);
 	}
 
 	cf_node self_nodeid = config_self_nodeid_get();

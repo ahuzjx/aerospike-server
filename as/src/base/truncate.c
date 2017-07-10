@@ -131,11 +131,9 @@ void
 as_truncate_init_smd()
 {
 	// Create the global filter shash used on the SMD principal.
-	if (cf_shash_create(&g_truncate_filter_hash, cf_shash_fn_zstr,
+	g_truncate_filter_hash = cf_shash_create(cf_shash_fn_zstr,
 			TRUNCATE_KEY_SIZE, sizeof(truncate_hval),
-			1024 * g_config.n_namespaces, 0) != CF_SHASH_OK) {
-		cf_crash(AS_TRUNCATE, "truncate init - failed filter-hash create");
-	}
+			1024 * g_config.n_namespaces, 0);
 
 	// Register the system metadata custom callbacks.
 	if (as_smd_create_module(TRUNCATE_MODULE,
@@ -287,10 +285,7 @@ filter_hash_put(const as_smd_item_t* item)
 
 	if (cf_shash_get(g_truncate_filter_hash, hkey, &ex_hval) != CF_SHASH_OK ||
 			new_hval.lut > ex_hval.lut) {
-		if (cf_shash_put(g_truncate_filter_hash, hkey, &new_hval) !=
-				CF_SHASH_OK) {
-			cf_warning(AS_TRUNCATE, "{%s} failed filter-hash put", item->key);
-		}
+		cf_shash_put(g_truncate_filter_hash, hkey, &new_hval);
 
 		return true;
 	}

@@ -212,7 +212,7 @@ batch_sub_proxy_update_stats(as_namespace* ns, uint8_t result_code)
 void
 as_proxy_init()
 {
-	cf_shash_create(&g_proxy_hash, proxy_hash_fn, sizeof(uint32_t),
+	g_proxy_hash = cf_shash_create(proxy_hash_fn, sizeof(uint32_t),
 			sizeof(proxy_request), 4 * 1024, CF_SHASH_MANY_LOCK);
 
 	pthread_t thread;
@@ -288,11 +288,7 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns,
 	pr.pid = pid;
 	pr.ns = ns;
 
-	if (cf_shash_put(g_proxy_hash, &tid, &pr) != CF_SHASH_OK) {
-		cf_warning(AS_PROXY, "failed shash put");
-		as_fabric_msg_put(m);
-		return false;
-	}
+	cf_shash_put(g_proxy_hash, &tid, &pr);
 
 	tr->msgp = NULL; // pattern, not needed
 	tr->from.any = NULL; // pattern, not needed

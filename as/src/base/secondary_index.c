@@ -568,10 +568,7 @@ as_sindex__put_in_set_binid_hash(as_namespace * ns, char * set, int binid, int c
 	if (rv == CF_SHASH_ERR_NOT_FOUND) {
 		simatch_ll = cf_malloc(sizeof(cf_ll));
 		cf_ll_init(simatch_ll, as_sindex__set_binid_hash_destroy, false);
-		if (CF_SHASH_OK != cf_shash_put(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll)) {
-			cf_warning(AS_SINDEX, "shash put failed for key %s", si_prop);
-			return AS_SINDEX_ERR;
-		}
+		cf_shash_put(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll);
 	}
 	if (!simatch_ll) {
 		return AS_SINDEX_ERR;
@@ -1498,16 +1495,7 @@ sindex_create_lockless(as_namespace *ns, as_sindex_metadata *imd)
 	char iname[AS_ID_INAME_SZ];
 	memset(iname, 0, AS_ID_INAME_SZ);
 	snprintf(iname, strlen(imd->iname)+1, "%s", imd->iname);
-	if (CF_SHASH_OK != cf_shash_put(ns->sindex_iname_hash, (void *)iname, (void *)&chosen_id)) {
-		cf_warning(AS_SINDEX, "Internal error ... Duplicate element found sindex iname hash [%s %s]",
-				imd->iname, as_bin_get_name_from_id(ns, imd->binid));
-
-		rv = as_sindex__delete_from_set_binid_hash(ns, imd);
-		if (rv) {
-			cf_warning(AS_SINDEX, "Delete from set_binid hash fails with error %d", rv);
-		}
-		return AS_SINDEX_ERR;
-	}
+	cf_shash_put(ns->sindex_iname_hash, (void *)iname, (void *)&chosen_id);
 	cf_detail(AS_SINDEX, "Put iname simatch %s:%zu->%d", iname, strlen(imd->iname), chosen_id);
 
 	// Init SI
@@ -3417,30 +3405,25 @@ packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, cf_sh
 	else {
 		// Item is in hash, set it to true.
 		found = true;
+		cf_shash_put(hash, skey, &found);
 
-		if (cf_shash_put(hash, skey, &found) == CF_SHASH_OK) {
-			return true;
-		}
+		return true;
 	}
 
 	return false;
 }
 
-static bool
+static void
 shash_add_packed_val(cf_shash *h, const cdt_payload *val, as_val_t type, bool value)
 {
 	uint8_t skey[sizeof(cf_digest)];
 
 	if (! packed_val_make_skey(val, type, skey)) {
 		// packed_vals that aren't of type are ignored.
-		return true;
+		return;
 	}
 
-	if (cf_shash_put(h, skey, &value) != CF_SHASH_OK) {
-		return false;
-	}
-
-	return true;
+	cf_shash_put(h, skey, &value);
 }
 
 static int
@@ -3567,11 +3550,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		return sbins->num_values == 0 ? 0 : 1;
 	}
 
-	cf_shash *hash;
-	if (cf_shash_create(&hash, cf_shash_fn_u32, data_size, 1, short_list_size, 0) != CF_SHASH_OK) {
-		cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() failed to create hash");
-		return -1;
-	}
+	cf_shash *hash = cf_shash_create(cf_shash_fn_u32, data_size, 1, short_list_size, 0);
 
 	// Add elements of shorter list into hash with value = false.
 	for (uint32_t i = 0; i < short_list_size; i++) {
@@ -3588,12 +3567,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		}
 
 		ele.size = size;
-
-		if (! shash_add_packed_val(hash, &ele, expected_type, false)) {
-			cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() hash add failed");
-			cf_shash_destroy(hash);
-			return -1;
-		}
+		shash_add_packed_val(hash, &ele, expected_type, false);
 	}
 
 	as_sindex_init_sbin(sbins, old_list_is_short ? AS_SINDEX_OP_INSERT : AS_SINDEX_OP_DELETE, type, si);
@@ -4560,18 +4534,12 @@ as_sindex_init(as_namespace *ns)
 	}
 
 	// binid to simatch lookup
-	if (CF_SHASH_OK != cf_shash_create(&ns->sindex_set_binid_hash,
-						cf_shash_fn_zstr, AS_SINDEX_PROP_KEY_SIZE, sizeof(cf_ll *),
-						AS_SINDEX_MAX, 0)) {
-		cf_crash(AS_AS, "Couldn't create sindex binid hash");
-	}
+	ns->sindex_set_binid_hash = cf_shash_create(cf_shash_fn_zstr,
+			AS_SINDEX_PROP_KEY_SIZE, sizeof(cf_ll *), AS_SINDEX_MAX, 0);
 
 	// iname to simatch lookup
-	if (CF_SHASH_OK != cf_shash_create(&ns->sindex_iname_hash,
-						cf_shash_fn_zstr, AS_ID_INAME_SZ, sizeof(uint32_t),
-						AS_SINDEX_MAX, 0)) {
-		cf_crash(AS_AS, "Couldn't create sindex iname hash");
-	}
+	ns->sindex_iname_hash = cf_shash_create(cf_shash_fn_zstr, AS_ID_INAME_SZ,
+			sizeof(uint32_t), AS_SINDEX_MAX, 0);
 
 	// Init binid_has_sindex to zero
 	memset(ns->binid_has_sindex, 0, sizeof(uint32_t)*AS_BINID_HAS_SINDEX_SIZE);

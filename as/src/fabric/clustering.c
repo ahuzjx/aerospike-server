@@ -1337,12 +1337,6 @@ as_clustering_log_cf_node_array(severity, AS_CLUSTERING, message,	\
  */
 
 /**
- * Put a key to a hash or crash with an error message on failure.
- */
-#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)							\
-if (CF_SHASH_OK != cf_shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
@@ -6250,8 +6244,8 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 			current_votes = 0;
 		}
 
-		SHASH_PUT_OR_DIE(preferred_principal_votes, preferred_principal_p,
-				&current_votes, "error updating preferred principal hash");
+		cf_shash_put(preferred_principal_votes, preferred_principal_p,
+				&current_votes);
 	}
 	else {
 		DETAIL(
@@ -6301,13 +6295,9 @@ clustering_principal_majority_preferred_principal_get()
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	cf_shash* preferred_principal_votes;
-
-	if (cf_shash_create(&preferred_principal_votes, cf_nodeid_shash_fn,
-			sizeof(cf_node), sizeof(int),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating preferred principal hash");
-	}
+	cf_shash* preferred_principal_votes = cf_shash_create(cf_nodeid_shash_fn,
+			sizeof(cf_node), sizeof(int), AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT,
+			0);
 
 	CLUSTERING_LOCK();
 
@@ -7443,11 +7433,9 @@ clustering_init()
 	g_clustering.state = AS_CLUSTERING_STATE_ORPHAN;
 	g_clustering.orphan_state_start_time = cf_getms();
 
-	if (cf_shash_create(&g_clustering.join_request_blackout, cf_nodeid_shash_fn,
+	g_clustering.join_request_blackout = cf_shash_create(cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(cf_clock),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating join blackout hash");
-	}
+			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	vector_lockless_init(&g_clustering.pending_join_requests, cf_node);
 

@@ -764,12 +764,6 @@ static pthread_mutex_t g_external_event_publisher_lock =
 })
 
 /**
- * Put a key into a hash or crash with an error message on failure.
- */
-#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)							\
-if (CF_SHASH_OK != cf_shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
@@ -1178,9 +1172,7 @@ exchange_node_states_reset()
 				== CF_SHASH_ERR_NOT_FOUND) {
 			exchange_node_state_init(&temp_state);
 
-			SHASH_PUT_OR_DIE(g_exchange.nodeid_to_node_state, &nodeid,
-					&temp_state,
-					"error creating new shash entry for node %"PRIx64, nodeid);
+			cf_shash_put(g_exchange.nodeid_to_node_state, &nodeid, &temp_state);
 		}
 	}
 
@@ -1276,8 +1268,7 @@ exchange_nodes_find_not_ready_to_commit(cf_vector* not_ready_to_commit)
 static void
 exchange_node_state_update(cf_node nodeid, as_exchange_node_state* node_state)
 {
-	SHASH_PUT_OR_DIE(g_exchange.nodeid_to_node_state, &nodeid, node_state,
-			"error updating node state from hash for node %"PRIx64, nodeid);
+	cf_shash_put(g_exchange.nodeid_to_node_state, &nodeid, node_state);
 }
 
 /**
@@ -1614,8 +1605,7 @@ exchange_namespace_hash_pid_add(cf_shash* ns_hash, as_partition_version* vinfo,
 		// We are seeing this vinfo for the first time.
 		pid_vector = cf_vector_create(sizeof(uint16_t),
 		AS_EXCHANGE_VINFO_NUM_PIDS_AVG, 0);
-		SHASH_PUT_OR_DIE(ns_hash, vinfo, &pid_vector,
-				"error adding the the namespace hash");
+		cf_shash_put(ns_hash, vinfo, &pid_vector);
 	}
 
 	cf_vector_append(pid_vector, &pid);
@@ -1671,13 +1661,9 @@ exchange_data_namespace_payload_add(as_namespace* ns, cf_dyn_buf* dyn_buf)
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	cf_shash* ns_hash;
-
-	if (cf_shash_create(&ns_hash, exchange_vinfo_shash,
+	cf_shash* ns_hash = cf_shash_create(exchange_vinfo_shash,
 			sizeof(as_partition_version), sizeof(cf_vector*),
-			AS_EXCHANGE_UNIQUE_VINFO_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating namespace payload hash");
-	}
+			AS_EXCHANGE_UNIQUE_VINFO_MAX_SIZE_SOFT, 0);
 
 	as_partition* partitions = ns->partitions;
 
@@ -2853,11 +2839,9 @@ exchange_init()
 	g_exchange.orphan_state_are_transactions_blocked = true;
 
 	// Initialize the adjacencies.
-	if (cf_shash_create(&g_exchange.nodeid_to_node_state, cf_nodeid_shash_fn,
+	g_exchange.nodeid_to_node_state = cf_shash_create(cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(as_exchange_node_state),
-			AS_EXCHANGE_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
-		CRASH("error creating node state hash");
-	}
+			AS_EXCHANGE_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	cf_vector_init(&g_exchange.succession_list, sizeof(cf_node),
 	AS_EXCHANGE_CLUSTER_MAX_SIZE_SOFT, VECTOR_FLAG_INITZERO);

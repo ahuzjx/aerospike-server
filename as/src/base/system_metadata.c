@@ -1246,9 +1246,7 @@ static as_smd_t *as_smd_create(void)
 	}
 
 	// Create the scoreboard hash table.
-	if (CF_SHASH_OK != cf_shash_create(&(smd->scoreboard), cf_shash_fn_ptr, sizeof(cf_node), sizeof(cf_shash *), 127, CF_SHASH_BIG_LOCK)) {
-		cf_crash(AS_SMD, "failed to create the System Metadata scoreboard hash table");
-	}
+	smd->scoreboard = cf_shash_create(cf_shash_fn_ptr, sizeof(cf_node), sizeof(cf_shash *), 127, CF_SHASH_BIG_LOCK);
 
 	// Create the System Metadata message queue.
 	if (!(smd->msgq = cf_queue_create(sizeof(as_smd_event_t *), true))) {
@@ -2889,9 +2887,7 @@ static int as_smd_shash_incr(cf_shash *ht, as_smd_module_t *module_obj, size_t d
 
 	count += delta;
 
-	if (CF_SHASH_OK != cf_shash_put(ht, &module_obj, &count)) {
-		cf_crash(AS_SMD, "failed to increment shash value for module \"%s\"", module_obj->module);
-	}
+	cf_shash_put(ht, &module_obj, &count);
 
 	cf_debug(AS_SMD, "incrementing metadata item count for module \"%s\" to %zu", module_obj->module, count);
 
@@ -2904,13 +2900,7 @@ static int as_smd_shash_incr(cf_shash *ht, as_smd_module_t *module_obj, size_t d
 static cf_shash *as_smd_store_metadata_by_module(as_smd_t *smd, as_smd_msg_t *smd_msg)
 {
 	as_smd_item_list_t *items = smd_msg->items;
-	cf_shash *module_item_count_hash = NULL;
-
-	// Allocate a hash table mapping module ==> number of metadata items from this node.
-	if (CF_SHASH_OK != cf_shash_create(&module_item_count_hash, cf_shash_fn_ptr, sizeof(as_smd_module_t *), sizeof(size_t), 19, CF_SHASH_BIG_LOCK)) {
-		cf_warning(AS_SMD, "failed to allocate module item count hash table");
-		return NULL;
-	}
+	cf_shash *module_item_count_hash = cf_shash_create(cf_shash_fn_ptr, sizeof(as_smd_module_t *), sizeof(size_t), 19, CF_SHASH_BIG_LOCK);
 
 	for (int i = 0; i < items->num_items; i++) {
 		as_smd_item_t *item = items->item[i];

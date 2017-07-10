@@ -108,11 +108,11 @@ cf_shash_fn_zstr(const void *key)
 // Public API.
 //
 
-int
-cf_shash_create(cf_shash **h_r, cf_shash_hash_fn h_fn, uint32_t key_size,
-		uint32_t value_size, uint32_t n_buckets, uint32_t flags)
+cf_shash *
+cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
+		uint32_t n_buckets, uint32_t flags)
 {
-	cf_assert(h_r && h_fn && key_size != 0 && value_size != 0 && n_buckets != 0,
+	cf_assert(h_fn && key_size != 0 && value_size != 0 && n_buckets != 0,
 			CF_MISC, "bad param");
 
 	cf_shash *h = cf_malloc(sizeof(cf_shash));
@@ -147,9 +147,7 @@ cf_shash_create(cf_shash **h_r, cf_shash_hash_fn h_fn, uint32_t key_size,
 		}
 	}
 
-	*h_r = h;
-
-	return CF_SHASH_OK;
+	return h;
 }
 
 
@@ -222,7 +220,7 @@ cf_shash_get_size(cf_shash *h)
 }
 
 
-int
+void
 cf_shash_put(cf_shash *h, const void *key, const void *value)
 {
 	cf_assert(h && key && value, CF_MISC, "bad param");
@@ -235,7 +233,7 @@ cf_shash_put(cf_shash *h, const void *key, const void *value)
 	if (! e->in_use) {
 		cf_shash_fill_element(e, h, key, value);
 		cf_shash_unlock(l);
-		return CF_SHASH_OK;
+		return;
 	}
 
 	cf_shash_ele *e_head = e;
@@ -245,7 +243,7 @@ cf_shash_put(cf_shash *h, const void *key, const void *value)
 			// Replace the previous value with the new value.
 			memcpy(ELE_VALUE(h, e), value, h->value_size);
 			cf_shash_unlock(l);
-			return CF_SHASH_OK;
+			return;
 		}
 
 		e = e->next;
@@ -261,8 +259,6 @@ cf_shash_put(cf_shash *h, const void *key, const void *value)
 	e_head->next = e;
 
 	cf_shash_unlock(l);
-
-	return CF_SHASH_OK;
 }
 
 

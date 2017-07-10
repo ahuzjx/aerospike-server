@@ -192,11 +192,8 @@ cf_fault_init()
 	}
 
 	// Create the ticker hash.
-	if (cf_shash_create(&g_ticker_hash, cache_hash_fn,
-			sizeof(cf_fault_cache_hkey), sizeof(uint32_t), 256,
-			CF_SHASH_MANY_LOCK) != 0) {
-		cf_crash(CF_MISC, "failed ticker hash create");
-	}
+	g_ticker_hash = cf_shash_create(cache_hash_fn, sizeof(cf_fault_cache_hkey),
+			sizeof(uint32_t), 256, CF_SHASH_MANY_LOCK);
 }
 
 

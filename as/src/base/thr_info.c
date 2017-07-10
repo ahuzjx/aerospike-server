@@ -6490,14 +6490,14 @@ as_info_init()
 {
 	// g_info_node_info_history_hash is a hash of all nodes that have ever been
 	// recognized by this node - either via paxos or info messages.
-	cf_shash_create(&g_info_node_info_history_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
+	g_info_node_info_history_hash = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// g_info_node_info_hash is a hash of all nodes *currently* in the cluster.
 	// This hash should *always* be a subset of g_info_node_info_history_hash -
 	// to ensure this, you should take the lock on the corresponding key in
 	// info_history_hash before modifying an element in this hash table. This
 	// hash is used to create the services list.
-	cf_shash_create(&g_info_node_info_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
+	g_info_node_info_hash = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// create worker threads
 	g_info_work_q = cf_queue_create(sizeof(as_info_transaction), true);

@@ -89,11 +89,11 @@ uint32_t cf_shash_fn_zstr(const void *key);
 // Public API.
 //
 
-int cf_shash_create(cf_shash **h_r, cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size, uint32_t n_buckets, uint32_t flags);
+cf_shash *cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size, uint32_t n_buckets, uint32_t flags);
 void cf_shash_destroy(cf_shash *h);
 uint32_t cf_shash_get_size(cf_shash *h);
 
-int cf_shash_put(cf_shash *h, const void *key, const void *value);
+void cf_shash_put(cf_shash *h, const void *key, const void *value);
 int cf_shash_put_unique(cf_shash *h, const void *key, const void *value);
 
 int cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new, cf_shash_update_fn update_fn, void *udata);

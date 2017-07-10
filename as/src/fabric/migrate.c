@@ -183,7 +183,7 @@ emigration_result emigrate(emigration *emig);
 emigration_result emigrate_tree(emigration *emig);
 void *run_emigration_reinserter(void *arg);
 void emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata);
-bool emigrate_record(emigration *emig, msg *m);
+void emigrate_record(emigration *emig, msg *m);
 int emigration_reinsert_reduce_fn(const void *key, void *data, void *udata);
 emigration_result emigration_send_start(emigration *emig);
 emigration_result emigration_send_done(emigration *emig);
@@ -382,11 +382,8 @@ as_migrate_dump(bool verbose)
 void
 emigration_init(emigration *emig)
 {
-	cf_shash_create(&emig->reinsert_hash, cf_shash_fn_u32, sizeof(uint64_t),
+	emig->reinsert_hash = cf_shash_create(cf_shash_fn_u32, sizeof(uint64_t),
 			sizeof(emigration_reinsert_ctrl), 16 * 1024, CF_SHASH_MANY_LOCK);
-
-	cf_assert(emig->reinsert_hash, AS_MIGRATE, "failed to create hash");
-
 	emig->ctrl_q = cf_queue_create(sizeof(int), true);
 
 	cf_assert(emig->ctrl_q, AS_MIGRATE, "failed to create queue");
@@ -847,15 +844,8 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 	msg_set_buf(m, MIG_FIELD_RECORD, pr.record_buf, pr.record_len,
 			MSG_SET_HANDOFF_MALLOC);
 
-	// This might block if the queues are backed up but a failure is a
-	// hard-fail - can't notify other side.
-	if (! emigrate_record(emig, m)) {
-		cf_warning(AS_MIGRATE, "imbalance: failed to emigrate record");
-		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
-		emig->aborted = true;
-		cf_atomic32_set(&emig->state, EMIG_STATE_ABORTED);
-		return;
-	}
+	// This might block if the queues are backed up.
+	emigrate_record(emig, m);
 
 	cf_atomic_int_incr(&ns->migrate_records_transmitted);
 
@@ -877,7 +867,7 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 }
 
 
-bool
+void
 emigrate_record(emigration *emig, msg *m)
 {
 	uint64_t insert_id = emig->insert_id++;
@@ -891,12 +881,7 @@ emigrate_record(emigration *emig, msg *m)
 	ri_ctrl.emig = emig;
 	ri_ctrl.xmit_ms = cf_getms();
 
-	if (cf_shash_put(emig->reinsert_hash, &insert_id, &ri_ctrl) !=
-			CF_SHASH_OK) {
-		cf_warning(AS_MIGRATE, "emigrate record failed shash put");
-		as_fabric_msg_put(m);
-		return false;
-	}
+	cf_shash_put(emig->reinsert_hash, &insert_id, &ri_ctrl);
 
 	cf_atomic32_add(&emig->bytes_emigrating, (int32_t)msg_get_wire_size(m));
 
@@ -904,8 +889,6 @@ emigrate_record(emigration *emig, msg *m)
 			AS_FABRIC_SUCCESS) {
 		as_fabric_msg_put(m);
 	}
-
-	return true;
 }
 
 
