@@ -116,7 +116,7 @@ as_rw_init()
 {
 	cf_rchash_create(&g_rw_request_hash, rw_request_hash_fn,
 			rw_request_hdestroy, sizeof(rw_request_hkey), 32 * 1024,
-			CF_RCHASH_CR_MT_MANYLOCK);
+			CF_RCHASH_MANY_LOCK);
 
 	pthread_t thread;
 	pthread_attr_t attrs;
@@ -159,7 +159,7 @@ rw_request_hash_insert(rw_request_hkey* hkey, rw_request* rw,
 		int get_rv = cf_rchash_get(g_rw_request_hash, hkey, sizeof(*hkey),
 				(void**)&rw0);
 
-		if (get_rv == CF_RCHASH_ERR_NOTFOUND) {
+		if (get_rv == CF_RCHASH_ERR_NOT_FOUND) {
 			// Try insertion again immediately.
 			continue;
 		}

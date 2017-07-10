@@ -2493,7 +2493,7 @@ as_fabric_transact_init()
 {
 	cf_rchash_create(&g_fabric_transact_xmit_hash, cf_rchash_fn_u32,
 			fabric_transact_xmit_destructor, sizeof(uint64_t), 64,
-			CF_RCHASH_CR_MT_MANYLOCK);
+			CF_RCHASH_MANY_LOCK);
 
 	pthread_t thread;
 	pthread_attr_t attrs;
@@ -2656,7 +2656,7 @@ fabric_transact_msg_fn(cf_node node_id, msg *m, void *udata)
 		}
 
 		if (cf_rchash_delete(g_fabric_transact_xmit_hash, &tid, sizeof(tid)) ==
-				CF_RCHASH_ERR_NOTFOUND) {
+				CF_RCHASH_ERR_NOT_FOUND) {
 			cf_detail(AS_FABRIC, "transact_msg: {%lu} concurrent thread has already removed transaction", tid);
 			fabric_transact_xmit_release(ft);
 			as_fabric_msg_put(m);

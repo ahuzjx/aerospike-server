@@ -232,13 +232,13 @@ as_migrate_init()
 
 	if (cf_rchash_create(&g_emigration_hash, cf_rchash_fn_u32,
 			emigration_destroy, sizeof(uint32_t), 64,
-			CF_RCHASH_CR_MT_MANYLOCK) != CF_RCHASH_OK) {
+			CF_RCHASH_MANY_LOCK) != CF_RCHASH_OK) {
 		cf_crash(AS_MIGRATE, "couldn't create emigration hash");
 	}
 
 	if (cf_rchash_create(&g_immigration_hash, immigration_hashfn,
 			immigration_destroy, sizeof(immigration_hkey), 64,
-			CF_RCHASH_CR_MT_BIGLOCK) != CF_RCHASH_OK) {
+			CF_RCHASH_BIG_LOCK) != CF_RCHASH_OK) {
 		cf_crash(AS_MIGRATE, "couldn't create immigration hash");
 	}
 
