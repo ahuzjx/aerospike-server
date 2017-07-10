@@ -112,8 +112,8 @@ cf_shash *
 cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
 		uint32_t n_buckets, uint32_t flags)
 {
-	cf_assert(h_fn && key_size != 0 && value_size != 0 && n_buckets != 0,
-			CF_MISC, "bad param");
+	cf_assert(h_fn && key_size != 0 && n_buckets != 0, CF_MISC, "bad param");
+	// Note - value_size 0 works, and is used.
 
 	cf_shash *h = cf_malloc(sizeof(cf_shash));
 	cf_assert(h, CF_MISC, "alloc failed");
