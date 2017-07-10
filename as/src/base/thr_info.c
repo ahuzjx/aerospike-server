@@ -40,13 +40,13 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_queue.h"
-#include "citrusleaf/cf_shash.h"
 #include "citrusleaf/cf_vector.h"
 
 #include "cf_str.h"
 #include "dynbuf.h"
 #include "fault.h"
 #include "meminfo.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "ai_obj.h"
@@ -576,17 +576,17 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	int rv = as_hb_mesh_tip(host_str, port);
 
 	switch (rv) {
-		case SHASH_OK:
+		case CF_SHASH_OK:
 			cf_info(AS_INFO, "tip command executed: params %s",
 				params);
 			cf_dyn_buf_append_string(db, "ok");
 			break;
-		case SHASH_ERR_FOUND:
+		case CF_SHASH_ERR_FOUND:
 			cf_warning(AS_INFO, "tip command failed: params %s",
 				params);
 			cf_dyn_buf_append_string(db, "error: already exists");
 			break;
-		case SHASH_ERR:
+		case CF_SHASH_ERR:
 			cf_warning(AS_INFO, "tip command failed: params %s",
 				params);
 			cf_dyn_buf_append_string(db, "error");
@@ -4104,8 +4104,8 @@ typedef struct port_savings_context_s {
 // of g_info_node_info_history_hash. In order to ensure this, every modification
 // of g_info_node_info_hash should first involve grabbing the lock for the same
 // key in g_info_node_info_history_hash.
-shash *g_info_node_info_history_hash = 0;
-shash *g_info_node_info_hash = 0;
+cf_shash *g_info_node_info_history_hash = NULL;
+cf_shash *g_info_node_info_hash = NULL;
 
 int info_node_info_reduce_fn(const void *key, void *data, void *udata);
 
@@ -4272,7 +4272,7 @@ set_static_services(void)
 void
 info_node_info_tend()
 {
-	shash_reduce(g_info_node_info_hash, info_node_info_reduce_fn, 0);
+	cf_shash_reduce(g_info_node_info_hash, info_node_info_reduce_fn, 0);
 }
 
 void *
@@ -4468,7 +4468,7 @@ info_clustering_event_reduce_fn(const void *key, void *data, void *udata)
 
 	for (uint32_t i = 0; i < context->cluster_size; ++i) {
 		if (*node == context->succession[i]) {
-			return SHASH_OK;
+			return CF_SHASH_OK;
 		}
 	}
 
@@ -4479,7 +4479,7 @@ info_clustering_event_reduce_fn(const void *key, void *data, void *udata)
 	++context->n_deleted;
 
 	free_node_info_services(info);
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 //
@@ -4508,14 +4508,14 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info_history;
 		pthread_mutex_t *vlock_history;
 
-		if (shash_get_vlock(g_info_node_info_history_hash, &member_nodeid, (void **)&info_history,
-				&vlock_history) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_history_hash, &member_nodeid, (void **)&info_history,
+				&vlock_history) != CF_SHASH_OK) {
 			// This may fail, but this is OK. This should only fail when info_msg_fn is also trying
 			// to add this key, so either way the entry will be in the hash table.
-			shash_put_unique(g_info_node_info_history_hash, &member_nodeid, &temp);
+			cf_shash_put_unique(g_info_node_info_history_hash, &member_nodeid, &temp);
 
-			if (shash_get_vlock(g_info_node_info_history_hash, &member_nodeid,
-					(void **)&info_history, &vlock_history) != SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_history_hash, &member_nodeid,
+					(void **)&info_history, &vlock_history) != CF_SHASH_OK) {
 				cf_crash(AS_INFO,
 						"Could not create info history hash entry for %" PRIx64, member_nodeid);
 				continue;
@@ -4525,12 +4525,12 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info;
 		pthread_mutex_t *vlock;
 
-		if (shash_get_vlock(g_info_node_info_hash, &member_nodeid, (void **)&info,
-				&vlock) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_hash, &member_nodeid, (void **)&info,
+				&vlock) != CF_SHASH_OK) {
 			clone_node_info_services(info_history, &temp);
 			temp.last_changed = cf_atomic64_incr(&g_peers_gen);
 
-			if (shash_put_unique(g_info_node_info_hash, &member_nodeid, &temp) == SHASH_OK) {
+			if (cf_shash_put_unique(g_info_node_info_hash, &member_nodeid, &temp) == CF_SHASH_OK) {
 				reset_node_info_services(&temp);
 				info_history->last_changed = 0; // See info_clustering_event_reduce_fn().
 				cf_debug(AS_INFO, "Peers generation %" PRId64 ": added node %" PRIx64,
@@ -4551,11 +4551,11 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		pthread_mutex_unlock(vlock_history);
 	}
 
-	uint32_t before = shash_get_size(g_info_node_info_hash);
+	uint32_t before = cf_shash_get_size(g_info_node_info_hash);
 	cf_debug(AS_INFO, "Clustering succession list has %d element(s), info hash has %u", i, before);
 
 	reduce_context cont = { .cluster_size = event->cluster_size, .succession = event->succession, .n_deleted = 0 };
-	shash_reduce_delete(g_info_node_info_hash, info_clustering_event_reduce_fn, &cont);
+	cf_shash_reduce(g_info_node_info_hash, info_clustering_event_reduce_fn, &cont);
 
 	// While an alumni is gone, its last_changed field is non-zero. When it comes back, the
 	// field goes back to zero.
@@ -4565,8 +4565,8 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info_history;
 		pthread_mutex_t *vlock_history;
 
-		if (shash_get_vlock(g_info_node_info_history_hash, &cont.deleted[i],
-				(void **)&info_history, &vlock_history) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_history_hash, &cont.deleted[i],
+				(void **)&info_history, &vlock_history) != CF_SHASH_OK) {
 			cf_crash(AS_INFO, "Removing a node (%" PRIx64 ") that is not an alumni",
 					cont.deleted[i]);
 		}
@@ -4577,7 +4577,7 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		pthread_mutex_unlock(vlock_history);
 	}
 
-	uint32_t after = shash_get_size(g_info_node_info_hash);
+	uint32_t after = cf_shash_get_size(g_info_node_info_hash);
 	cf_debug(AS_INFO, "After removal, info hash has %u element(s)", after);
 
 	cf_atomic32_incr(&g_node_info_generation);
@@ -4710,15 +4710,15 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			info_node_info *info_history;
 			pthread_mutex_t *vlock_history;
 
-			if (shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
-					&vlock_history) != SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
+					&vlock_history) != CF_SHASH_OK) {
 				// This may fail, but this is ok. This should only fail when as_info_paxos_event
 				// is concurrently trying to add this key, so either way the entry will be in the
 				// hash table.
-				shash_put_unique(g_info_node_info_history_hash, &node, &temp);
+				cf_shash_put_unique(g_info_node_info_history_hash, &node, &temp);
 
-				if (shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
-						&vlock_history) != SHASH_OK) {
+				if (cf_shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
+						&vlock_history) != CF_SHASH_OK) {
 					cf_crash(AS_INFO,
 							"Could not create info history hash entry for %" PRIx64, node);
 					break;
@@ -4772,7 +4772,7 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			pthread_mutex_t *vlock;
 			info_node_info info_to_tend = { 0 };
 
-			if (shash_get_vlock(g_info_node_info_hash, &node, (void **)&info, &vlock) == SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_hash, &node, (void **)&info, &vlock) == CF_SHASH_OK) {
 				if (!compare_node_info_services(info_history, info)) {
 					cf_debug(AS_INFO, "Changed node info entry, was:");
 					dump_node_info_services(info);
@@ -4830,7 +4830,7 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			msg_get_uint32(m, INFO_FIELD_GENERATION, &gen);
 			info_node_info	*info;
 			pthread_mutex_t	*vlock;
-			if (0 == shash_get_vlock(g_info_node_info_hash, &node, (void **) &info, &vlock)) {
+			if (0 == cf_shash_get_vlock(g_info_node_info_hash, &node, (void **) &info, &vlock)) {
 
 				info->generation = gen;
 
@@ -4878,10 +4878,10 @@ info_get_x_legacy_reduce_fn(const void *key, void *data, void *udata)
 }
 
 int32_t
-info_get_x_legacy_reduce(shash *h, info_node_proj_fn proj, cf_dyn_buf *db)
+info_get_x_legacy_reduce(cf_shash *h, info_node_proj_fn proj, cf_dyn_buf *db)
 {
 	services_printer sp = { .proj = proj, .db = db };
-	shash_reduce(h, info_get_x_legacy_reduce_fn, (void *)&sp);
+	cf_shash_reduce(h, info_get_x_legacy_reduce_fn, (void *)&sp);
 	return 0;
 }
 
@@ -5048,12 +5048,12 @@ info_get_services_x_reduce_fn(const void *key, void *data, void *udata)
 }
 
 int32_t
-info_get_services_x(shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t since,
+info_get_services_x(cf_shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t since,
 		bool with_tls_name)
 {
 	// Pick the default port that saves us the most space.
 	port_savings_context psc = { .proj = proj, .since = since };
-	shash_reduce(h, info_port_savings_reduce_fn, &psc);
+	cf_shash_reduce(h, info_port_savings_reduce_fn, &psc);
 
 	int32_t best_savings = 0;
 	int32_t best_port = 0;
@@ -5083,7 +5083,7 @@ info_get_services_x(shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t s
 
 	services_printer sp = { .proj = proj, .db = db, .strip = strip, .since = since,
 			.with_tls_name = with_tls_name };
-	shash_reduce(h, info_get_services_x_reduce_fn, (void *)&sp);
+	cf_shash_reduce(h, info_get_services_x_reduce_fn, (void *)&sp);
 
 	cf_dyn_buf_append_char(db, ']');
 	return sp.count;
@@ -5137,7 +5137,7 @@ info_get_services_x_delta(info_node_proj_fn proj, cf_dyn_buf *db, char *params, 
 		cf_dyn_buf_chomp(db); // Remove the "]".
 
 		services_printer sp = { .proj = proj, .db = db, .since = since, .count = count };
-		shash_reduce(g_info_node_info_history_hash, info_get_services_x_gone_reduce_fn, &sp);
+		cf_shash_reduce(g_info_node_info_history_hash, info_get_services_x_gone_reduce_fn, &sp);
 
 		cf_dyn_buf_append_char(db, ']'); // Re-add the "]".
 
@@ -5264,13 +5264,13 @@ info_get_services_generation(char *name, cf_dyn_buf *db)
 int
 history_purge_reduce_fn(const void *key, void *data, void *udata)
 {
-	return SHASH_OK == shash_get(g_info_node_info_hash, key, NULL) ? SHASH_OK : SHASH_REDUCE_DELETE;
+	return CF_SHASH_OK == cf_shash_get(g_info_node_info_hash, key, NULL) ? CF_SHASH_OK : CF_SHASH_REDUCE_DELETE;
 }
 
 int
 info_services_alumni_reset(char *name, cf_dyn_buf *db)
 {
-	shash_reduce_delete(g_info_node_info_history_hash, history_purge_reduce_fn, NULL);
+	cf_shash_reduce(g_info_node_info_history_hash, history_purge_reduce_fn, NULL);
 	cf_info(AS_INFO, "services alumni list reset");
 	cf_dyn_buf_append_string(db, "ok");
 
@@ -6490,14 +6490,14 @@ as_info_init()
 {
 	// g_info_node_info_history_hash is a hash of all nodes that have ever been
 	// recognized by this node - either via paxos or info messages.
-	shash_create(&g_info_node_info_history_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, SHASH_CR_MT_BIGLOCK);
+	cf_shash_create(&g_info_node_info_history_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// g_info_node_info_hash is a hash of all nodes *currently* in the cluster.
 	// This hash should *always* be a subset of g_info_node_info_history_hash -
 	// to ensure this, you should take the lock on the corresponding key in
 	// info_history_hash before modifying an element in this hash table. This
 	// hash is used to create the services list.
-	shash_create(&g_info_node_info_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, SHASH_CR_MT_BIGLOCK);
+	cf_shash_create(&g_info_node_info_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// create worker threads
 	g_info_work_q = cf_queue_create(sizeof(as_info_transaction), true);

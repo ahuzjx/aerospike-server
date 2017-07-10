@@ -33,10 +33,10 @@
 #include "citrusleaf/cf_digest.h"
 #include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_rchash.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "msg.h"
 #include "node.h"
+#include "shash.h"
 
 #include "fabric/hb.h"
 #include "fabric/partition.h"
@@ -186,7 +186,7 @@ typedef struct emigration_s {
 	bool        aborted;
 
 	cf_atomic32 bytes_emigrating;
-	shash       *reinsert_hash;
+	cf_shash    *reinsert_hash;
 	uint64_t    insert_id;
 	cf_queue    *ctrl_q;
 	emig_meta_q *meta_q;

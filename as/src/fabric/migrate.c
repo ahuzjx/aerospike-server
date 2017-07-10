@@ -47,11 +47,11 @@
 #include "citrusleaf/cf_digest.h"
 #include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_rchash.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
 #include "msg.h"
 #include "node.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "base/datamodel.h"
@@ -382,8 +382,8 @@ as_migrate_dump(bool verbose)
 void
 emigration_init(emigration *emig)
 {
-	shash_create(&emig->reinsert_hash, cf_shash_fn_u32, sizeof(uint64_t),
-			sizeof(emigration_reinsert_ctrl), 16 * 1024, SHASH_CR_MT_MANYLOCK);
+	cf_shash_create(&emig->reinsert_hash, cf_shash_fn_u32, sizeof(uint64_t),
+			sizeof(emigration_reinsert_ctrl), 16 * 1024, CF_SHASH_MANY_LOCK);
 
 	cf_assert(emig->reinsert_hash, AS_MIGRATE, "failed to create hash");
 
@@ -402,9 +402,9 @@ emigration_destroy(void *parm)
 	emigration *emig = (emigration *)parm;
 
 	if (emig->reinsert_hash) {
-		shash_reduce_delete(emig->reinsert_hash,
+		cf_shash_reduce(emig->reinsert_hash,
 				emigration_reinsert_destroy_reduce_fn, NULL);
-		shash_destroy(emig->reinsert_hash);
+		cf_shash_destroy(emig->reinsert_hash);
 	}
 
 	if (emig->ctrl_q) {
@@ -430,7 +430,7 @@ emigration_reinsert_destroy_reduce_fn(const void *key, void *data, void *udata)
 
 	as_fabric_msg_put(ri_ctrl->m);
 
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 
@@ -718,7 +718,7 @@ run_emigration_reinserter(void *arg)
 
 		usleep(1000);
 
-		if (shash_get_size(emig->reinsert_hash) == 0) {
+		if (cf_shash_get_size(emig->reinsert_hash) == 0) {
 			if (emig_state == EMIG_STATE_FINISHED) {
 				return NULL;
 			}
@@ -726,7 +726,7 @@ run_emigration_reinserter(void *arg)
 			continue;
 		}
 
-		shash_reduce(emig->reinsert_hash, emigration_reinsert_reduce_fn,
+		cf_shash_reduce(emig->reinsert_hash, emigration_reinsert_reduce_fn,
 				(void *)cf_getms());
 	}
 
@@ -891,7 +891,8 @@ emigrate_record(emigration *emig, msg *m)
 	ri_ctrl.emig = emig;
 	ri_ctrl.xmit_ms = cf_getms();
 
-	if (shash_put(emig->reinsert_hash, &insert_id, &ri_ctrl) != SHASH_OK) {
+	if (cf_shash_put(emig->reinsert_hash, &insert_id, &ri_ctrl) !=
+			CF_SHASH_OK) {
 		cf_warning(AS_MIGRATE, "emigrate record failed shash put");
 		as_fabric_msg_put(m);
 		return false;
@@ -1713,8 +1714,8 @@ emigration_handle_insert_ack(cf_node src, msg *m)
 	emigration_reinsert_ctrl *ri_ctrl = NULL;
 	pthread_mutex_t *vlock;
 
-	if (shash_get_vlock(emig->reinsert_hash, &insert_id, (void **)&ri_ctrl,
-			&vlock) == SHASH_OK) {
+	if (cf_shash_get_vlock(emig->reinsert_hash, &insert_id, (void **)&ri_ctrl,
+			&vlock) == CF_SHASH_OK) {
 		if (src == emig->dest) {
 			if (cf_atomic32_sub(&emig->bytes_emigrating,
 					(int32_t)msg_get_wire_size(ri_ctrl->m)) < 0) {
@@ -1723,7 +1724,7 @@ emigration_handle_insert_ack(cf_node src, msg *m)
 
 			as_fabric_msg_put(ri_ctrl->m);
 			// At this point, the rt is *GONE*.
-			shash_delete_lockfree(emig->reinsert_hash, &insert_id);
+			cf_shash_delete_lockfree(emig->reinsert_hash, &insert_id);
 			ri_ctrl = NULL;
 		}
 		else {

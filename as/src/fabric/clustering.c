@@ -31,10 +31,10 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_random.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
 #include "msg.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "fabric/fabric.h"
@@ -909,7 +909,7 @@ typedef struct as_clustering_s
 	 * was send . Used to prevent sending join request too quickly to the same
 	 * principal again and again.
 	 */
-	shash* join_request_blackout;
+	cf_shash* join_request_blackout;
 
 	/**
 	 * The principal to which the last join request was sent.
@@ -1340,14 +1340,14 @@ as_clustering_log_cf_node_array(severity, AS_CLUSTERING, message,	\
  * Put a key to a hash or crash with an error message on failure.
  */
 #define SHASH_PUT_OR_DIE(hash, key, value, error, ...)							\
-if (SHASH_OK != shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
+if (CF_SHASH_OK != cf_shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
 
 /**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
 #define SHASH_DELETE_OR_DIE(hash, key, error, ...)							\
-if (SHASH_ERR == shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
+if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
 
 /**
  * Read value for a key and crash if there is an error. Key not found is NOT
@@ -1355,8 +1355,8 @@ if (SHASH_ERR == shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
  */
 #define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
 ({														\
-	int retval = shash_get(hash, key, value);			\
-	if (retval == SHASH_ERR) {							\
+	int retval = cf_shash_get(hash, key, value);		\
+	if (retval == CF_SHASH_ERR) {						\
 		CRASH(error, ##__VA_ARGS__);					\
 	}													\
 	retval;												\
@@ -5702,7 +5702,7 @@ clustering_join_request_send(cf_node new_principal)
 
 	if (msg_node_send(msg, new_principal) == 0) {
 		cf_clock now = cf_getms();
-		shash_put(g_clustering.join_request_blackout, &new_principal, &now);
+		cf_shash_put(g_clustering.join_request_blackout, &new_principal, &now);
 
 		g_clustering.last_join_request_principal = new_principal;
 		g_clustering.last_join_request_sent_time =
@@ -5762,8 +5762,8 @@ clustering_join_request_filter_blocked(cf_vector* requestees, cf_vector* target)
 	for (int i = 0; i < requestee_count; i++) {
 		cf_node requestee;
 		cf_vector_get(requestees, i, &requestee);
-		if (shash_get(g_clustering.join_request_blackout, &requestee,
-				&last_sent) != SHASH_OK) {
+		if (cf_shash_get(g_clustering.join_request_blackout, &requestee,
+				&last_sent) != CF_SHASH_OK) {
 			// The requestee is not marked for blackout
 			cf_vector_append(target, &requestee);
 		}
@@ -5936,9 +5936,9 @@ clustering_join_request_blackout_tend_reduce(const void* key, void* data,
 	cf_clock* join_request_send_time = (cf_clock*)data;
 	if (*join_request_send_time + join_request_blackout_interval()
 			< cf_getms()) {
-		return SHASH_REDUCE_DELETE;
+		return CF_SHASH_REDUCE_DELETE;
 	}
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5949,7 +5949,7 @@ static void
 clustering_join_request_blackout_tend()
 {
 	CLUSTERING_LOCK();
-	shash_reduce_delete(g_clustering.join_request_blackout,
+	cf_shash_reduce(g_clustering.join_request_blackout,
 			clustering_join_request_blackout_tend_reduce, NULL);
 	CLUSTERING_UNLOCK();
 }
@@ -6228,7 +6228,7 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	shash* preferred_principal_votes = (shash*)udata;
+	cf_shash* preferred_principal_votes = (cf_shash*)udata;
 
 	CLUSTERING_LOCK();
 	if (!clustering_hb_plugin_data_is_obsolete(
@@ -6242,7 +6242,7 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 		int current_votes = 0;
 		if (SHASH_GET_OR_DIE(preferred_principal_votes, preferred_principal_p,
 				&current_votes, "error reading the preferred principal hash")
-				== SHASH_OK) {
+				== CF_SHASH_OK) {
 			current_votes++;
 		}
 		else {
@@ -6285,10 +6285,10 @@ clustering_principal_preferred_principal_majority_find(const void* key,
 	if (is_majority) {
 		*majority_preferred_principal = *current_preferred_principal;
 		// Majority found, halt reduce.
-		return SHASH_ERR_FOUND;
+		return CF_SHASH_ERR_FOUND;
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -6301,11 +6301,11 @@ clustering_principal_majority_preferred_principal_get()
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	shash* preferred_principal_votes;
+	cf_shash* preferred_principal_votes;
 
-	if (shash_create(&preferred_principal_votes, cf_nodeid_shash_fn,
+	if (cf_shash_create(&preferred_principal_votes, cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(int),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating preferred principal hash");
 	}
 
@@ -6321,13 +6321,13 @@ clustering_principal_majority_preferred_principal_get()
 
 	// Find the majority preferred principal.
 	cf_node preferred_principal = 0;
-	shash_reduce(preferred_principal_votes,
+	cf_shash_reduce(preferred_principal_votes,
 			clustering_principal_preferred_principal_majority_find,
 			&preferred_principal);
 
 	CLUSTERING_UNLOCK();
 
-	shash_destroy(preferred_principal_votes);
+	cf_shash_destroy(preferred_principal_votes);
 
 	DETAIL("preferred principal is %"PRIx64, preferred_principal);
 
@@ -7443,9 +7443,9 @@ clustering_init()
 	g_clustering.state = AS_CLUSTERING_STATE_ORPHAN;
 	g_clustering.orphan_state_start_time = cf_getms();
 
-	if (shash_create(&g_clustering.join_request_blackout, cf_nodeid_shash_fn,
+	if (cf_shash_create(&g_clustering.join_request_blackout, cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(cf_clock),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating join blackout hash");
 	}
 

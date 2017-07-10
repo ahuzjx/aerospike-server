@@ -37,7 +37,6 @@
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "arenax.h"
 #include "dynbuf.h"
@@ -46,6 +45,7 @@
 #include "linear_hist.h"
 #include "msg.h"
 #include "node.h"
+#include "shash.h"
 #include "vmapx.h"
 
 #include "base/cfg.h"
@@ -677,8 +677,8 @@ struct as_namespace_s {
 	int				sindex_cnt;
 	uint32_t		n_setless_sindexes;
 	struct as_sindex_s* sindex; // array with AS_MAX_SINDEX metadata
-	shash*			sindex_set_binid_hash;
-	shash*			sindex_iname_hash;
+	cf_shash*		sindex_set_binid_hash;
+	cf_shash*		sindex_iname_hash;
 	uint32_t		binid_has_sindex[AS_BINID_HAS_SINDEX_SIZE];
 
 	//--------------------------------------------

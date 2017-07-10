@@ -66,11 +66,11 @@
 #include "citrusleaf/cf_ll.h"
 #include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_rchash.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
 #include "msg.h"
 #include "node.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "base/cfg.h"
@@ -163,7 +163,7 @@ typedef struct fabric_node_s {
 	pthread_mutex_t		connect_lock;
 
 	pthread_mutex_t		fc_hash_lock;
-	shash				*fc_hash; // key is (fabric_connection *), value unused
+	cf_shash			*fc_hash; // key is (fabric_connection *), value unused
 
 	pthread_mutex_t		send_idle_fc_queue_lock;
 	cf_queue			send_idle_fc_queue[AS_FABRIC_N_CHANNELS];
@@ -600,7 +600,7 @@ as_fabric_dump(bool verbose)
 				node->connect_count[AS_FABRIC_CHANNEL_CTRL],
 				node->connect_count[AS_FABRIC_CHANNEL_RW],
 				node->connect_count[AS_FABRIC_CHANNEL_BULK],
-				shash_get_size(node->fc_hash), node->live,
+				cf_shash_get_size(node->fc_hash), node->live,
 				cf_queue_sz(&node->send_queue[AS_FABRIC_CHANNEL_CTRL]),
 				cf_queue_sz(&node->send_queue[AS_FABRIC_CHANNEL_RW]),
 				cf_queue_sz(&node->send_queue[AS_FABRIC_CHANNEL_BULK]));
@@ -776,8 +776,8 @@ fabric_node_create(cf_node node_id)
 		cf_crash(AS_FABRIC, "fabric_node_create(%lx) failed to init fc_hash_lock", node_id);
 	}
 
-	if (shash_create(&(node->fc_hash), cf_shash_fn_ptr,
-			sizeof(fabric_connection *), 0, 32, 0) != SHASH_OK) {
+	if (cf_shash_create(&(node->fc_hash), cf_shash_fn_ptr,
+			sizeof(fabric_connection *), 0, 32, 0) != CF_SHASH_OK) {
 		cf_crash(AS_FABRIC, "fabric_node_create(%lx) failed to create fc_hash",
 				node_id);
 	}
@@ -868,7 +868,7 @@ fabric_node_disconnect_reduce_fn(const void *key, void *data, void *udata)
 	cf_socket_shutdown(&fc->sock);
 	fabric_connection_release(fc); // for delete from node->fc_hash
 
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 static void
@@ -887,7 +887,7 @@ fabric_node_disconnect(cf_node node_id)
 
 	node->live = false;
 	// Clean up all fc's attached to this node.
-	shash_reduce_delete(node->fc_hash, fabric_node_disconnect_reduce_fn, NULL);
+	cf_shash_reduce(node->fc_hash, fabric_node_disconnect_reduce_fn, NULL);
 
 	pthread_mutex_unlock(&node->fc_hash_lock);
 
@@ -1118,8 +1118,8 @@ fabric_node_destructor(void *pnode)
 	pthread_mutex_destroy(&node->send_idle_fc_queue_lock);
 
 	// connection_hash section.
-	cf_assert(shash_get_size(node->fc_hash) == 0, AS_FABRIC, "fc_hash not empty as expected");
-	shash_destroy(node->fc_hash);
+	cf_assert(cf_shash_get_size(node->fc_hash) == 0, AS_FABRIC, "fc_hash not empty as expected");
+	cf_shash_destroy(node->fc_hash);
 
 	pthread_mutex_destroy(&node->fc_hash_lock);
 }
@@ -1160,9 +1160,9 @@ fabric_node_add_connection(fabric_node *node, fabric_connection *fc)
 	fabric_connection_reserve(fc); // for put into node->fc_hash
 
 	uint8_t value = 0;
-	int rv = shash_put_unique(node->fc_hash, &fc, &value);
+	int rv = cf_shash_put_unique(node->fc_hash, &fc, &value);
 
-	cf_assert(rv == SHASH_OK, AS_FABRIC, "fabric_node_add_connection(%p, %p) failed to add with rv %d", node, fc, rv);
+	cf_assert(rv == CF_SHASH_OK, AS_FABRIC, "fabric_node_add_connection(%p, %p) failed to add with rv %d", node, fc, rv);
 
 	pthread_mutex_unlock(&node->fc_hash_lock);
 
@@ -1497,7 +1497,7 @@ fabric_connection_disconnect(fabric_connection *fc)
 
 	pthread_mutex_lock(&node->fc_hash_lock);
 
-	if (shash_delete(node->fc_hash, &fc) != SHASH_OK) {
+	if (cf_shash_delete(node->fc_hash, &fc) != CF_SHASH_OK) {
 		cf_detail(AS_FABRIC, "fc %p is not in (node %p)->fc_hash", fc, node);
 		pthread_mutex_unlock(&node->fc_hash_lock);
 		return;
@@ -2257,7 +2257,7 @@ fabric_rate_node_reduce_fn(const void *key, uint32_t keylen, void *data,
 	fabric_rate *rate = (fabric_rate *)udata;
 
 	pthread_mutex_lock(&node->fc_hash_lock);
-	shash_reduce(node->fc_hash, fabric_rate_fc_reduce_fn, rate);
+	cf_shash_reduce(node->fc_hash, fabric_rate_fc_reduce_fn, rate);
 	pthread_mutex_unlock(&node->fc_hash_lock);
 
 	return 0;

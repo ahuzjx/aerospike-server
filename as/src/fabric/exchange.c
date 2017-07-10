@@ -30,10 +30,10 @@
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_queue.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "dynbuf.h"
 #include "fault.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "base/cfg.h"
@@ -445,7 +445,7 @@ typedef struct as_exchange_s
 	 * Will have an as_exchange_node_state entry for every node in the
 	 * succession list.
 	 */
-	shash* nodeid_to_node_state;
+	cf_shash* nodeid_to_node_state;
 
 	/**
 	 * This node's data payload for current round.
@@ -767,14 +767,14 @@ static pthread_mutex_t g_external_event_publisher_lock =
  * Put a key into a hash or crash with an error message on failure.
  */
 #define SHASH_PUT_OR_DIE(hash, key, value, error, ...)							\
-if (SHASH_OK != shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
+if (CF_SHASH_OK != cf_shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
 
 /**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
 #define SHASH_DELETE_OR_DIE(hash, key, error, ...)							\
-if (SHASH_ERR == shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
+if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
 
 /**
  * Read value for a key and crash if there is an error. Key not found is NOT
@@ -782,8 +782,8 @@ if (SHASH_ERR == shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
  */
 #define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
 ({														\
-	int retval = shash_get(hash, key, value);			\
-	if (retval == SHASH_ERR) {							\
+	int retval = cf_shash_get(hash, key, value);		\
+	if (retval == CF_SHASH_ERR) {						\
 		CRASH(error, ##__VA_ARGS__);					\
 	}													\
 	retval;												\
@@ -1144,11 +1144,11 @@ exchange_node_states_reset_reduce(const void* key, void* data, void* udata)
 	if (node_index < 0) {
 		// Node not in succession list
 		exchange_node_state_destroy(node_state);
-		return SHASH_REDUCE_DELETE;
+		return CF_SHASH_REDUCE_DELETE;
 	}
 
 	exchange_node_state_reset(node_state);
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -1163,7 +1163,7 @@ exchange_node_states_reset()
 
 	// Fix existing entries by reseting entries in succession and removing
 	// entries not in succession list.
-	shash_reduce_delete(g_exchange.nodeid_to_node_state,
+	cf_shash_reduce(g_exchange.nodeid_to_node_state,
 			exchange_node_states_reset_reduce, NULL);
 
 	// Add missing entries.
@@ -1174,8 +1174,8 @@ exchange_node_states_reset()
 		cf_node nodeid;
 
 		cf_vector_get(&g_exchange.succession_list, i, &nodeid);
-		if (shash_get(g_exchange.nodeid_to_node_state, &nodeid, &temp_state)
-				== SHASH_ERR_NOTFOUND) {
+		if (cf_shash_get(g_exchange.nodeid_to_node_state, &nodeid, &temp_state)
+				== CF_SHASH_ERR_NOT_FOUND) {
 			exchange_node_state_init(&temp_state);
 
 			SHASH_PUT_OR_DIE(g_exchange.nodeid_to_node_state, &nodeid,
@@ -1201,7 +1201,7 @@ exchange_nodes_find_send_unacked_reduce(const void* key, void* data,
 	if (!node_state->send_acked) {
 		cf_vector_append(unacked, node);
 	}
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -1210,7 +1210,7 @@ exchange_nodes_find_send_unacked_reduce(const void* key, void* data,
 static void
 exchange_nodes_find_send_unacked(cf_vector* unacked)
 {
-	shash_reduce_delete(g_exchange.nodeid_to_node_state,
+	cf_shash_reduce(g_exchange.nodeid_to_node_state,
 			exchange_nodes_find_send_unacked_reduce, unacked);
 }
 
@@ -1229,7 +1229,7 @@ exchange_nodes_find_not_received_reduce(const void* key, void* data,
 	if (!node_state->received) {
 		cf_vector_append(not_received, node);
 	}
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -1238,7 +1238,7 @@ exchange_nodes_find_not_received_reduce(const void* key, void* data,
 static void
 exchange_nodes_find_not_received(cf_vector* not_received)
 {
-	shash_reduce_delete(g_exchange.nodeid_to_node_state,
+	cf_shash_reduce(g_exchange.nodeid_to_node_state,
 			exchange_nodes_find_not_received_reduce, not_received);
 }
 
@@ -1256,7 +1256,7 @@ exchange_nodes_find_not_ready_to_commit_reduce(const void* key, void* data,
 	if (!node_state->is_ready_to_commit) {
 		cf_vector_append(not_ready_to_commit, node);
 	}
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -1265,7 +1265,7 @@ exchange_nodes_find_not_ready_to_commit_reduce(const void* key, void* data,
 static void
 exchange_nodes_find_not_ready_to_commit(cf_vector* not_ready_to_commit)
 {
-	shash_reduce_delete(g_exchange.nodeid_to_node_state,
+	cf_shash_reduce(g_exchange.nodeid_to_node_state,
 			exchange_nodes_find_not_ready_to_commit_reduce,
 			not_ready_to_commit);
 }
@@ -1288,7 +1288,7 @@ static void
 exchange_node_state_get_safe(cf_node nodeid, as_exchange_node_state* node_state)
 {
 	if (SHASH_GET_OR_DIE(g_exchange.nodeid_to_node_state, &nodeid, node_state,
-			"error reading node state from hash") == SHASH_ERR_NOTFOUND) {
+			"error reading node state from hash") == CF_SHASH_ERR_NOT_FOUND) {
 		CRASH(
 				"node entry for node %"PRIx64"  missing from node state hash", nodeid);
 	}
@@ -1598,7 +1598,7 @@ exchange_data_ack_msg_send(cf_node dest)
  * Add a pid to the namespace hash for the input vinfo.
  */
 static void
-exchange_namespace_hash_pid_add(shash* ns_hash, as_partition_version* vinfo,
+exchange_namespace_hash_pid_add(cf_shash* ns_hash, as_partition_version* vinfo,
 		uint16_t pid)
 {
 	if (as_partition_version_is_null(vinfo)) {
@@ -1610,7 +1610,7 @@ exchange_namespace_hash_pid_add(shash* ns_hash, as_partition_version* vinfo,
 
 	// Append the hash.
 	if (SHASH_GET_OR_DIE(ns_hash, vinfo, &pid_vector,
-			"error reading the namespace hash") != SHASH_OK) {
+			"error reading the namespace hash") != CF_SHASH_OK) {
 		// We are seeing this vinfo for the first time.
 		pid_vector = cf_vector_create(sizeof(uint16_t),
 		AS_EXCHANGE_VINFO_NUM_PIDS_AVG, 0);
@@ -1629,7 +1629,7 @@ exchange_namespace_hash_destroy_reduce(const void* key, void* data, void* udata)
 {
 	cf_vector* pid_vector = *(cf_vector**)data;
 	cf_vector_destroy(pid_vector);
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 /**
@@ -1656,7 +1656,7 @@ exchange_namespace_hash_serialize_reduce(const void* key, void* data,
 		cf_dyn_buf_append_buf(dyn_buf, (uint8_t*)pid, sizeof(*pid));
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -1671,11 +1671,11 @@ exchange_data_namespace_payload_add(as_namespace* ns, cf_dyn_buf* dyn_buf)
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	shash* ns_hash;
+	cf_shash* ns_hash;
 
-	if (shash_create(&ns_hash, exchange_vinfo_shash,
+	if (cf_shash_create(&ns_hash, exchange_vinfo_shash,
 			sizeof(as_partition_version), sizeof(cf_vector*),
-			AS_EXCHANGE_UNIQUE_VINFO_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+			AS_EXCHANGE_UNIQUE_VINFO_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating namespace payload hash");
 	}
 
@@ -1689,19 +1689,19 @@ exchange_data_namespace_payload_add(as_namespace* ns, cf_dyn_buf* dyn_buf)
 
 	// We are ready to populate the dyn buffer with this ns's data.
 	DEBUG("namespace %s has %d unique vinfos", ns->name,
-			shash_get_size(ns_hash));
+			cf_shash_get_size(ns_hash));
 
 	// Append the vinfo count.
-	uint32_t num_vinfos = shash_get_size(ns_hash);
+	uint32_t num_vinfos = cf_shash_get_size(ns_hash);
 	cf_dyn_buf_append_buf(dyn_buf, (uint8_t*)&num_vinfos, sizeof(num_vinfos));
 
 	// Append vinfos and partitions.
-	shash_reduce(ns_hash, exchange_namespace_hash_serialize_reduce, dyn_buf);
+	cf_shash_reduce(ns_hash, exchange_namespace_hash_serialize_reduce, dyn_buf);
 
 	// Destroy the intermediate hash and the pid vectors.
-	shash_reduce_delete(ns_hash, exchange_namespace_hash_destroy_reduce, NULL);
+	cf_shash_reduce(ns_hash, exchange_namespace_hash_destroy_reduce, NULL);
 
-	shash_destroy(ns_hash);
+	cf_shash_destroy(ns_hash);
 }
 
 /**
@@ -2853,9 +2853,9 @@ exchange_init()
 	g_exchange.orphan_state_are_transactions_blocked = true;
 
 	// Initialize the adjacencies.
-	if (shash_create(&g_exchange.nodeid_to_node_state, cf_nodeid_shash_fn,
+	if (cf_shash_create(&g_exchange.nodeid_to_node_state, cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(as_exchange_node_state),
-			AS_EXCHANGE_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+			AS_EXCHANGE_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating node state hash");
 	}
 

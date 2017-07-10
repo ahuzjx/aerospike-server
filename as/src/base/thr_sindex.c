@@ -53,6 +53,7 @@
 #include "ai_obj.h"
 #include "ai_btree.h"
 #include "fault.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "base/datamodel.h"
@@ -196,7 +197,7 @@ as_sindex__destroy_fn(void *param)
 		char iname[AS_ID_INAME_SZ];
 		memset(iname, 0, AS_ID_INAME_SZ);
 		snprintf(iname, strlen(imd->iname) + 1, "%s", imd->iname);
-		shash_delete(si->ns->sindex_iname_hash, (void *)iname);
+		cf_shash_delete(si->ns->sindex_iname_hash, (void *)iname);
 
 
 		as_namespace *ns = si->ns;

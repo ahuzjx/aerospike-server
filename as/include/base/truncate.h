@@ -32,7 +32,8 @@
 #include <string.h>
 
 #include "citrusleaf/cf_atomic.h"
-#include "citrusleaf/cf_shash.h"
+
+#include "shash.h"
 
 
 //==========================================================
@@ -55,7 +56,7 @@ typedef enum {
 
 typedef struct as_truncate_s {
 	uint64_t lut;
-	shash* startup_set_hash; // relevant only for enterprise edition
+	cf_shash* startup_set_hash; // relevant only for enterprise edition
 	truncate_state state;
 	pthread_mutex_t state_lock;
 	cf_atomic32 n_threads_running;

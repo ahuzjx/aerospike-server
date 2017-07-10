@@ -101,6 +101,7 @@
 #include "bt_iterator.h"
 #include "cf_str.h"
 #include "fault.h"
+#include "shash.h"
 
 #include "base/cdt.h"
 #include "base/cfg.h"
@@ -557,17 +558,17 @@ as_sindex__put_in_set_binid_hash(as_namespace * ns, char * set, int binid, int c
 	}
 
 	// Get the linked list from the hash
-	int rv      = shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll);
+	int rv      = cf_shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll);
 
 	// If linked list does not exist then make one and put it in the hash
-	if (rv && rv != SHASH_ERR_NOTFOUND) {
+	if (rv && rv != CF_SHASH_ERR_NOT_FOUND) {
 		cf_debug(AS_SINDEX, "shash get failed with error %d", rv);
 		return AS_SINDEX_ERR;
 	};
-	if (rv == SHASH_ERR_NOTFOUND) {
+	if (rv == CF_SHASH_ERR_NOT_FOUND) {
 		simatch_ll = cf_malloc(sizeof(cf_ll));
 		cf_ll_init(simatch_ll, as_sindex__set_binid_hash_destroy, false);
-		if (SHASH_OK != shash_put(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll)) {
+		if (CF_SHASH_OK != cf_shash_put(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll)) {
 			cf_warning(AS_SINDEX, "shash put failed for key %s", si_prop);
 			return AS_SINDEX_ERR;
 		}
@@ -613,14 +614,14 @@ as_sindex__delete_from_set_binid_hash(as_namespace * ns, as_sindex_metadata * im
 
 	// Get the sindex list corresponding to key
 	cf_ll * simatch_ll = NULL;
-	int rv             = shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll);
+	int rv             = cf_shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)&simatch_ll);
 
 	// If the list does not exist, return does not exist
-	if (rv && rv != SHASH_ERR_NOTFOUND) {
+	if (rv && rv != CF_SHASH_ERR_NOT_FOUND) {
 		cf_debug(AS_SINDEX, "shash get failed with error %d", rv);
 		return AS_SINDEX_ERR_NOTFOUND;
 	};
-	if (rv == SHASH_ERR_NOTFOUND) {
+	if (rv == CF_SHASH_ERR_NOT_FOUND) {
 		return AS_SINDEX_ERR_NOTFOUND;
 	}
 
@@ -655,7 +656,7 @@ as_sindex__delete_from_set_binid_hash(as_namespace * ns, as_sindex_metadata * im
 	// 			If the list size becomes 0
 	// 				Delete the entry from the hash
 	if (cf_ll_size(simatch_ll) == 0) {
-		rv = shash_delete(ns->sindex_set_binid_hash, si_prop);
+		rv = cf_shash_delete(ns->sindex_set_binid_hash, si_prop);
 		if (rv) {
 			cf_debug(AS_SINDEX, "shash_delete fails with error %d", rv);
 		}
@@ -695,7 +696,7 @@ as_sindex__simatch_list_by_set_binid(as_namespace * ns, const char *set, int bin
 	}
 
 	// Look for the key in set_binid_hash
-	int rv             = shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)simatch_ll);
+	int rv             = cf_shash_get(ns->sindex_set_binid_hash, (void *)si_prop, (void *)simatch_ll);
 
 	// If not found return NULL
 	if (rv || !(*simatch_ll)) {
@@ -851,7 +852,7 @@ as_sindex__simatch_by_iname(as_namespace *ns, char *idx_name)
 	strcpy(iname, idx_name);
 
 	int simatch = -1;
-	int rv = shash_get(ns->sindex_iname_hash, (void *)iname, (void *)&simatch);
+	int rv = cf_shash_get(ns->sindex_iname_hash, (void *)iname, (void *)&simatch);
 	cf_detail(AS_SINDEX, "Found iname simatch %s->%d rv=%d", iname, simatch, rv);
 
 	if (rv) {
@@ -1497,7 +1498,7 @@ sindex_create_lockless(as_namespace *ns, as_sindex_metadata *imd)
 	char iname[AS_ID_INAME_SZ];
 	memset(iname, 0, AS_ID_INAME_SZ);
 	snprintf(iname, strlen(imd->iname)+1, "%s", imd->iname);
-	if (SHASH_OK != shash_put(ns->sindex_iname_hash, (void *)iname, (void *)&chosen_id)) {
+	if (CF_SHASH_OK != cf_shash_put(ns->sindex_iname_hash, (void *)iname, (void *)&chosen_id)) {
 		cf_warning(AS_SINDEX, "Internal error ... Duplicate element found sindex iname hash [%s %s]",
 				imd->iname, as_bin_get_name_from_id(ns, imd->binid));
 
@@ -3398,7 +3399,7 @@ packed_val_make_skey(const cdt_payload *val, as_val_t type, void *skey)
 }
 
 static bool
-packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, shash *hash, as_val_t type)
+packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, cf_shash *hash, as_val_t type)
 {
 	uint8_t skey[sizeof(cf_digest)];
 
@@ -3409,7 +3410,7 @@ packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, shash
 
 	bool found = false;
 
-	if (shash_get(hash, skey, &found) != SHASH_OK) {
+	if (cf_shash_get(hash, skey, &found) != CF_SHASH_OK) {
 		// Item not in hash, add to sbin.
 		return as_sindex_bin_add_skey(sbin, skey, type);
 	}
@@ -3417,7 +3418,7 @@ packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, shash
 		// Item is in hash, set it to true.
 		found = true;
 
-		if (shash_put(hash, skey, &found) == SHASH_OK) {
+		if (cf_shash_put(hash, skey, &found) == CF_SHASH_OK) {
 			return true;
 		}
 	}
@@ -3426,7 +3427,7 @@ packed_val_add_sbin_or_update_shash(cdt_payload *val, as_sindex_bin *sbin, shash
 }
 
 static bool
-shash_add_packed_val(shash *h, const cdt_payload *val, as_val_t type, bool value)
+shash_add_packed_val(cf_shash *h, const cdt_payload *val, as_val_t type, bool value)
 {
 	uint8_t skey[sizeof(cf_digest)];
 
@@ -3435,7 +3436,7 @@ shash_add_packed_val(shash *h, const cdt_payload *val, as_val_t type, bool value
 		return true;
 	}
 
-	if (shash_put(h, skey, &value) != SHASH_OK) {
+	if (cf_shash_put(h, skey, &value) != CF_SHASH_OK) {
 		return false;
 	}
 
@@ -3566,8 +3567,8 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		return sbins->num_values == 0 ? 0 : 1;
 	}
 
-	shash *hash;
-	if (shash_create(&hash, cf_shash_fn_u32, data_size, 1, short_list_size, 0) != SHASH_OK) {
+	cf_shash *hash;
+	if (cf_shash_create(&hash, cf_shash_fn_u32, data_size, 1, short_list_size, 0) != CF_SHASH_OK) {
 		cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() failed to create hash");
 		return -1;
 	}
@@ -3582,7 +3583,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 
 		if (size < 0) {
 			cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() list unpack failed");
-			shash_destroy(hash);
+			cf_shash_destroy(hash);
 			return -1;
 		}
 
@@ -3590,7 +3591,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 
 		if (! shash_add_packed_val(hash, &ele, expected_type, false)) {
 			cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() hash add failed");
-			shash_destroy(hash);
+			cf_shash_destroy(hash);
 			return -1;
 		}
 	}
@@ -3606,7 +3607,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		if (! packed_val_add_sbin_or_update_shash(&ele, sbins, hash, expected_type)) {
 			cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() hash update failed");
 			as_sindex_sbin_free(sbins);
-			shash_destroy(hash);
+			cf_shash_destroy(hash);
 			return -1;
 		}
 	}
@@ -3623,9 +3624,9 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 	as_sindex_init_sbin(sbins, old_list_is_short ? AS_SINDEX_OP_DELETE : AS_SINDEX_OP_INSERT, type, si);
 
 	// Iterate through all the elements of hash.
-	if (shash_reduce(hash, shash_diff_reduce_fn, sbins) != 0) {
+	if (cf_shash_reduce(hash, shash_diff_reduce_fn, sbins) != 0) {
 		as_sindex_sbin_freeall(start_sbin, found + 1);
-		shash_destroy(hash);
+		cf_shash_destroy(hash);
 		return -1;
 	}
 
@@ -3633,7 +3634,7 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		found++;
 	}
 
-	shash_destroy(hash);
+	cf_shash_destroy(hash);
 
 	return found;
 }
@@ -4559,14 +4560,14 @@ as_sindex_init(as_namespace *ns)
 	}
 
 	// binid to simatch lookup
-	if (SHASH_OK != shash_create(&ns->sindex_set_binid_hash,
+	if (CF_SHASH_OK != cf_shash_create(&ns->sindex_set_binid_hash,
 						cf_shash_fn_zstr, AS_SINDEX_PROP_KEY_SIZE, sizeof(cf_ll *),
 						AS_SINDEX_MAX, 0)) {
 		cf_crash(AS_AS, "Couldn't create sindex binid hash");
 	}
 
 	// iname to simatch lookup
-	if (SHASH_OK != shash_create(&ns->sindex_iname_hash,
+	if (CF_SHASH_OK != cf_shash_create(&ns->sindex_iname_hash,
 						cf_shash_fn_zstr, AS_ID_INAME_SZ, sizeof(uint32_t),
 						AS_SINDEX_MAX, 0)) {
 		cf_crash(AS_AS, "Couldn't create sindex iname hash");

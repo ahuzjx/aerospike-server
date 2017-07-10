@@ -37,12 +37,12 @@
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "dynbuf.h"
 #include "fault.h"
 #include "msg.h"
 #include "node.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "base/batch.h"
@@ -134,7 +134,7 @@ typedef struct proxy_request_s {
 // Globals.
 //
 
-static shash* g_proxy_hash = NULL;
+static cf_shash* g_proxy_hash = NULL;
 static cf_atomic32 g_proxy_tid = 0;
 
 
@@ -212,8 +212,8 @@ batch_sub_proxy_update_stats(as_namespace* ns, uint8_t result_code)
 void
 as_proxy_init()
 {
-	shash_create(&g_proxy_hash, proxy_hash_fn, sizeof(uint32_t),
-			sizeof(proxy_request), 4 * 1024, SHASH_CR_MT_MANYLOCK);
+	cf_shash_create(&g_proxy_hash, proxy_hash_fn, sizeof(uint32_t),
+			sizeof(proxy_request), 4 * 1024, CF_SHASH_MANY_LOCK);
 
 	pthread_t thread;
 	pthread_attr_t attrs;
@@ -233,7 +233,7 @@ as_proxy_init()
 uint32_t
 as_proxy_hash_count()
 {
-	return shash_get_size(g_proxy_hash);
+	return cf_shash_get_size(g_proxy_hash);
 }
 
 
@@ -288,7 +288,7 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns,
 	pr.pid = pid;
 	pr.ns = ns;
 
-	if (shash_put(g_proxy_hash, &tid, &pr) != SHASH_OK) {
+	if (cf_shash_put(g_proxy_hash, &tid, &pr) != CF_SHASH_OK) {
 		cf_warning(AS_PROXY, "failed shash put");
 		as_fabric_msg_put(m);
 		return false;
@@ -403,7 +403,7 @@ proxyer_handle_response(msg* m, uint32_t tid)
 {
 	proxy_request pr;
 
-	if (shash_get_and_delete(g_proxy_hash, &tid, &pr) != SHASH_OK) {
+	if (cf_shash_get_and_delete(g_proxy_hash, &tid, &pr) != CF_SHASH_OK) {
 		// Some other response (or timeout) has already finished this pr.
 		return;
 	}
@@ -501,7 +501,8 @@ proxyer_handle_return_to_sender(msg* m, uint32_t tid)
 	proxy_request* pr;
 	pthread_mutex_t* lock;
 
-	if (shash_get_vlock(g_proxy_hash, &tid, (void**)&pr, &lock) != SHASH_OK) {
+	if (cf_shash_get_vlock(g_proxy_hash, &tid, (void**)&pr, &lock) !=
+			CF_SHASH_OK) {
 		// Some other response (or timeout) has already finished this pr.
 		return;
 	}
@@ -560,7 +561,7 @@ proxyer_handle_return_to_sender(msg* m, uint32_t tid)
 
 	as_fabric_msg_put(pr->fab_msg);
 
-	shash_delete_lockfree(g_proxy_hash, &tid);
+	cf_shash_delete_lockfree(g_proxy_hash, &tid);
 	pthread_mutex_unlock(lock);
 }
 
@@ -639,7 +640,7 @@ run_proxy_retransmit(void* arg)
 		now.now_ns = cf_getns();
 		now.now_ms = now.now_ns / 1000000;
 
-		shash_reduce_delete(g_proxy_hash, proxy_retransmit_reduce_fn, &now);
+		cf_shash_reduce(g_proxy_hash, proxy_retransmit_reduce_fn, &now);
 	}
 
 	return NULL;
@@ -683,7 +684,7 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 		pr->from.any = NULL; // pattern, not needed
 		as_fabric_msg_put(pr->fab_msg);
 
-		return SHASH_REDUCE_DELETE;
+		return CF_SHASH_REDUCE_DELETE;
 	}
 
 	// Handle retransmits.
@@ -696,7 +697,7 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 		return proxy_retransmit_send(pr);
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 
@@ -711,7 +712,7 @@ proxy_retransmit_send(proxy_request* pr)
 		int rv = as_fabric_send(pr->dest, pr->fab_msg, AS_FABRIC_CHANNEL_RW);
 
 		if (rv == AS_FABRIC_SUCCESS) {
-			return SHASH_OK;
+			return CF_SHASH_OK;
 		}
 
 		as_fabric_msg_put(pr->fab_msg);
@@ -719,7 +720,7 @@ proxy_retransmit_send(proxy_request* pr)
 		if (rv != AS_FABRIC_ERR_NO_NODE) {
 			// Should never get here - 'queue full' error is impossible for
 			// medium priority...
-			return SHASH_ERR;
+			return CF_SHASH_ERR;
 		}
 
 		// The node I'm proxying to is no longer up. Find another node. (Easier
@@ -729,7 +730,7 @@ proxy_retransmit_send(proxy_request* pr)
 
 		// Partition is frozen - try more retransmits, but will likely time out.
 		if (new_dst == (cf_node)0) {
-			return SHASH_OK;
+			return CF_SHASH_OK;
 		}
 
 		// Destination is self - abandon proxy and try local transaction.
@@ -760,12 +761,12 @@ proxy_retransmit_send(proxy_request* pr)
 
 			as_fabric_msg_put(pr->fab_msg);
 
-			return SHASH_REDUCE_DELETE;
+			return CF_SHASH_REDUCE_DELETE;
 		}
 
 		// Original destination - just wait for the next retransmit.
 		if (new_dst == pr->dest) {
-			return SHASH_OK;
+			return CF_SHASH_OK;
 		}
 
 		// Different destination - retry immediately. This is the reason for the
@@ -774,7 +775,7 @@ proxy_retransmit_send(proxy_request* pr)
 	}
 
 	// For now, it's impossible to get here.
-	return SHASH_ERR;
+	return CF_SHASH_ERR;
 }
 
 

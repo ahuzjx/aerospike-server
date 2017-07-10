@@ -38,9 +38,9 @@
 #include "aerospike/as_stringmap.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_rchash.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "msg.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "base/secondary_index.h"
@@ -514,8 +514,8 @@ struct as_smd_s {
 	// Message queue for receiving System Metadata messages.
 	cf_queue *msgq;
 
-	// Scoreboard of what cluster nodes the SMD principal has received metadata from:  cf_node ==> shash *.
-	shash *scoreboard;
+	// Scoreboard of what cluster nodes the SMD principal has received metadata from:  cf_node ==> cf_shash *.
+	cf_shash *scoreboard;
 
 	cf_queue pending_merge_queue; // elements are (smd_pending_merge)
 };
@@ -1246,7 +1246,7 @@ static as_smd_t *as_smd_create(void)
 	}
 
 	// Create the scoreboard hash table.
-	if (SHASH_OK != shash_create(&(smd->scoreboard), cf_shash_fn_ptr, sizeof(cf_node), sizeof(shash *), 127, SHASH_CR_MT_BIGLOCK)) {
+	if (CF_SHASH_OK != cf_shash_create(&(smd->scoreboard), cf_shash_fn_ptr, sizeof(cf_node), sizeof(cf_shash *), 127, CF_SHASH_BIG_LOCK)) {
 		cf_crash(AS_SMD, "failed to create the System Metadata scoreboard hash table");
 	}
 
@@ -2543,7 +2543,7 @@ static void as_smd_terminate(as_smd_t *smd)
 	cf_queue_destroy(smd->msgq);
 
 	// Release the scoreboard hash table.
-	shash_destroy(smd->scoreboard);
+	cf_shash_destroy(smd->scoreboard);
 
 	// Release the modules hash table.
 	cf_rchash_destroy(smd->modules);
@@ -2714,13 +2714,13 @@ static void as_smd_cluster_changed(as_smd_t *smd, as_smd_cmd_t *cmd)
 static int as_smd_scoreboard_reduce_delete_fn(const void *key, void *data, void *udata)
 {
 	cf_node node_id = (cf_node) key;
-	shash *module_item_count_hash = *((shash **) data);
+	cf_shash *module_item_count_hash = *((cf_shash **) data);
 
 	cf_debug(AS_SMD, "destroying module item count hash for node %016lX", node_id);
 
-	shash_destroy(module_item_count_hash);
+	cf_shash_destroy(module_item_count_hash);
 
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 /*
@@ -2751,7 +2751,7 @@ static int as_smd_delete_external_metadata_reduce_fn(const void *key, uint32_t k
  */
 static void as_smd_clear_scoreboard(as_smd_t *smd)
 {
-	shash_reduce_delete(smd->scoreboard, as_smd_scoreboard_reduce_delete_fn, smd);
+	cf_shash_reduce(smd->scoreboard, as_smd_scoreboard_reduce_delete_fn, smd);
 	cf_rchash_reduce(smd->modules, as_smd_delete_external_metadata_reduce_fn, smd);
 }
 
@@ -2878,18 +2878,18 @@ static int as_smd_apply_metadata_change(as_smd_t *smd, as_smd_module_t *module_o
 /*
  *  Increment hash table value by the given delta, starting from zero if not found, and return the new total.
  */
-static int as_smd_shash_incr(shash *ht, as_smd_module_t *module_obj, size_t delta)
+static int as_smd_shash_incr(cf_shash *ht, as_smd_module_t *module_obj, size_t delta)
 {
 	size_t count = 0;
 
-	if (SHASH_OK != shash_get(ht, &module_obj, &count)) {
+	if (CF_SHASH_OK != cf_shash_get(ht, &module_obj, &count)) {
 		// If not found, start at zero.
 		count = 0;
 	}
 
 	count += delta;
 
-	if (SHASH_OK != shash_put(ht, &module_obj, &count)) {
+	if (CF_SHASH_OK != cf_shash_put(ht, &module_obj, &count)) {
 		cf_crash(AS_SMD, "failed to increment shash value for module \"%s\"", module_obj->module);
 	}
 
@@ -2901,13 +2901,13 @@ static int as_smd_shash_incr(shash *ht, as_smd_module_t *module_obj, size_t delt
 /*
  *  Add the metadata items from this msg to the appropriate modules' external hash tables.
  */
-static shash *as_smd_store_metadata_by_module(as_smd_t *smd, as_smd_msg_t *smd_msg)
+static cf_shash *as_smd_store_metadata_by_module(as_smd_t *smd, as_smd_msg_t *smd_msg)
 {
 	as_smd_item_list_t *items = smd_msg->items;
-	shash *module_item_count_hash = NULL;
+	cf_shash *module_item_count_hash = NULL;
 
 	// Allocate a hash table mapping module ==> number of metadata items from this node.
-	if (SHASH_OK != shash_create(&module_item_count_hash, cf_shash_fn_ptr, sizeof(as_smd_module_t *), sizeof(size_t), 19, SHASH_CR_MT_BIGLOCK)) {
+	if (CF_SHASH_OK != cf_shash_create(&module_item_count_hash, cf_shash_fn_ptr, sizeof(as_smd_module_t *), sizeof(size_t), 19, CF_SHASH_BIG_LOCK)) {
 		cf_warning(AS_SMD, "failed to allocate module item count hash table");
 		return NULL;
 	}
@@ -3193,28 +3193,28 @@ static int as_smd_receive_metadata(as_smd_t *smd, as_smd_msg_t *smd_msg)
 
 	// Store the all of the metadata items received from this node in the appropriate module's external metadata hash table.
 	// And return the item counts by module in a hash table.
-	shash *module_item_count_hash = NULL;
+	cf_shash *module_item_count_hash = NULL;
 	if (!(module_item_count_hash = as_smd_store_metadata_by_module(smd, smd_msg))) {
 		cf_crash(AS_SMD, "failed to store metadata by module from node %016lX", smd_msg->node_id);
 	}
 
 	// If something is already there, its obsolete, so release it.
-	shash *prev_module_item_count_hash = NULL;
-	if (SHASH_OK == shash_get(smd->scoreboard, &(smd_msg->node_id), &prev_module_item_count_hash)) {
+	cf_shash *prev_module_item_count_hash = NULL;
+	if (CF_SHASH_OK == cf_shash_get(smd->scoreboard, &(smd_msg->node_id), &prev_module_item_count_hash)) {
 		cf_debug(AS_SMD, "found an obsolete module item count hash for node %016lX ~~ Deleting!", smd_msg->node_id);
-		if (SHASH_OK != shash_delete(smd->scoreboard, &(smd_msg->node_id))) {
+		if (CF_SHASH_OK != cf_shash_delete(smd->scoreboard, &(smd_msg->node_id))) {
 			cf_warning(AS_SMD, "failed to delete obsolete module item count hash for node %016lX", smd_msg->node_id);
 		}
-		shash_destroy(prev_module_item_count_hash);
+		cf_shash_destroy(prev_module_item_count_hash);
 	}
 
 	// Note that this node has provided its metadata for this cluster state change.
-	if (SHASH_OK != shash_put_unique(smd->scoreboard, &(smd_msg->node_id), &module_item_count_hash)) {
+	if (CF_SHASH_OK != cf_shash_put_unique(smd->scoreboard, &(smd_msg->node_id), &module_item_count_hash)) {
 		cf_warning(AS_SMD, "failed to put unique node %016lX into System Metadata scoreboard hash table", smd_msg->node_id);
 	}
 
 	// Merge the metadata when all nodes have reported in.
-	if (shash_get_size(smd->scoreboard) == g_cluster_size) {
+	if (cf_shash_get_size(smd->scoreboard) == g_cluster_size) {
 		cf_debug(AS_SMD, "received metadata from all %u cluster nodes ~~ invoking merge policies", g_cluster_size);
 
 		cf_debug(AS_SMD, "Invoking merge reduce in SMD principal");
@@ -3223,7 +3223,7 @@ static int as_smd_receive_metadata(as_smd_t *smd, as_smd_msg_t *smd_msg)
 
 		// Clear out the state used to notify cluster nodes of the new metadata.
 		as_smd_clear_scoreboard(smd);
-	} else if (shash_get_size(smd->scoreboard) > g_cluster_size) {
+	} else if (cf_shash_get_size(smd->scoreboard) > g_cluster_size) {
 		// Cluster is unstable.
 		// While one node is coming up, one of other nodes has gone down.
 		// e.g Consider 3 node cluster. Add new node. Cluster size is 4.
@@ -3232,7 +3232,7 @@ static int as_smd_receive_metadata(as_smd_t *smd, as_smd_msg_t *smd_msg)
 		// But now two node has gone down. Cluster size is reduced to 2.
 		as_smd_clear_scoreboard(smd);
 	} else {
-		cf_debug(AS_SMD, "Cluster size = %u and smd->scoreboard size = %d ", g_cluster_size, shash_get_size(smd->scoreboard));
+		cf_debug(AS_SMD, "Cluster size = %u and smd->scoreboard size = %d ", g_cluster_size, cf_shash_get_size(smd->scoreboard));
 	}
 
 	return retval;

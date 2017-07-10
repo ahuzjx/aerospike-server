@@ -36,9 +36,9 @@
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_hash_math.h"
 #include "citrusleaf/cf_queue.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "base/cfg.h"
@@ -477,22 +477,22 @@ if (!(expression)) {WARNING(message, ##__VA_ARGS__);}
 /**
  * Put a key to a hash or crash with an error message on failure.
  */
-#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)	\
-({														\
-	if (shash_put(hash, key, value) != SHASH_OK) {		\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
+#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)		\
+({															\
+	if (cf_shash_put(hash, key, value) != CF_SHASH_OK) {	\
+		CRASH(error, ##__VA_ARGS__);						\
+	}														\
 })
 
 /**
  * Delete a key from hash or on failure crash with an error message. Key not
  * found is NOT considered an error.
  */
-#define SHASH_DELETE_OR_DIE(hash, key, error, ...)	\
-({													\
-	if (SHASH_ERR == shash_delete(hash, key)) {		\
-		CRASH(error, ##__VA_ARGS__);				\
-	}												\
+#define SHASH_DELETE_OR_DIE(hash, key, error, ...)		\
+({														\
+	if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {	\
+		CRASH(error, ##__VA_ARGS__);					\
+	}													\
 })
 
 /**
@@ -501,8 +501,8 @@ if (!(expression)) {WARNING(message, ##__VA_ARGS__);}
  */
 #define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
 ({														\
-	int retval = shash_get(hash, key, value);			\
-	if (retval == SHASH_ERR) {							\
+	int retval = cf_shash_get(hash, key, value);		\
+	if (retval == CF_SHASH_ERR) {						\
 		CRASH(error, ##__VA_ARGS__);					\
 	}													\
 	retval;												\
@@ -756,7 +756,7 @@ typedef struct as_hb_mesh_state_s
 	 * used as a key if the nodeid is unknown. Once the nodeid is known the
 	 * value will be moved to a new key.
 	 */
-	shash* nodeid_to_mesh_node;
+	cf_shash* nodeid_to_mesh_node;
 
 	/**
 	 * Thread id for the mesh tender thread.
@@ -994,14 +994,14 @@ typedef struct as_hb_channel_state_s
 	/**
 	 * Maps a socket to an as_hb_channel.
 	 */
-	shash* socket_to_channel;
+	cf_shash* socket_to_channel;
 
 	/**
 	 * Maps a nodeid to a channel specific node data structure. This association
 	 * will be made only on receiving the first heartbeat message from the node
 	 * on a channel.
 	 */
-	shash* nodeid_to_socket;
+	cf_shash* nodeid_to_socket;
 
 	/**
 	 * Sockets accumulated by the channel tender to close at the end of every
@@ -1234,12 +1234,12 @@ typedef struct as_hb_s
 	 * The adjacency dictionary. The key is the nodeid. The value is an instance
 	 * of as_hb_adjacent_node.
 	 */
-	shash* adjacency;
+	cf_shash* adjacency;
 
 	/**
 	 * Temporary nodeid to index hash used to compute nodes to evict from a clique.
 	 */
-	shash* nodeid_to_index;
+	cf_shash* nodeid_to_index;
 
 	/**
 	 * The mode specific state.
@@ -1744,17 +1744,17 @@ as_hb_init()
 						g_config.hb_config.mesh_seed_ports[i]);
 
 				switch (rv) {
-				case SHASH_OK:
+				case CF_SHASH_OK:
 					INFO("added mesh seed node from config %s:%d",
 							g_config.hb_config.mesh_seed_addrs[i],
 							g_config.hb_config.mesh_seed_ports[i]);
 					break;
-				case SHASH_ERR_FOUND:
+				case CF_SHASH_ERR_FOUND:
 					INFO("duplicate mesh seed node from config %s:%d",
 							g_config.hb_config.mesh_seed_addrs[i],
 							g_config.hb_config.mesh_seed_ports[i]);
 					break;
-				case SHASH_ERR:
+				case CF_SHASH_ERR:
 					WARNING("error adding mesh seed node from config %s:%d",
 							g_config.hb_config.mesh_seed_addrs[i],
 							g_config.hb_config.mesh_seed_ports[i]);
@@ -2202,7 +2202,7 @@ as_hb_mesh_tip_clear(char* host, int port)
 	as_hb_mesh_tip_clear_udata mesh_tip_clear_reduce_udata;
 	strncpy(mesh_tip_clear_reduce_udata.host, host, HOST_NAME_MAX);
 	mesh_tip_clear_reduce_udata.port = port;
-	shash_reduce_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_tip_clear_reduce, &mesh_tip_clear_reduce_udata);
 
 	MESH_UNLOCK();
@@ -2221,7 +2221,7 @@ as_hb_mesh_tip_clear_all()
 	}
 
 	MESH_LOCK();
-	shash_reduce_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_tip_clear_reduce, NULL);
 	MESH_UNLOCK();
 	return (0);
@@ -2527,7 +2527,7 @@ hb_socket_hash_fn(const void* key)
 static int
 hb_delete_all_reduce(const void* key, void* data, void* udata)
 {
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 /*
@@ -3456,8 +3456,8 @@ channel_get_channel(cf_socket* socket, as_hb_channel* result)
 	int status;
 	CHANNEL_LOCK();
 
-	if (shash_get(g_hb.channel_state.socket_to_channel, &socket, result)
-			== SHASH_OK) {
+	if (cf_shash_get(g_hb.channel_state.socket_to_channel, &socket, result)
+			== CF_SHASH_OK) {
 		status = 0;
 	}
 	else {
@@ -3489,7 +3489,7 @@ channel_socket_get(cf_node nodeid, cf_socket** socket)
 	CHANNEL_LOCK();
 	if (SHASH_GET_OR_DIE(g_hb.channel_state.nodeid_to_socket, &nodeid, socket,
 			"error get channel information for node %" PRIX64, nodeid)
-			== SHASH_ERR_NOTFOUND) {
+			== CF_SHASH_ERR_NOT_FOUND) {
 		rv = -1;
 	}
 	else {
@@ -3928,10 +3928,10 @@ channel_endpoint_search_reduce(const void* key, void* data, void* udata)
 		endpoint_reduce_udata->found = true;
 		endpoint_reduce_udata->socket = *socket;
 		// Stop the reduce, we have found a match.
-		return SHASH_ERR_FOUND;
+		return CF_SHASH_ERR_FOUND;
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -3949,7 +3949,7 @@ channel_endpoint_is_connected(as_endpoint_list* endpoint_list)
 	memset(&udata, 0, sizeof(udata));
 	udata.endpoint_list = endpoint_list;
 
-	shash_reduce(g_hb.channel_state.socket_to_channel,
+	cf_shash_reduce(g_hb.channel_state.socket_to_channel,
 			channel_endpoint_search_reduce, &udata);
 
 	CHANNEL_UNLOCK();
@@ -4398,7 +4398,7 @@ channel_msg_event_process(cf_socket* socket, as_hb_channel_event* event)
 	int get_result = SHASH_GET_OR_DIE(g_hb.channel_state.nodeid_to_socket,
 			&nodeid, &existing_socket, "error reading from channel hash");
 
-	if (get_result == SHASH_ERR_NOTFOUND) {
+	if (get_result == CF_SHASH_ERR_NOT_FOUND) {
 		// Associate this socket with the node.
 		channel_node_attach(socket, &channel, nodeid);
 	}
@@ -4560,7 +4560,7 @@ channel_channels_tend_reduce(const void* key, void* data, void* udata)
 		}
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -4574,7 +4574,7 @@ channel_channels_idle_check()
 
 	cf_clock now = cf_getms();
 	if (g_hb.channel_state.last_channel_idle_check + CHANNEL_IDLE_CHECK_PERIOD <= now) {
-		shash_reduce(g_hb.channel_state.socket_to_channel,
+		cf_shash_reduce(g_hb.channel_state.socket_to_channel,
 				channel_channels_tend_reduce, NULL);
 		g_hb.channel_state.last_channel_idle_check = now;
 	}
@@ -4833,16 +4833,16 @@ channel_init()
 	}
 
 	// Initialize the nodeid to socket hash.
-	if (shash_create(&g_hb.channel_state.nodeid_to_socket, cf_nodeid_shash_fn,
-			sizeof(cf_node), sizeof(cf_socket*), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
-			!= SHASH_OK) {
+	if (cf_shash_create(&g_hb.channel_state.nodeid_to_socket,
+			cf_nodeid_shash_fn, sizeof(cf_node), sizeof(cf_socket*),
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating nodeid to fd hash");
 	}
 
 	// Initialize the socket to channel state hash.
-	if (shash_create(&g_hb.channel_state.socket_to_channel, hb_socket_hash_fn,
-			sizeof(cf_socket*), sizeof(as_hb_channel),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+	if (cf_shash_create(&g_hb.channel_state.socket_to_channel,
+			hb_socket_hash_fn, sizeof(cf_socket*), sizeof(as_hb_channel),
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != CF_SHASH_OK) {
 		CRASH("error creating fd to channel hash");
 	}
 
@@ -4896,7 +4896,7 @@ channel_sockets_get_reduce(const void* key, void* data, void* udata)
 {
 	cf_vector* sockets = (cf_vector*)udata;
 	cf_vector_append(sockets, key);
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -4921,11 +4921,11 @@ channel_stop()
 	CHANNEL_LOCK();
 
 	cf_vector sockets;
-	cf_socket buff[shash_get_size(g_hb.channel_state.socket_to_channel)];
+	cf_socket buff[cf_shash_get_size(g_hb.channel_state.socket_to_channel)];
 	cf_vector_init_smalloc(&sockets, sizeof(cf_socket*), (uint8_t*)buff,
 			sizeof(buff), VECTOR_FLAG_INITZERO);
 
-	shash_reduce(g_hb.channel_state.socket_to_channel,
+	cf_shash_reduce(g_hb.channel_state.socket_to_channel,
 			channel_sockets_get_reduce, &sockets);
 
 	channel_sockets_close(&sockets);
@@ -5165,7 +5165,7 @@ channel_msg_broadcast_reduce(const void* key, void* data, void* udata)
 
 	CHANNEL_UNLOCK();
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5193,7 +5193,7 @@ channel_msg_broadcast(msg* msg)
 	udata.buffer_len = channel_msg_buffer_fill(msg, wire_size, mtu, buffer,
 			buffer_len);
 
-	shash_reduce(g_hb.channel_state.socket_to_channel,
+	cf_shash_reduce(g_hb.channel_state.socket_to_channel,
 			channel_msg_broadcast_reduce, &udata);
 
 	MSG_BUFF_FREE(buffer, buffer_len);
@@ -5218,11 +5218,11 @@ channel_clear()
 	cf_queue_delete_all(&g_hb.channel_state.events_queue);
 
 	// Delete nodeid to socket hash.
-	shash_reduce_delete(g_hb.channel_state.nodeid_to_socket,
+	cf_shash_reduce(g_hb.channel_state.nodeid_to_socket,
 			hb_delete_all_reduce, NULL);
 
 	// Delete the socket_to_channel hash.
-	shash_reduce_delete(g_hb.channel_state.socket_to_channel,
+	cf_shash_reduce(g_hb.channel_state.socket_to_channel,
 			hb_delete_all_reduce, NULL);
 
 	DETAIL("cleared channel information");
@@ -5246,7 +5246,7 @@ channel_dump_reduce(const void* key, void* data, void* udata)
 			channel->is_inbound ? "inbound" : "outbound",
 			channel->last_received);
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5259,11 +5259,11 @@ channel_dump(bool verbose)
 	CHANNEL_LOCK();
 
 	INFO("HB Channel Count %d",
-			shash_get_size(g_hb.channel_state.socket_to_channel));
+			cf_shash_get_size(g_hb.channel_state.socket_to_channel));
 
 	if (verbose) {
-		shash_reduce(g_hb.channel_state.socket_to_channel, channel_dump_reduce,
-				NULL);
+		cf_shash_reduce(g_hb.channel_state.socket_to_channel,
+				channel_dump_reduce, NULL);
 	}
 
 	CHANNEL_UNLOCK();
@@ -5525,7 +5525,7 @@ mesh_seed_host_list_reduce(const void* key, void* data, void* udata)
 		}
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5539,7 +5539,7 @@ mesh_seed_host_list_get(cf_dyn_buf* db)
 	}
 	MESH_LOCK();
 
-	shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_seed_host_list_reduce, db);
 
 	MESH_UNLOCK();
@@ -5652,7 +5652,7 @@ mesh_node_endpoint_list_fill(as_hb_mesh_node* mesh_node)
 static int
 mesh_tend_reduce(const void* key, void* data, void* udata)
 {
-	int rv = SHASH_OK;
+	int rv = CF_SHASH_OK;
 
 	MESH_LOCK();
 
@@ -5679,7 +5679,7 @@ mesh_tend_reduce(const void* key, void* data, void* udata)
 		if (!mesh_node->is_seed) {
 			DEBUG("mesh forgetting node %" PRIx64" because it could not be connected since %" PRIx64,
 					nodeid, mesh_node->inactive_since);
-			rv = SHASH_REDUCE_DELETE;
+			rv = CF_SHASH_REDUCE_DELETE;
 			goto Exit;
 		}
 		else {
@@ -5696,7 +5696,7 @@ mesh_tend_reduce(const void* key, void* data, void* udata)
 			DEBUG("mesh forgetting node %"PRIx64" ip address/port undiscovered since %"PRIu64,
 					nodeid, mesh_node->last_status_updated);
 
-			rv = SHASH_REDUCE_DELETE;
+			rv = CF_SHASH_REDUCE_DELETE;
 			goto Exit;
 		}
 	}
@@ -5737,7 +5737,7 @@ mesh_tend_reduce(const void* key, void* data, void* udata)
 	mesh_node_status_change(mesh_node, AS_HB_MESH_NODE_CHANNEL_PENDING);
 
 Exit:
-	if (rv == SHASH_REDUCE_DELETE) {
+	if (rv == CF_SHASH_REDUCE_DELETE) {
 		// Clear all internal allocated memory.
 		mesh_node_destroy(mesh_node);
 	}
@@ -5784,7 +5784,7 @@ mesh_tender(void* arg)
 		// Set the discovered flag.
 		g_hb.mode_state.mesh_state.nodes_discovered = false;
 
-		int mesh_node_count = shash_get_size(
+		int mesh_node_count = cf_shash_get_size(
 				g_hb.mode_state.mesh_state.nodeid_to_mesh_node);
 
 		// Make sure the udata has enough capacity.
@@ -5793,7 +5793,7 @@ mesh_tender(void* arg)
 		tend_reduce_udata.to_connect_count = 0;
 		tend_reduce_udata.has_inactive_seeds = false;
 
-		shash_reduce_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+		cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 				mesh_tend_reduce, &tend_reduce_udata);
 
 		if (g_hb.mode_state.mesh_state.conflict_check_interval_start
@@ -5939,7 +5939,7 @@ mesh_node_endpoint_addr_find_reduce(const void* key, void* data, void* udata)
 					&& memcmp(node_key, endpoint_reduce_udata->exclude_key,
 							sizeof(*node_key)) == 0)) {
 		// Empty endpoint list or this key matches the exclude key.
-		return SHASH_OK;
+		return CF_SHASH_OK;
 	}
 
 	// Search for a matching endpoint address in this list.
@@ -5950,10 +5950,10 @@ mesh_node_endpoint_addr_find_reduce(const void* key, void* data, void* udata)
 		memcpy(endpoint_reduce_udata->matched_key, node_key,
 				sizeof(as_hb_mesh_node_key));
 		// Stop searching we found a match.
-		return SHASH_ERR_FOUND;
+		return CF_SHASH_ERR_FOUND;
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5982,7 +5982,7 @@ mesh_node_endpoint_addr_find_exclude(cf_sock_addr* endpoint_addr,
 
 	MESH_LOCK();
 
-	shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_node_endpoint_addr_find_reduce, &udata);
 
 	MESH_UNLOCK();
@@ -6025,7 +6025,7 @@ mesh_node_endpoint_list_find_reduce(const void* key, void* data, void* udata)
 					&& memcmp(node_key, endpoint_reduce_udata->exclude_key,
 							sizeof(*node_key)) == 0)) {
 		// Endpoint list is empty or this key should be excluded.
-		return SHASH_OK;
+		return CF_SHASH_OK;
 	}
 
 	if (as_endpoint_lists_are_overlapping(mesh_node->endpoint_list,
@@ -6034,10 +6034,10 @@ mesh_node_endpoint_list_find_reduce(const void* key, void* data, void* udata)
 		memcpy(endpoint_reduce_udata->matched_key, node_key,
 				sizeof(as_hb_mesh_node_key));
 		// Stop searching we found a match.
-		return SHASH_ERR_FOUND;
+		return CF_SHASH_ERR_FOUND;
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -6067,7 +6067,7 @@ mesh_node_endpoint_list_overlapping_find_exclude(
 
 	MESH_LOCK();
 
-	shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_node_endpoint_list_find_reduce, &udata);
 
 	MESH_UNLOCK();
@@ -6151,7 +6151,7 @@ mesh_node_get(cf_node nodeid, bool is_real_nodeid, as_hb_mesh_node* mesh_node)
 	if (SHASH_GET_OR_DIE(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			&key, mesh_node,
 			"error getting mesh information for node %" PRIX64,
-			nodeid) == SHASH_OK) {
+			nodeid) == CF_SHASH_OK) {
 		rv = 0;
 	}
 	else {
@@ -7089,14 +7089,14 @@ mesh_seed_node_add(as_hb_mesh_node* new_node)
  * Add a host / port to the mesh seed list.
  * @param host the seed node hostname / ip address
  * @param port the seed node port.
- * @return SHASH_OK, SHASH_ERR, SHASH_ERR_FOUND.
+ * @return CF_SHASH_OK, CF_SHASH_ERR, CF_SHASH_ERR_FOUND.
  */
 static int
 mesh_tip(char* host, int port)
 {
 	MESH_LOCK();
 
-	int rv = SHASH_ERR;
+	int rv = CF_SHASH_ERR;
 
 	as_hb_mesh_node new_node;
 	memset(&new_node, 0, sizeof(new_node));
@@ -7110,7 +7110,7 @@ mesh_tip(char* host, int port)
 
 	if (mesh_node_endpoint_list_fill(&new_node) != 0) {
 		WARNING("error resolving ip address for mesh host %s:%d", host, port);
-		rv = SHASH_ERR;
+		rv = CF_SHASH_ERR;
 		goto Exit;
 	}
 
@@ -7122,7 +7122,7 @@ mesh_tip(char* host, int port)
 
 	if (udata.overlapped) {
 		WARNING("ignoring adding self %s:%d as mesh seed ", host, port);
-		rv = SHASH_ERR_FOUND;
+		rv = CF_SHASH_ERR_FOUND;
 		goto Exit;
 	}
 
@@ -7137,7 +7137,7 @@ mesh_tip(char* host, int port)
 			if (existing_node.is_seed) {
 				WARNING("mesh host %s:%d already in mesh seed list", host,
 						port);
-				rv = SHASH_ERR_FOUND;
+				rv = CF_SHASH_ERR_FOUND;
 				goto Exit;
 			}
 			else {
@@ -7147,7 +7147,7 @@ mesh_tip(char* host, int port)
 				existing_node.is_seed = true;
 				mesh_node_add_update(&existing_node_key, &existing_node,
 						"error allocating space for mesh tip node");
-				rv = SHASH_OK;
+				rv = CF_SHASH_OK;
 				goto Exit;
 			}
 		}
@@ -7156,10 +7156,10 @@ mesh_tip(char* host, int port)
 	mesh_seed_node_add(&new_node);
 
 	DEBUG("added new mesh seed %s:%d", host, port);
-	rv = SHASH_OK;
+	rv = CF_SHASH_OK;
 
 Exit:
-	if (rv != SHASH_OK) {
+	if (rv != CF_SHASH_OK) {
 		// Endure endpoint allocated space is freed.
 		mesh_node_destroy(&new_node);
 	}
@@ -7212,10 +7212,10 @@ mesh_init()
 	g_hb.mode_state.mesh_state.status = AS_HB_STATUS_STOPPED;
 
 	// Initialize the mesh node dictionary.
-	if (shash_create(&g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	if (cf_shash_create(&g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			hb_mesh_node_key_hash_fn, sizeof(as_hb_mesh_node_key),
 			sizeof(as_hb_mesh_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
-			!= SHASH_OK) {
+			!= CF_SHASH_OK) {
 		CRASH("error creating mesh node hash");
 	}
 
@@ -7232,11 +7232,11 @@ mesh_free_node_data_reduce(const void* key, void* data, void* udata)
 
 	if (mesh_node->is_seed) {
 		mesh_node->status = AS_HB_MESH_NODE_CHANNEL_INACTIVE;
-		return SHASH_OK;
+		return CF_SHASH_OK;
 	}
 
 	mesh_node_destroy(mesh_node);
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 /**
@@ -7245,7 +7245,7 @@ mesh_free_node_data_reduce(const void* key, void* data, void* udata)
 static int
 mesh_tip_clear_reduce(const void* key, void* data, void* udata)
 {
-	int rv = SHASH_OK;
+	int rv = CF_SHASH_OK;
 
 	MESH_LOCK();
 
@@ -7256,7 +7256,7 @@ mesh_tip_clear_reduce(const void* key, void* data, void* udata)
 
 	if (tip_clear_udata == NULL) {
 		// Handling tip clear all.
-		rv = SHASH_REDUCE_DELETE;
+		rv = CF_SHASH_REDUCE_DELETE;
 		goto Exit;
 	}
 
@@ -7266,7 +7266,7 @@ mesh_tip_clear_reduce(const void* key, void* data, void* udata)
 					HOST_NAME_MAX) == 0
 			&& mesh_node->seed_port == tip_clear_udata->port) {
 		// The hostname and the port match the input seed address and port.
-		rv = SHASH_REDUCE_DELETE;
+		rv = CF_SHASH_REDUCE_DELETE;
 		goto Exit;
 	}
 
@@ -7290,17 +7290,17 @@ mesh_tip_clear_reduce(const void* key, void* data, void* udata)
 					mesh_endpoint_addr_find_iterate, &udata);
 
 			if (udata.found) {
-				rv = SHASH_REDUCE_DELETE;
+				rv = CF_SHASH_REDUCE_DELETE;
 				goto Exit;
 			}
 		}
 
 		// Not found by endpoint.
-		rv = SHASH_OK;
+		rv = CF_SHASH_OK;
 	}
 
 Exit:
-	if (rv == SHASH_REDUCE_DELETE) {
+	if (rv == CF_SHASH_REDUCE_DELETE) {
 		char endpoint_list_str[ENDPOINT_LIST_STR_SIZE];
 		as_endpoint_list_to_string(mesh_node->endpoint_list, endpoint_list_str,
 				sizeof(endpoint_list_str));
@@ -7339,7 +7339,7 @@ mesh_clear()
 
 	MESH_LOCK();
 	// Delete the elements from the map.
-	shash_reduce_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_free_node_data_reduce, NULL);
 
 	MESH_UNLOCK();
@@ -7442,7 +7442,7 @@ mesh_dump_reduce(const void* key, void* data, void* udata)
 			mesh_node_status_string(mesh_node->status),
 			mesh_node->last_status_updated, endpoint_list_str);
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -7457,7 +7457,7 @@ mesh_dump(bool verbose)
 	}
 
 	MESH_LOCK();
-	shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_dump_reduce, NULL);
 	MESH_UNLOCK();
 }
@@ -7857,7 +7857,7 @@ hb_adjacency_free_data_reduce(const void* key, void* data, void* udata)
 	// Send event depart to for this node
 	hb_event_queue(AS_HB_INTERNAL_NODE_DEPART, nodeid, 1);
 
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 /**
@@ -7874,7 +7874,7 @@ hb_clear()
 	HB_LOCK();
 
 	// Free the plugin data and delete adjacent nodes.
-	shash_reduce_delete(g_hb.adjacency, hb_adjacency_free_data_reduce, NULL);
+	cf_shash_reduce(g_hb.adjacency, hb_adjacency_free_data_reduce, NULL);
 
 	HB_UNLOCK();
 
@@ -7906,7 +7906,7 @@ hb_adjacency_iterate_reduce(const void* key, void* data, void* udata)
 			*nodeid;
 	adjacency_reduce_udata->adj_count++;
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -7917,10 +7917,10 @@ hb_plugin_set_fn(msg* msg)
 {
 	HB_LOCK();
 
-	cf_node adj_list[shash_get_size(g_hb.adjacency)];
+	cf_node adj_list[cf_shash_get_size(g_hb.adjacency)];
 	as_hb_adjacency_reduce_udata adjacency_reduce_udata = { adj_list, 0 };
 
-	shash_reduce(g_hb.adjacency, hb_adjacency_iterate_reduce,
+	cf_shash_reduce(g_hb.adjacency, hb_adjacency_iterate_reduce,
 			&adjacency_reduce_udata);
 
 	HB_UNLOCK();
@@ -8181,7 +8181,7 @@ hb_adjacent_node_get(cf_node nodeid, as_hb_adjacent_node* adjacent_node)
 
 	if (SHASH_GET_OR_DIE(g_hb.adjacency, &nodeid, adjacent_node,
 			"error reading adjacency information for node %" PRIx64, nodeid)
-			== SHASH_OK) {
+			== CF_SHASH_OK) {
 		rv = 0;
 	}
 
@@ -8272,7 +8272,7 @@ hb_adjacency_tend_reduce(const void* key, void* data, void* udata)
 	as_hb_adjacency_tender_udata* adjacency_tender_udata =
 			(as_hb_adjacency_tender_udata*)udata;
 
-	int rv = SHASH_OK;
+	int rv = CF_SHASH_OK;
 	bool cluster_name_mismatch = adjacent_node->cluster_name_mismatch_count
 			> CLUSTER_NAME_MISMATCH_MAX;
 	if (hb_node_has_expired(nodeid, adjacent_node) || cluster_name_mismatch) {
@@ -8289,7 +8289,7 @@ hb_adjacency_tend_reduce(const void* key, void* data, void* udata)
 		// Free plugin data as well.
 		hb_adjacent_node_destroy(adjacent_node);
 
-		rv = SHASH_REDUCE_DELETE;
+		rv = CF_SHASH_REDUCE_DELETE;
 	}
 
 	return rv;
@@ -8321,15 +8321,15 @@ hb_adjacency_tender(void* arg)
 		DETAIL("tending adjacency list");
 
 		HB_LOCK();
-		cf_node dead_nodes[shash_get_size(g_hb.adjacency)];
-		cf_node evicted_nodes[shash_get_size(g_hb.adjacency)];
+		cf_node dead_nodes[cf_shash_get_size(g_hb.adjacency)];
+		cf_node evicted_nodes[cf_shash_get_size(g_hb.adjacency)];
 		as_hb_adjacency_tender_udata adjacency_tender_udata;
 		adjacency_tender_udata.dead_nodes = dead_nodes;
 		adjacency_tender_udata.dead_node_count = 0;
 		adjacency_tender_udata.evicted_nodes = evicted_nodes;
 		adjacency_tender_udata.evicted_node_count = 0;
 
-		shash_reduce_delete(g_hb.adjacency, hb_adjacency_tend_reduce,
+		cf_shash_reduce(g_hb.adjacency, hb_adjacency_tend_reduce,
 				&adjacency_tender_udata);
 		HB_UNLOCK();
 
@@ -8421,16 +8421,16 @@ hb_init()
 	memset(&g_hb, 0, sizeof(g_hb));
 
 	// Initialize the adjacencies.
-	if (shash_create(&g_hb.adjacency, cf_nodeid_shash_fn, sizeof(cf_node),
-			sizeof(as_hb_adjacent_node),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+	if (cf_shash_create(&g_hb.adjacency, cf_nodeid_shash_fn, sizeof(cf_node),
+			sizeof(as_hb_adjacent_node), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
+			!= CF_SHASH_OK) {
 		CRASH("error creating adjacencies hash");
 	}
 
 	// Initialize the temporary hash to map nodeid to index.
-	if (shash_create(&g_hb.nodeid_to_index, cf_nodeid_shash_fn, sizeof(cf_node),
-			sizeof(int),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
+	if (cf_shash_create(&g_hb.nodeid_to_index, cf_nodeid_shash_fn,
+			sizeof(cf_node), sizeof(int), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0)
+			!= CF_SHASH_OK) {
 		CRASH("error creating nodeid to index hash");
 	}
 
@@ -8591,7 +8591,7 @@ hb_channel_on_pulse(as_hb_channel_event* msg_event)
 		int mcsize = config_mcsize();
 		// Note: adjacency list does not contain self node hence
 		// (mcsize - 1) in the check.
-		if (shash_get_size(g_hb.adjacency) >= (mcsize - 1)) {
+		if (cf_shash_get_size(g_hb.adjacency) >= (mcsize - 1)) {
 			if (last_cluster_breach_print != (cf_getms() / 1000L)) {
 				WARNING("ignoring node: %" PRIx64" - exceeding maximum supported cluster size %d",
 						source, mcsize);
@@ -8758,7 +8758,7 @@ hb_dump_reduce(const void* key, void* data, void* udata)
 			*nodeid, adjacent_node->protocol_version, endpoint_list_str,
 			adjacent_node->last_updated_monotonic_ts);
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -8770,11 +8770,11 @@ hb_dump(bool verbose)
 {
 	HB_LOCK();
 
-	INFO("HB Adjacency Size: %d", shash_get_size(g_hb.adjacency));
+	INFO("HB Adjacency Size: %d", cf_shash_get_size(g_hb.adjacency));
 
 	if (verbose) {
 		// Nothing to dump in non-verbose mode.
-		shash_reduce(g_hb.adjacency, hb_dump_reduce, NULL);
+		cf_shash_reduce(g_hb.adjacency, hb_dump_reduce, NULL);
 	}
 
 	HB_UNLOCK();
@@ -8858,7 +8858,7 @@ hb_adjacency_graph_invert(cf_vector* nodes, uint8_t** inverted_graph)
 	}
 
 	// Cleanup the temporary hash.
-	shash_deleteall(g_hb.nodeid_to_index);
+	cf_shash_delete_all(g_hb.nodeid_to_index);
 
 	HB_UNLOCK();
 }
@@ -9042,7 +9042,7 @@ hb_plugin_data_iterate_reduce(const void* key, void* data, void* udata)
 			adjacent_node->last_updated_monotonic_ts,
 			&adjacent_node->last_msg_hlc_ts, reduce_udata->udata);
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -9065,7 +9065,8 @@ hb_plugin_data_iterate_all(as_hb_plugin_id pluginid,
 	reduce_udata.pluginid = pluginid;
 	reduce_udata.iterate_fn = iterate_fn;
 	reduce_udata.udata = udata;
-	shash_reduce(g_hb.adjacency, hb_plugin_data_iterate_reduce, &reduce_udata);
+	cf_shash_reduce(g_hb.adjacency, hb_plugin_data_iterate_reduce,
+			&reduce_udata);
 
 	HB_UNLOCK();
 }

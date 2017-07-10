@@ -37,9 +37,9 @@
 
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
+#include "shash.h"
 #include "vmapx.h"
 
 #include "base/datamodel.h"
@@ -79,7 +79,7 @@ static const uint64_t WARN_CLOCK_SKEW_MS = 1000UL * 5;
 // Globals.
 //
 
-static shash* g_truncate_filter_hash = NULL;
+static cf_shash* g_truncate_filter_hash = NULL;
 static bool g_truncate_smd_loaded = false;
 
 
@@ -131,9 +131,9 @@ void
 as_truncate_init_smd()
 {
 	// Create the global filter shash used on the SMD principal.
-	if (shash_create(&g_truncate_filter_hash, cf_shash_fn_zstr,
+	if (cf_shash_create(&g_truncate_filter_hash, cf_shash_fn_zstr,
 			TRUNCATE_KEY_SIZE, sizeof(truncate_hval),
-			1024 * g_config.n_namespaces, 0) != SHASH_OK) {
+			1024 * g_config.n_namespaces, 0) != CF_SHASH_OK) {
 		cf_crash(AS_TRUNCATE, "truncate init - failed filter-hash create");
 	}
 
@@ -285,9 +285,10 @@ filter_hash_put(const as_smd_item_t* item)
 	truncate_hval new_hval = { .lut = lut_from_smd(item) };
 	truncate_hval ex_hval;
 
-	if (shash_get(g_truncate_filter_hash, hkey, &ex_hval) != SHASH_OK ||
+	if (cf_shash_get(g_truncate_filter_hash, hkey, &ex_hval) != CF_SHASH_OK ||
 			new_hval.lut > ex_hval.lut) {
-		if (shash_put(g_truncate_filter_hash, hkey, &new_hval) != SHASH_OK) {
+		if (cf_shash_put(g_truncate_filter_hash, hkey, &new_hval) !=
+				CF_SHASH_OK) {
 			cf_warning(AS_TRUNCATE, "{%s} failed filter-hash put", item->key);
 		}
 
@@ -309,7 +310,7 @@ filter_hash_delete(const as_smd_item_t* item)
 
 	strcpy(hkey, item->key);
 
-	if (shash_delete(g_truncate_filter_hash, hkey) != SHASH_OK) {
+	if (cf_shash_delete(g_truncate_filter_hash, hkey) != CF_SHASH_OK) {
 		cf_warning(AS_TRUNCATE, "{%s} failed filter-hash delete", item->key);
 	}
 }

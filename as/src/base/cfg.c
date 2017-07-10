@@ -39,7 +39,6 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
-#include "citrusleaf/cf_shash.h"
 #include "citrusleaf/cf_vector.h"
 
 #include "bits.h"
