@@ -27,7 +27,6 @@
 //
 
 #include <pthread.h>
-#include <stdbool.h>
 #include <stdint.h>
 
 
@@ -96,7 +95,7 @@ uint32_t cf_shash_get_size(cf_shash *h);
 void cf_shash_put(cf_shash *h, const void *key, const void *value);
 int cf_shash_put_unique(cf_shash *h, const void *key, const void *value);
 
-int cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new, cf_shash_update_fn update_fn, void *udata);
+void cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new, cf_shash_update_fn update_fn, void *udata);
 
 int cf_shash_get(cf_shash *h, const void *key, void *value);
 int cf_shash_get_vlock(cf_shash *h, const void *key, void **value_r, pthread_mutex_t **vlock_r);

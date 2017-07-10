@@ -67,7 +67,7 @@ int cf_shash_delete_or_pop(cf_shash *h, const void *key, void *value);
 
 
 //==========================================================
-// Macros.
+// Inlines & macros.
 //
 
 #define ELE_KEY(_h, _e) ((void *)_e->data)
@@ -305,7 +305,7 @@ cf_shash_put_unique(cf_shash *h, const void *key, const void *value)
 
 
 // FIXME - replace with cf_shash_put_unique_or_get_vlock()?
-int
+void
 cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new,
 		cf_shash_update_fn update_fn, void *udata)
 {
@@ -320,7 +320,7 @@ cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new,
 		(update_fn)(key, NULL, value_new, udata);
 		cf_shash_fill_element(e, h, key, value_new);
 		cf_shash_unlock(l);
-		return CF_SHASH_OK;
+		return;
 	}
 
 	cf_shash_ele *e_head = e;
@@ -331,40 +331,29 @@ cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new,
 				memcpy(value_old, ELE_VALUE(h, e), h->value_size);
 			}
 
-			break;
+			(update_fn)(key, value_old, value_new, udata);
+
+			memcpy(ELE_VALUE(h, e), value_new, h->value_size);
+			cf_shash_unlock(l);
+
+			return;
 		}
 
 		e = e->next;
 	}
 
-	if (! e) {
-		value_old = NULL;
-	}
+	(update_fn)(key, NULL, value_new, udata);
 
-	(update_fn)(key, value_old, value_new, udata);
+	e = (cf_shash_ele *)cf_malloc(h->ele_size);
+	cf_assert(e, CF_MISC, "alloc failed");
 
-	if (! e) {
-		e = (cf_shash_ele *)cf_malloc(h->ele_size);
-		cf_assert(e, CF_MISC, "alloc failed");
+	cf_shash_fill_element(e, h, key, value_new);
 
-		e->next = e_head->next;
-		e_head->next = e;
-	}
-
-	if (! value_old) {
-		memcpy(ELE_KEY(h, e), key, h->key_size);
-	}
-
-	memcpy(ELE_VALUE(h, e), value_new, h->value_size);
-	e->in_use = true;
-
-	if (! value_old) {
-		cf_shash_size_incr(h);
-	}
+	// Insert just after head.
+	e->next = e_head->next;
+	e_head->next = e;
 
 	cf_shash_unlock(l);
-
-	return CF_SHASH_OK;
 }
 
 
