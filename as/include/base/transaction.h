@@ -203,9 +203,8 @@ typedef struct as_transaction_s {
 #define AS_TRANSACTION_HEAD_SIZE (offsetof(as_transaction, rsv))
 
 // 'from_flags' bits - set before queuing transaction head:
-#define FROM_FLAG_NSUP_DELETE	0x0001
-#define FROM_FLAG_BATCH_SUB		0x0002
-#define FROM_FLAG_RESTART		0x0004
+#define FROM_FLAG_BATCH_SUB		0x0001
+#define FROM_FLAG_RESTART		0x0002
 
 // 'flags' bits - set in transaction body after queuing:
 #define AS_TRANSACTION_FLAG_SINDEX_TOUCHED	0x01
@@ -351,11 +350,10 @@ as_transaction_is_xdr(const as_transaction *tr)
 	return (tr->msgp->msg.info1 & AS_MSG_INFO1_XDR) != 0;
 }
 
-// TODO - just use origin and deprecate FROM_FLAG_NSUP_DELETE?
 static inline bool
 as_transaction_is_nsup_delete(const as_transaction *tr)
 {
-	return (tr->from_flags & FROM_FLAG_NSUP_DELETE) != 0;
+	return tr->origin == FROM_NSUP;
 }
 
 int as_transaction_init_iudf(as_transaction *tr, struct as_namespace_s *ns, cf_digest *keyd, struct iudf_origin_s *iudf_orig, bool is_durable_delete);

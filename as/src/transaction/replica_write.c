@@ -478,7 +478,7 @@ pack_info_bits(as_transaction* tr, bool has_udf)
 		info |= RW_INFO_SINDEX_TOUCHED;
 	}
 
-	if ((tr->from_flags & FROM_FLAG_NSUP_DELETE) != 0) {
+	if (as_transaction_is_nsup_delete(tr)) {
 		info |= RW_INFO_NSUP_DELETE;
 	}
 
