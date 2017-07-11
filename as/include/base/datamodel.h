@@ -449,8 +449,6 @@ extern int32_t as_bin_get_index(as_storage_rd *rd, const char *name);
 extern int32_t as_bin_get_index_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz);
 extern void as_bin_allocate_bin_space(as_storage_rd *rd, int32_t delta);
 extern void as_bin_destroy(as_storage_rd *rd, uint16_t i);
-extern void as_bin_destroy_from(as_storage_rd *rd, uint16_t i);
-extern void as_bin_destroy_all(as_storage_rd *rd);
 extern uint16_t as_bin_inuse_count(as_storage_rd *rd);
 extern void as_bin_all_dump(as_storage_rd *rd, char *msg);
 
@@ -472,8 +470,8 @@ extern int as_record_exists(struct as_index_tree_s *tree, cf_digest *keyd);
 extern int as_record_exists_live(struct as_index_tree_s *tree, cf_digest *keyd, as_namespace *ns);
 extern void as_record_rescue(as_index_ref *r_ref, as_namespace *ns);
 
-extern void as_record_clean_bins_from(as_storage_rd *rd, uint16_t from);
-extern void as_record_clean_bins(as_storage_rd *rd);
+extern void as_record_destroy_bins_from(as_storage_rd *rd, uint16_t from);
+extern void as_record_destroy_bins(as_storage_rd *rd);
 extern void as_record_free_bin_space(as_record *r);
 
 extern void as_record_destroy(as_record *r, as_namespace *ns);

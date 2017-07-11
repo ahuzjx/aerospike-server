@@ -2876,7 +2876,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 
 		if (rd.ns->single_bin) {
 			if (delta_bins < 0) {
-				as_record_clean_bins(&rd);
+				as_record_destroy_bins(&rd);
 			}
 		}
 		else if (delta_bins != 0) {

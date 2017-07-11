@@ -598,7 +598,7 @@ as_bin_allocate_bin_space(as_storage_rd *rd, int32_t delta)
 		uint16_t new_n_bins = (uint16_t)((int32_t)rd->n_bins + delta);
 
 		if (delta < 0) {
-			as_record_clean_bins_from(rd, new_n_bins);
+			as_record_destroy_bins_from(rd, new_n_bins);
 		}
 
 		uint16_t old_n_bins = rd->n_bins;
@@ -631,26 +631,6 @@ as_bin_destroy(as_storage_rd *rd, uint16_t i)
 {
 	as_bin_particle_destroy(&rd->bins[i], rd->ns->storage_data_in_memory);
 	as_bin_set_empty_shift(rd, i);
-}
-
-void
-as_bin_destroy_from(as_storage_rd *rd, uint16_t from)
-{
-	for (uint16_t i = from; i < rd->n_bins; i++) {
-		if (! as_bin_inuse(&rd->bins[i])) {
-			break;
-		}
-
-		as_bin_particle_destroy(&rd->bins[i], rd->ns->storage_data_in_memory);
-	}
-
-	as_bin_set_empty_from(rd, from);
-}
-
-void
-as_bin_destroy_all(as_storage_rd *rd)
-{
-	as_bin_destroy_from(rd, 0);
 }
 
 uint16_t

@@ -83,22 +83,24 @@ as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, 
 }
 
 void
-as_record_clean_bins_from(as_storage_rd *rd, uint16_t from)
+as_record_destroy_bins_from(as_storage_rd *rd, uint16_t from)
 {
 	for (uint16_t i = from; i < rd->n_bins; i++) {
 		as_bin *b = &rd->bins[i];
 
-		if (as_bin_inuse(b)) {
-			as_bin_particle_destroy(b, rd->ns->storage_data_in_memory);
-			as_bin_set_empty(b);
+		if (! as_bin_inuse(b)) {
+			return; // no more used bins - there are never unused bin gaps
 		}
+
+		as_bin_particle_destroy(b, rd->ns->storage_data_in_memory);
+		as_bin_set_empty(b);
 	}
 }
 
 void
-as_record_clean_bins(as_storage_rd *rd)
+as_record_destroy_bins(as_storage_rd *rd)
 {
-	as_record_clean_bins_from(rd, 0);
+	as_record_destroy_bins_from(rd, 0);
 }
 
 void
@@ -129,7 +131,7 @@ as_record_destroy(as_record *r, as_namespace *ns)
 
 		as_storage_record_drop_from_mem_stats(&rd);
 
-		as_record_clean_bins(&rd);
+		as_record_destroy_bins(&rd);
 
 		if (! ns->single_bin) {
 			as_record_free_bin_space(r);
@@ -355,7 +357,7 @@ as_record_unpickle_replace(as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t *
 	else if (delta_bins < 0) {
 		// Either single-bin data-in-memory where we deleted the (only) bin, or
 		// data-not-in-memory where we read existing bins for sindex purposes.
-		as_bin_destroy_from(rd, newbins);
+		as_record_destroy_bins_from(rd, newbins);
 	}
 
 	int ret = 0;

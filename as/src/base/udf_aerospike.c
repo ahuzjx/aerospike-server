@@ -923,7 +923,7 @@ udf_aerospike_rec_remove(const as_aerospike * as, const as_rec * rec)
 		delete_adjust_sindex(rd);
 	}
 
-	as_record_clean_bins(rd);
+	as_record_destroy_bins(rd);
 
 	if (rd->ns->storage_data_in_memory && ! rd->ns->single_bin) {
 		as_record_free_bin_space(rd->r);
