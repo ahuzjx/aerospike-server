@@ -663,6 +663,7 @@ do_free(void *p, const void *ra)
 }
 
 void
+__attribute__ ((noinline))
 free(void *p)
 {
 	do_free(p, __builtin_return_address(0));
@@ -736,6 +737,7 @@ cf_alloc_malloc_arena(size_t sz, int32_t arena)
 }
 
 void *
+__attribute__ ((noinline))
 malloc(size_t sz)
 {
 	return do_mallocx(sz, -1, __builtin_return_address(0));
