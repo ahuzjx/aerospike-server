@@ -547,7 +547,7 @@ as_storage_record_get_n_bytes_memory(as_storage_rd *rd)
 	}
 
 	if (! rd->ns->single_bin) {
-		if (as_index_is_flag_set(rd->r, AS_INDEX_FLAG_KEY_STORED)) {
+		if (rd->r->key_stored == 1) {
 			n_bytes_memory += sizeof(as_rec_space) +
 					((as_rec_space*)rd->r->dim)->key_size;
 		}
@@ -595,7 +595,7 @@ as_storage_record_drop_from_mem_stats(as_storage_rd *rd)
 bool
 as_storage_record_get_key(as_storage_rd *rd)
 {
-	if (! as_index_is_flag_set(rd->r, AS_INDEX_FLAG_KEY_STORED)) {
+	if (rd->r->key_stored == 0) {
 		return false;
 	}
 

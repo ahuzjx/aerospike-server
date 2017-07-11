@@ -1263,10 +1263,10 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 	as_index_set_bin_space(r, new_bin_space);
 
 	// Accommodate a new stored key - wasn't needed for pickling and writing.
-	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED) && rd->key) {
+	if (r->key_stored == 0 && rd->key) {
 		// TODO - should we check allocation failure?
 		as_record_allocate_key(r, rd->key, rd->key_size);
-		as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
+		r->key_stored = 1;
 	}
 
 	as_storage_record_adjust_mem_stats(rd, memory_bytes);
@@ -1367,8 +1367,8 @@ write_master_ssd_single_bin(as_transaction* tr, as_storage_rd* rd,
 	//
 
 	// Accommodate a new stored key - wasn't needed for pickling and writing.
-	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED) && rd->key) {
-		as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
+	if (r->key_stored == 0 && rd->key) {
+		r->key_stored = 1;
 	}
 
 	cf_ll_buf_free(&particles_llb);
@@ -1515,8 +1515,8 @@ write_master_ssd(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 	//
 
 	// Accommodate a new stored key - wasn't needed for pickling and writing.
-	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED) && rd->key) {
-		as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
+	if (r->key_stored == 0 && rd->key) {
+		r->key_stored = 1;
 	}
 
 	cf_ll_buf_free(&particles_llb);

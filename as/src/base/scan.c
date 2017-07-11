@@ -792,7 +792,7 @@ basic_scan_job_reduce_cb(as_index_ref* r_ref, void* udata)
 	if (job->no_bin_data) {
 		// TODO - suppose the predexp needs bin values???
 
-		if (as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+		if (r->key_stored == 1) {
 			as_storage_rd rd;
 
 			as_storage_record_open(ns, r, &rd);

@@ -893,9 +893,9 @@ udf_finish_op(udf_record* urecord)
 void
 udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 {
-	as_storage_rd* rd	= urecord->rd;
-	as_transaction* tr	= urecord->tr;
-	as_index_ref* r_ref	= urecord->r_ref;
+	as_storage_rd* rd = urecord->rd;
+	as_transaction* tr = urecord->tr;
+	as_record* r = rd->r;
 
 	urecord->pickled_buf = NULL;
 	urecord->pickled_sz = 0;
@@ -922,22 +922,20 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 			&urecord->pickled_sz, &urecord->pickled_rec_props);
 
 		// Now ok to accommodate a new stored key...
-		if (! as_index_is_flag_set(r_ref->r, AS_INDEX_FLAG_KEY_STORED) &&
-				rd->key) {
+		if (r->key_stored == 0 && rd->key) {
 			if (rd->ns->storage_data_in_memory) {
-				as_record_allocate_key(r_ref->r, rd->key, rd->key_size);
+				as_record_allocate_key(r, rd->key, rd->key_size);
 			}
 
-			as_index_set_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
+			r->key_stored = 1;
 		}
 		// ... or drop a stored key.
-		else if (as_index_is_flag_set(r_ref->r, AS_INDEX_FLAG_KEY_STORED) &&
-				! rd->key) {
+		else if (r->key_stored == 1 && ! rd->key) {
 			if (rd->ns->storage_data_in_memory) {
-				as_record_remove_key(r_ref->r);
+				as_record_remove_key(r);
 			}
 
-			as_index_clear_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
+			r->key_stored = 0;
 		}
 
 		as_storage_record_adjust_mem_stats(rd, urecord->starting_memory_bytes);
@@ -949,8 +947,8 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 	as_generation generation = 0;
 
 	if ((urecord->flag & UDF_RECORD_FLAG_OPEN) != 0) {
-		generation = r_ref->r->generation;
-		set_id = as_index_get_set_id(r_ref->r);
+		generation = r->generation;
+		set_id = as_index_get_set_id(r);
 	}
 
 	urecord->op = urecord_op;

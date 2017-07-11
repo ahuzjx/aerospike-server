@@ -365,7 +365,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 	uint8_t* key = NULL;
 	uint32_t key_size = 0;
 
-	if (include_key && as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+	if (include_key && r->key_stored == 1) {
 		if (! as_storage_record_get_key(rd)) {
 			cf_info(AS_PROTO, "can't get key - skipping record");
 			return -1;

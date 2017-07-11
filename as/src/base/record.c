@@ -443,13 +443,13 @@ as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p
 					&key_size, &key);
 
 	// If a key wasn't stored, and we got one, accommodate it.
-	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+	if (r->key_stored == 0) {
 		if (result == 0) {
 			if (ns->storage_data_in_memory) {
 				as_record_allocate_key(r, key, key_size);
 			}
 
-			as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
+			r->key_stored = 1;
 		}
 	}
 	// If a key was stored, but we didn't get one, remove the key.
@@ -458,7 +458,7 @@ as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p
 			as_record_remove_key(r);
 		}
 
-		as_index_clear_flags(r, AS_INDEX_FLAG_KEY_STORED);
+		r->key_stored = 0;
 	}
 }
 
@@ -469,12 +469,12 @@ as_record_clear_properties(as_record *r, as_namespace *ns)
 	// it was, we wouldn't change that anyway, so don't even check.
 
 	// If a key was stored, and we didn't get one, remove the key.
-	if (as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+	if (r->key_stored == 1) {
 		if (ns->storage_data_in_memory) {
 			as_record_remove_key(r);
 		}
 
-		as_index_clear_flags(r, AS_INDEX_FLAG_KEY_STORED);
+		r->key_stored = 0;
 	}
 }
 

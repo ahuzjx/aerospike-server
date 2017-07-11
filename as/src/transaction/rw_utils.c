@@ -163,7 +163,7 @@ handle_msg_key(as_transaction* tr, as_storage_rd* rd)
 	as_msg* m = &tr->msgp->msg;
 	as_namespace* ns = tr->rsv.ns;
 
-	if (as_index_is_flag_set(rd->r, AS_INDEX_FLAG_KEY_STORED)) {
+	if (rd->r->key_stored == 1) {
 		// Key stored for this record - be sure it gets rewritten.
 
 		// This will force a device read for non-data-in-memory, even if
