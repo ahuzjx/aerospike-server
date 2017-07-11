@@ -763,26 +763,6 @@ static pthread_mutex_t g_external_event_publisher_lock =
 	STACK_VAR(vector, __LINE__);													\
 })
 
-/**
- * Delete a key from hash or on failure crash with an error message. Key not
- * found is NOT considered an error.
- */
-#define SHASH_DELETE_OR_DIE(hash, key, error, ...)							\
-if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
- * Read value for a key and crash if there is an error. Key not found is NOT
- * considered an error.
- */
-#define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
-({														\
-	int retval = cf_shash_get(hash, key, value);		\
-	if (retval == CF_SHASH_ERR) {						\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
-	retval;												\
-})
-
 /*
  * ----------------------------------------------------------------------------
  * Vector functions to be moved to cf_vector
@@ -1278,8 +1258,8 @@ exchange_node_state_update(cf_node nodeid, as_exchange_node_state* node_state)
 static void
 exchange_node_state_get_safe(cf_node nodeid, as_exchange_node_state* node_state)
 {
-	if (SHASH_GET_OR_DIE(g_exchange.nodeid_to_node_state, &nodeid, node_state,
-			"error reading node state from hash") == CF_SHASH_ERR_NOT_FOUND) {
+	if (cf_shash_get(g_exchange.nodeid_to_node_state, &nodeid, node_state)
+			== CF_SHASH_ERR_NOT_FOUND) {
 		CRASH(
 				"node entry for node %"PRIx64"  missing from node state hash", nodeid);
 	}
@@ -1600,8 +1580,7 @@ exchange_namespace_hash_pid_add(cf_shash* ns_hash, as_partition_version* vinfo,
 	cf_vector* pid_vector;
 
 	// Append the hash.
-	if (SHASH_GET_OR_DIE(ns_hash, vinfo, &pid_vector,
-			"error reading the namespace hash") != CF_SHASH_OK) {
+	if (cf_shash_get(ns_hash, vinfo, &pid_vector) != CF_SHASH_OK) {
 		// We are seeing this vinfo for the first time.
 		pid_vector = cf_vector_create(sizeof(uint16_t),
 		AS_EXCHANGE_VINFO_NUM_PIDS_AVG, 0);

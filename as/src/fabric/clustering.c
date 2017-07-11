@@ -1332,32 +1332,6 @@ as_clustering_log_cf_node_array(severity, AS_CLUSTERING, message,	\
 
 /*
  * ----------------------------------------------------------------------------
- * Shash functions
- * ----------------------------------------------------------------------------
- */
-
-/**
- * Delete a key from hash or on failure crash with an error message. Key not
- * found is NOT considered an error.
- */
-#define SHASH_DELETE_OR_DIE(hash, key, error, ...)							\
-if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
- * Read value for a key and crash if there is an error. Key not found is NOT
- * considered an error.
- */
-#define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
-({														\
-	int retval = cf_shash_get(hash, key, value);		\
-	if (retval == CF_SHASH_ERR) {						\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
-	retval;												\
-})
-
-/*
- * ----------------------------------------------------------------------------
  * Vector functions
  * ----------------------------------------------------------------------------
  */
@@ -6234,9 +6208,8 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 						plugin_data_size);
 
 		int current_votes = 0;
-		if (SHASH_GET_OR_DIE(preferred_principal_votes, preferred_principal_p,
-				&current_votes, "error reading the preferred principal hash")
-				== CF_SHASH_OK) {
+		if (cf_shash_get(preferred_principal_votes, preferred_principal_p,
+				&current_votes) == CF_SHASH_OK) {
 			current_votes++;
 		}
 		else {

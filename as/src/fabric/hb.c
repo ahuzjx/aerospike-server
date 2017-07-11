@@ -470,36 +470,6 @@ if (!(expression)) {WARNING(message, ##__VA_ARGS__);}
 
 /*
  * ----------------------------------------------------------------------------
- * Shash related
- * ----------------------------------------------------------------------------
- */
-
-/**
- * Delete a key from hash or on failure crash with an error message. Key not
- * found is NOT considered an error.
- */
-#define SHASH_DELETE_OR_DIE(hash, key, error, ...)		\
-({														\
-	if (CF_SHASH_ERR == cf_shash_delete(hash, key)) {	\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
-})
-
-/**
- * Read value for a key and crash if there is an error. Key not found is NOT
- * considered an error.
- */
-#define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
-({														\
-	int retval = cf_shash_get(hash, key, value);		\
-	if (retval == CF_SHASH_ERR) {						\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
-	retval;												\
-})
-
-/*
- * ----------------------------------------------------------------------------
  * Private internal data structures
  * ----------------------------------------------------------------------------
  */
@@ -3477,8 +3447,7 @@ channel_socket_get(cf_node nodeid, cf_socket** socket)
 {
 	int rv = -1;
 	CHANNEL_LOCK();
-	if (SHASH_GET_OR_DIE(g_hb.channel_state.nodeid_to_socket, &nodeid, socket,
-			"error get channel information for node %" PRIX64, nodeid)
+	if (cf_shash_get(g_hb.channel_state.nodeid_to_socket, &nodeid, socket)
 			== CF_SHASH_ERR_NOT_FOUND) {
 		rv = -1;
 	}
@@ -3547,10 +3516,8 @@ channel_socket_close(cf_socket* socket, bool remote_close,
 			if (channel_socket_get(channel.nodeid, &node_socket) == 0
 					&& node_socket == socket) {
 				// Remove associated node for this socket.
-				SHASH_DELETE_OR_DIE(g_hb.channel_state.nodeid_to_socket,
-						&channel.nodeid,
-						"error deleting fd associated with %" PRIx64,
-						channel.nodeid);
+				cf_shash_delete(g_hb.channel_state.nodeid_to_socket,
+						&channel.nodeid);
 
 				if (!channel.is_multicast && raise_close_event) {
 					as_hb_channel_event event;
@@ -3570,9 +3537,7 @@ channel_socket_close(cf_socket* socket, bool remote_close,
 				CSFD(socket), channel.is_inbound ? "inbound" : "outbound",
 				channel.is_multicast ? "multicast" : "mesh");
 		// Remove associated channel.
-		SHASH_DELETE_OR_DIE(g_hb.channel_state.socket_to_channel, &socket,
-				"error deleting channel for fd %d", CSFD(socket));
-
+		cf_shash_delete(g_hb.channel_state.socket_to_channel, &socket);
 	}
 	else {
 		// Will only happen if we are closing this socket twice. Cannot
@@ -4378,8 +4343,8 @@ channel_msg_event_process(cf_socket* socket, as_hb_channel_event* event)
 	cf_shash_put(g_hb.channel_state.socket_to_channel, &socket, &channel);
 
 	cf_socket* existing_socket;
-	int get_result = SHASH_GET_OR_DIE(g_hb.channel_state.nodeid_to_socket,
-			&nodeid, &existing_socket, "error reading from channel hash");
+	int get_result = cf_shash_get(g_hb.channel_state.nodeid_to_socket,
+			&nodeid, &existing_socket);
 
 	if (get_result == CF_SHASH_ERR_NOT_FOUND) {
 		// Associate this socket with the node.
@@ -5855,9 +5820,9 @@ mesh_node_delete_no_destroy(as_hb_mesh_node_key* mesh_node_key,
 {
 	MESH_LOCK();
 
-	SHASH_DELETE_OR_DIE(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
-			mesh_node_key, "%s (mesh  node: %" PRIx64")", delete_error_message,
-			mesh_node_key->nodeid);
+	cf_shash_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+			mesh_node_key);
+
 	MESH_UNLOCK();
 }
 
@@ -5875,9 +5840,9 @@ mesh_node_delete(as_hb_mesh_node_key* mesh_node_key, char* delete_error_message)
 		mesh_node_destroy(&mesh_node);
 	}
 
-	SHASH_DELETE_OR_DIE(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
-			mesh_node_key, "%s (mesh  node: %" PRIx64")", delete_error_message,
-			mesh_node_key->nodeid);
+	cf_shash_delete(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+			mesh_node_key);
+
 	MESH_UNLOCK();
 }
 
@@ -6126,10 +6091,8 @@ mesh_node_get(cf_node nodeid, bool is_real_nodeid, as_hb_mesh_node* mesh_node)
 
 	MESH_LOCK();
 
-	if (SHASH_GET_OR_DIE(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
-			&key, mesh_node,
-			"error getting mesh information for node %" PRIX64,
-			nodeid) == CF_SHASH_OK) {
+	if (cf_shash_get(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+			&key, mesh_node) == CF_SHASH_OK) {
 		rv = 0;
 	}
 	else {
@@ -8150,9 +8113,7 @@ hb_adjacent_node_get(cf_node nodeid, as_hb_adjacent_node* adjacent_node)
 	int rv = -1;
 	HB_LOCK();
 
-	if (SHASH_GET_OR_DIE(g_hb.adjacency, &nodeid, adjacent_node,
-			"error reading adjacency information for node %" PRIx64, nodeid)
-			== CF_SHASH_OK) {
+	if (cf_shash_get(g_hb.adjacency, &nodeid, adjacent_node) == CF_SHASH_OK) {
 		rv = 0;
 	}
 
@@ -8776,8 +8737,7 @@ hb_adjacency_graph_invert(cf_vector* nodes, uint8_t** inverted_graph)
 
 	cf_node self_nodeid = config_self_nodeid_get();
 	int self_node_index = -1;
-	SHASH_GET_OR_DIE(g_hb.nodeid_to_index, &self_nodeid, &self_node_index,
-			"error reading self index");
+	cf_shash_get(g_hb.nodeid_to_index, &self_nodeid, &self_node_index);
 
 	for (int i = 0; i < num_nodes; i++) {
 		// Mark the node connected from itself, i.e, disconnected in the
@@ -8804,8 +8764,8 @@ hb_adjacency_graph_invert(cf_vector* nodes, uint8_t** inverted_graph)
 
 			for (int j = 0; j < adjacency_length; j++) {
 				int other_node_index = -1;
-				SHASH_GET_OR_DIE(g_hb.nodeid_to_index, &adjacency_list[j],
-						&other_node_index, "error reading node index");
+				cf_shash_get(g_hb.nodeid_to_index, &adjacency_list[j],
+						&other_node_index);
 				if (other_node_index < 0) {
 					// This node is not in the input set of nodes.
 					continue;
