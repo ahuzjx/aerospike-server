@@ -248,12 +248,10 @@ update_metadata_in_index(as_transaction* tr, bool increment_generation,
 }
 
 
-bool
+void
 pickle_all(as_storage_rd* rd, rw_request* rw)
 {
-	if (as_record_pickle(rd, &rw->pickled_buf, &rw->pickled_sz) != 0) {
-		return false;
-	}
+	as_record_pickle(rd, &rw->pickled_buf, &rw->pickled_sz);
 
 	// TODO - we could avoid this copy (and maybe even not do this here at all)
 	// if all callers malloc'd rd->rec_props.p_data upstream for hand-off...
@@ -261,15 +259,11 @@ pickle_all(as_storage_rd* rd, rw_request* rw)
 		rw->pickled_rec_props.size = rd->rec_props.size;
 		rw->pickled_rec_props.p_data = cf_malloc(rd->rec_props.size);
 
-		if (! rw->pickled_rec_props.p_data) {
-			return false;
-		}
+		cf_assert(rw->pickled_rec_props.p_data, AS_RW, "alloc failed");
 
 		memcpy(rw->pickled_rec_props.p_data, rd->rec_props.p_data,
 				rd->rec_props.size);
 	}
-
-	return true;
 }
 
 

@@ -1059,12 +1059,8 @@ write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
 		*is_delete = true;
 	}
 
-	// Pickle before writing - can't fail after.
-	if (! pickle_all(rd, rw)) {
-		write_master_index_metadata_unwind(&old_metadata, r);
-		write_master_dim_single_bin_unwind(&old_bin, rd->bins, cleanup_bins, n_cleanup_bins);
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	// Pickle before writing - can't fail after. (Historic - now can't fail.)
+	pickle_all(rd, rw);
 
 	//------------------------------------------------------
 	// Write the record to storage.
@@ -1196,16 +1192,8 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 		*is_delete = true;
 	}
 
-	// Pickle before writing - can't fail after.
-	if (! pickle_all(rd, rw)) {
-		if (new_bin_space) {
-			cf_free(new_bin_space);
-		}
-
-		write_master_index_metadata_unwind(&old_metadata, r);
-		write_master_dim_unwind(old_bins, n_old_bins, new_bins, n_new_bins, cleanup_bins, n_cleanup_bins);
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	// Pickle before writing - can't fail after. (Historic - now can't fail.)
+	pickle_all(rd, rw);
 
 	//------------------------------------------------------
 	// Write the record to storage.
@@ -1345,11 +1333,7 @@ write_master_ssd_single_bin(as_transaction* tr, as_storage_rd* rd,
 	}
 
 	// Pickle before writing - bins may disappear on as_storage_record_close().
-	if (! pickle_all(rd, rw)) {
-		cf_ll_buf_free(&particles_llb);
-		write_master_index_metadata_unwind(&old_metadata, r);
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	pickle_all(rd, rw);
 
 	//------------------------------------------------------
 	// Write the record to storage.
@@ -1483,11 +1467,7 @@ write_master_ssd(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 	}
 
 	// Pickle before writing - bins may disappear on as_storage_record_close().
-	if (! pickle_all(rd, rw)) {
-		cf_ll_buf_free(&particles_llb);
-		write_master_index_metadata_unwind(&old_metadata, r);
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	pickle_all(rd, rw);
 
 	//------------------------------------------------------
 	// Write the record to storage.

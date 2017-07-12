@@ -771,12 +771,7 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 
 	pickled_record pr;
 
-	if (as_record_pickle(&rd, &pr.record_buf, &pr.record_len) != 0) {
-		cf_warning(AS_MIGRATE, "failed migrate record pickle");
-		as_storage_record_close(&rd);
-		as_record_done(r_ref, ns);
-		return;
-	}
+	as_record_pickle(&rd, &pr.record_buf, &pr.record_len);
 
 	pr.keyd = r->keyd;
 	pr.generation = r->generation;
@@ -1508,8 +1503,7 @@ immigration_handle_insert_request(cf_node src, msg *m)
 			cf_warning_digest(AS_MIGRATE, keyd, "handle insert: binless pickle, dropping ");
 		}
 		else {
-			int winner_idx  = -1;
-			int rv = as_record_flatten(&immig->rsv, keyd, 1, &c, &winner_idx);
+			int rv = as_record_flatten(&immig->rsv, keyd, 1, &c);
 
 			// -3: race where we encountered a half-created/deleted record
 			// -8: didn't write record because it's truncated

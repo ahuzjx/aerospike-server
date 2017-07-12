@@ -237,12 +237,7 @@ dup_res_handle_request(cf_node node, msg* m)
 	uint8_t* buf;
 	size_t buf_len;
 
-	if (as_record_pickle(&rd, &buf, &buf_len) != 0) {
-		as_storage_record_close(&rd);
-		done_handle_request(&rsv, &r_ref);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
-		return;
-	}
+	as_record_pickle(&rd, &buf, &buf_len);
 
 	uint32_t info = 0;
 
@@ -561,10 +556,8 @@ apply_winner(rw_request* rw)
 		n++;
 	}
 
-	int winner_idx = -1;
-
 	if (n > 0) {
-		as_record_flatten(&rw->rsv, &rw->keyd, n, dups, &winner_idx);
+		as_record_flatten(&rw->rsv, &rw->keyd, n, dups);
 	}
 
 	for (int i = 0; i < rw->n_dest_nodes; i++) {

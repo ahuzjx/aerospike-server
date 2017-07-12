@@ -89,7 +89,7 @@ bool check_msg_key(struct as_msg_s* m, struct as_storage_rd_s* rd);
 bool get_msg_key(struct as_transaction_s* tr, struct as_storage_rd_s* rd);
 int handle_msg_key(struct as_transaction_s* tr, struct as_storage_rd_s* rd);
 void update_metadata_in_index(struct as_transaction_s* tr, bool increment_generation, struct as_index_s* r);
-bool pickle_all(struct as_storage_rd_s* rd, struct rw_request_s* rw);
+void pickle_all(struct as_storage_rd_s* rd, struct rw_request_s* rw);
 void record_delete_adjust_sindex(struct as_index_s* r, struct as_namespace_s* ns);
 void delete_adjust_sindex(struct as_storage_rd_s* rd);
 void remove_from_sindex(struct as_namespace_s* ns, const char* set_name, cf_digest* keyd, struct as_bin_s* bins, uint32_t n_bins);

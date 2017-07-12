@@ -130,7 +130,7 @@ void udf_post_processing(udf_record* urecord, udf_optype urecord_op,
 void write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
 		uint8_t** pickled_buf, size_t* pickled_sz,
 		as_rec_props* p_pickled_rec_props);
-bool udf_pickle_all(as_storage_rd* rd, pickle_info* pickle);
+void udf_pickle_all(as_storage_rd* rd, pickle_info* pickle);
 
 void update_lua_complete_stats(uint8_t origin, as_namespace* ns, udf_optype op,
 		int ret, bool is_success);
@@ -1001,12 +1001,11 @@ write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
 }
 
 
-bool
+// TODO - assert rec-props allocation and make this void.
+void
 udf_pickle_all(as_storage_rd* rd, pickle_info* pickle)
 {
-	if (as_record_pickle(rd, &pickle->buf, &pickle->buf_size) != 0) {
-		return false;
-	}
+	as_record_pickle(rd, &pickle->buf, &pickle->buf_size);
 
 	pickle->rec_props_data = NULL;
 	pickle->rec_props_size = 0;
@@ -1017,16 +1016,11 @@ udf_pickle_all(as_storage_rd* rd, pickle_info* pickle)
 		pickle->rec_props_size = rd->rec_props.size;
 		pickle->rec_props_data = cf_malloc(pickle->rec_props_size);
 
-		if (! pickle->rec_props_data) {
-			cf_free(pickle->buf);
-			return false;
-		}
+		cf_assert(pickle->rec_props_data, AS_UDF, "alloc failed");
 
 		memcpy(pickle->rec_props_data, rd->rec_props.p_data,
 				pickle->rec_props_size);
 	}
-
-	return true;
 }
 
 
