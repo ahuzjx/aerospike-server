@@ -475,7 +475,7 @@ int32_t
 as_record_buf_get_stack_particles_sz(uint8_t *buf)
 {
 	int32_t stack_particles_sz = 0;
-	uint16_t new_n_bins = cf_swap_to_le16(*(uint16_t *)buf);
+	uint16_t new_n_bins = cf_swap_from_be16(*(uint16_t *)buf);
 
 	buf += 2;
 
@@ -507,7 +507,7 @@ as_record_unpickle_replace(as_storage_rd *rd, uint8_t *buf, size_t sz,
 	// Sanity checking. TODO - needs to be better.
 	uint8_t *buf_lim = buf + sz;
 
-	uint16_t new_n_bins = cf_swap_to_le16(*(uint16_t *)buf);
+	uint16_t new_n_bins = cf_swap_from_be16(*(uint16_t *)buf);
 
 	buf += 2;
 
@@ -548,7 +548,7 @@ as_record_unpickle_replace(as_storage_rd *rd, uint8_t *buf, size_t sz,
 	}
 
 	if (ns->storage_data_in_memory && ! ns->single_bin) {
-		if (delta_bins) {
+		if (delta_bins != 0) {
 			// If sizing down, this does destroy the excess particles.
 			as_bin_allocate_bin_space(rd, delta_bins);
 		}
@@ -736,7 +736,7 @@ apply_remote_winner(as_storage_rd *rd, as_record_merge_component *c,
 	as_storage_rd_load_n_bins(rd); // TODO - handle error returned
 
 	// Already checked that new_n_bins can't be 0 here.
-	uint16_t new_n_bins = cf_swap_to_le16(*(uint16_t *)c->record_buf);
+	uint16_t new_n_bins = cf_swap_from_be16(*(uint16_t *)c->record_buf);
 
 	if (! ns->storage_data_in_memory && ! ns->single_bin &&
 			new_n_bins > rd->n_bins) {
