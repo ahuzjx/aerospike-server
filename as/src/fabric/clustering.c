@@ -2346,7 +2346,7 @@ clustering_hb_plugin_parse_data_fn(msg* msg, cf_node source,
 		as_hb_plugin_node_data* plugin_data)
 {
 	// Lockless check to prevent deadlocks.
-	if (g_clustering.sys_state != AS_CLUSTERING_SYS_STATE_RUNNING) {
+	if (g_clustering.sys_state == AS_CLUSTERING_SYS_STATE_UNINITIALIZED) {
 		// Ignore this heartbeat.
 		plugin_data->data_size = 0;
 		return;
