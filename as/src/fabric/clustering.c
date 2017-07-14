@@ -200,8 +200,8 @@
  * over heartbeats.
  *
  * FIXME: Reduce the max to only the second max expression after the jump
- * version. This is for now a function of hb node timeout which will likely be set to a very
- * large value while protocol switch from paxos v3/4 to paxos v5.
+ * version. This is for now a function of hb node timeout which will likely be
+ * set to a very large value while protocol switch from paxos v3/4 to paxos v5.
  */
 #define QUANTUM_INTERVAL_MAX MAX(as_hb_node_timeout_get(),	\
 		MAX(5000, 2 * as_hb_tx_interval_get()))
@@ -1113,7 +1113,6 @@ join_request_timeout()
 			(1 + 0.5 + (quantum_interval_skip_max() - 1)) * quantum_interval());
 }
 
-
 /**
  * Timeout for a retransmitting a join request.
  */
@@ -1122,7 +1121,6 @@ join_request_retransmit_timeout()
 {
 	return (uint32_t)(quantum_interval() / 2);
 }
-
 
 /**
  * The interval at which a node checks to see if it should join a cluster.
@@ -2275,8 +2273,8 @@ clustering_hb_plugin_data_node_status(void* plugin_data,
 static void
 clustering_hb_plugin_set_fn(msg* msg)
 {
-	if (!clustering_is_running()) {
-		// Ignore this heartbeat.
+	if (!clustering_is_initialized()) {
+		// Clustering not initialized. Send no data at all.
 		return;
 	}
 
@@ -5714,7 +5712,6 @@ clustering_join_request_retransmit(cf_node last_join_request_principal)
 	}
 }
 
-
 /**
  *  Remove nodes for which join requests are blocked.
  *
@@ -6169,7 +6166,8 @@ clustering_orphan_quantum_interval_start_handle()
  * @param nodeids the nodes to send move command to.
  */
 static void
-clustering_cluster_move_send(cf_node candidate_principal, as_cluster_key cluster_key, cf_vector* nodeids)
+clustering_cluster_move_send(cf_node candidate_principal,
+		as_cluster_key cluster_key, cf_vector* nodeids)
 {
 	msg* msg = msg_pool_get(AS_CLUSTERING_MSG_TYPE_MERGE_MOVE);
 
@@ -7283,8 +7281,7 @@ clustering_hb_plugin_data_change_listener(cf_node changed_node_id)
 	if (clustering_hb_plugin_data_get(changed_node_id, &plugin_data,
 			&change_event.plugin_data_changed_hlc_ts,
 			&change_event.plugin_data_changed_ts) != 0) {
-		// Not possible. We should be able to read the plugin data that
-		// changed.
+		// Not possible. We should be able to read the plugin data that changed.
 		return;
 	}
 	internal_event_dispatch(&change_event);
@@ -7351,7 +7348,8 @@ clustering_cluster_reform()
 				cf_vector_size(new_nodes));
 
 		if (!clustering_is_principal()) {
-			rv = 1; // common case - command will likely be sent to all nodes
+			// Common case - command will likely be sent to all nodes.
+			rv = 1;
 		}
 
 		goto Exit;
