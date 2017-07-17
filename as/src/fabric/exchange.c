@@ -1042,8 +1042,7 @@ static void
 external_event_publisher_stop()
 {
 	EXTERNAL_EVENT_PUBLISHER_LOCK();
-	g_external_event_publisher.sys_state =
-			AS_EXCHANGE_SYS_STATE_SHUTTING_DOWN;
+	g_external_event_publisher.sys_state = AS_EXCHANGE_SYS_STATE_SHUTTING_DOWN;
 	EXTERNAL_EVENT_PUBLISHER_UNLOCK();
 
 	exchange_external_event_publisher_thr_wakeup();
@@ -2017,6 +2016,20 @@ exchange_orphan_transaction_block_timeout()
 }
 
 /**
+ * Commit exchange state to reflect self node being an orphan.
+ */
+static void
+exchange_orphan_commit()
+{
+	EXCHANGE_LOCK();
+	g_exchange.committed_cluster_key = 0;
+	g_exchange.committed_cluster_size = 0;
+	g_exchange.committed_principal = 0;
+	vector_clear(&g_exchange.committed_succession_list);
+	EXCHANGE_UNLOCK();
+}
+
+/**
  * Handle the timer event and if we have been an orphan for too long, block
  * client transactions.
  */
@@ -2029,6 +2042,7 @@ exchange_orphan_timer_event_handle()
 	if (!g_exchange.orphan_state_are_transactions_blocked
 			&& g_exchange.orphan_state_start_time + timeout < cf_getms()) {
 		g_exchange.orphan_state_are_transactions_blocked = true;
+		exchange_orphan_commit();
 		invoke_transaction_block = true;
 	}
 	EXCHANGE_UNLOCK();
@@ -2187,8 +2201,8 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 	exchange_node_state_get_safe(msg_event->msg_source, &node_state);
 
 	if (!node_state.received) {
-		uint32_t num_namespaces_sent =
-				exchange_data_msg_get_num_namespaces(msg_event);
+		uint32_t num_namespaces_sent = exchange_data_msg_get_num_namespaces(
+				msg_event);
 
 		if (num_namespaces_sent == 0) {
 			WARNING("ignoring invalid exchange data from node %"PRIx64,
@@ -2196,8 +2210,10 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 			goto Exit;
 		}
 
-		cf_vector_define(namespace_list, sizeof(msg_buf_ele), num_namespaces_sent, 0);
-		cf_vector_define(partition_versions, sizeof(msg_buf_ele), num_namespaces_sent, 0);
+		cf_vector_define(namespace_list, sizeof(msg_buf_ele),
+				num_namespaces_sent, 0);
+		cf_vector_define(partition_versions, sizeof(msg_buf_ele),
+				num_namespaces_sent, 0);
 		uint32_t rack_ids[num_namespaces_sent];
 
 		if (!msg_msgpack_list_get_buf_array_presized(msg_event->msg,
@@ -2224,8 +2240,8 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 		}
 
 		for (uint32_t i = 0; i < num_namespaces_sent; i++) {
-			msg_buf_ele* namespace_name_element =
-					cf_vector_getp(&namespace_list, i);
+			msg_buf_ele* namespace_name_element = cf_vector_getp(
+					&namespace_list, i);
 
 			// Find a match for the namespace.
 			as_namespace* matching_namespace = as_namespace_get_bybuf(
@@ -2255,8 +2271,9 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 				goto Exit;
 			}
 
-			as_exchange_ns_vinfos_payload* new_partition_versions =
-					cf_realloc(namespace_data->partition_versions, partition_versions_element->sz);
+			as_exchange_ns_vinfos_payload* new_partition_versions = cf_realloc(
+					namespace_data->partition_versions,
+					partition_versions_element->sz);
 
 			if (!new_partition_versions) {
 				WARNING(
@@ -2372,9 +2389,10 @@ exchange_exchanging_timer_event_handle(as_exchange_event* msg_event)
 	cf_clock min_timeout = EXCHANGE_SEND_MIN_TIMEOUT();
 	cf_clock max_timeout = EXCHANGE_SEND_MAX_TIMEOUT();
 	uint32_t step_interval = EXCHANGE_SEND_STEP_INTERVAL();
-	cf_clock timeout =
-			MAX(min_timeout,
-					MIN(max_timeout, min_timeout * ((now - g_exchange.send_ts) / step_interval)));
+	cf_clock timeout = MAX(min_timeout,
+			MIN(max_timeout,
+					min_timeout
+							* ((now - g_exchange.send_ts) / step_interval)));
 
 	if (g_exchange.send_ts + timeout < now) {
 		send_data = true;
