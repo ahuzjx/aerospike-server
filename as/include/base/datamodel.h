@@ -105,15 +105,6 @@ struct as_index_tree_s;
 #define MAX_BIN_NAMES 0x10000 // no need for more - numeric ID is 16 bits
 #define BIN_NAMES_QUOTA (MAX_BIN_NAMES / 2) // don't add more names than this via client transactions
 
-
-// now dynamic
-// #define AS_OBJECT_INDEX_OVERHEAD_BYTES 80
-// #define AS_OBJECT_INDEX_OVERHEAD_BYTES 230
-
-/* as_generation
- * A generation ID */
-typedef uint32_t as_generation;
-
 /*
  * Compare two 16-bit generation counts, allowing wrap-arounds.
  * Works correctly, if:
@@ -193,10 +184,7 @@ is_embedded_particle_type(as_particle_type type)
 extern as_particle_type as_particle_type_from_asval(const as_val *val);
 extern as_particle_type as_particle_type_from_msgpack(const uint8_t *packed, uint32_t packed_size);
 
-extern int32_t as_particle_size_from_client(const as_msg_op *op); // TODO - will we ever need this?
-extern int32_t as_particle_size_from_pickled(uint8_t **p_pickled);
 extern uint32_t as_particle_size_from_asval(const as_val *val);
-extern int32_t as_particle_size_from_flat(const uint8_t *flat, uint32_t flat_size); // TODO - will we ever need this?
 
 extern uint32_t as_particle_asval_client_value_size(const as_val *val);
 extern uint32_t as_particle_asval_to_client(const as_val *val, as_msg_op *op);
@@ -207,13 +195,12 @@ extern void as_bin_particle_destroy(as_bin *b, bool free_particle);
 extern uint32_t as_bin_particle_size(as_bin *b);
 
 // wire:
-extern int32_t as_bin_particle_size_modify_from_client(as_bin *b, const as_msg_op *op); // TODO - will we ever need this?
 extern int as_bin_particle_alloc_modify_from_client(as_bin *b, const as_msg_op *op);
 extern int as_bin_particle_stack_modify_from_client(as_bin *b, cf_ll_buf *particles_llb, const as_msg_op *op);
 extern int as_bin_particle_alloc_from_client(as_bin *b, const as_msg_op *op);
 extern int as_bin_particle_stack_from_client(as_bin *b, cf_ll_buf *particles_llb, const as_msg_op *op);
-extern int as_bin_particle_replace_from_pickled(as_bin *b, uint8_t **p_pickled);
-extern int32_t as_bin_particle_stack_from_pickled(as_bin *b, uint8_t* stack, uint8_t **p_pickled);
+extern int as_bin_particle_alloc_from_pickled(as_bin *b, const uint8_t **p_pickled, const uint8_t *end);
+extern int as_bin_particle_stack_from_pickled(as_bin *b, cf_ll_buf *particles_llb, const uint8_t **p_pickled, const uint8_t *end);
 extern int as_bin_particle_compare_from_pickled(const as_bin *b, uint8_t **p_pickled);
 extern uint32_t as_bin_particle_client_value_size(const as_bin *b);
 extern uint32_t as_bin_particle_to_client(const as_bin *b, as_msg_op *op);
@@ -439,7 +426,7 @@ extern int as_storage_rd_load_n_bins(as_storage_rd *rd);
 extern int as_storage_rd_load_bins(as_storage_rd *rd, as_bin *stack_bins);
 extern void as_bin_get_all_p(as_storage_rd *rd, as_bin **bin_ptrs);
 extern as_bin *as_bin_create(as_storage_rd *rd, const char *name);
-extern as_bin *as_bin_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz);
+extern as_bin *as_bin_create_from_buf(as_storage_rd *rd, const uint8_t *name, size_t namesz);
 extern as_bin *as_bin_get(as_storage_rd *rd, const char *name);
 extern as_bin *as_bin_get_by_id(as_storage_rd *rd, uint32_t id);
 extern as_bin *as_bin_get_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz);
@@ -482,13 +469,8 @@ void as_record_drop_stats(as_record* r, as_namespace* ns);
 extern void as_record_allocate_key(as_record* r, const uint8_t* key, uint32_t key_size);
 extern void as_record_remove_key(as_record* r);
 extern int as_record_resolve_conflict(conflict_resolution_pol policy, uint16_t left_gen, uint64_t left_lut, uint16_t right_gen, uint64_t right_lut);
-extern void as_record_pickle(as_storage_rd *rd, uint8_t **buf_r, size_t *len_r);
-extern int as_record_unpickle_replace(as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool has_sindex);
-extern void as_record_apply_pickle(as_storage_rd *rd);
-extern bool as_record_apply_replica(as_storage_rd *rd, uint32_t info, struct as_index_tree_s *tree);
-extern void as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p_rec_props);
-extern void as_record_clear_properties(as_record *r, const as_namespace *ns);
-extern void as_record_set_properties(as_storage_rd *rd, const as_rec_props *rec_props);
+extern uint8_t *as_record_pickle(as_storage_rd *rd, size_t *len_r);
+extern int as_record_write_from_pickle(as_storage_rd *rd);
 extern int as_record_set_set_from_msg(as_record *r, as_namespace *ns, as_msg *m);
 
 static inline bool
@@ -497,19 +479,26 @@ as_record_pickle_is_binless(const uint8_t *buf)
 	return *(uint16_t *)buf == 0;
 }
 
-extern int32_t as_record_buf_get_stack_particles_sz(uint8_t *buf);
+typedef struct as_remote_record_s {
+	cf_node src;
+	as_partition_reservation *rsv;
+	cf_digest *keyd;
 
-typedef struct as_record_merge_component_s {
 	uint8_t *record_buf;
 	size_t record_buf_sz;
+
 	uint32_t generation;
 	uint32_t void_time;
 	uint64_t last_update_time;
-	as_rec_props rec_props;
-} as_record_merge_component;
 
-extern int as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
-		uint32_t n_components, as_record_merge_component *components);
+	const char *set_name;
+	size_t set_name_len;
+
+	const uint8_t *key;
+	size_t key_size;
+} as_remote_record;
+
+int as_record_replace_if_better(as_remote_record *rr, conflict_resolution_pol policy, bool do_xdr_write);
 
 // a simpler call that gives seconds in the right epoch
 #define as_record_void_time_get() cf_clepoch_seconds()
@@ -1072,7 +1061,8 @@ as_set_stop_writes(as_set *p_set) {
 // These bin functions must be below definition of struct as_namespace_s:
 
 static inline void
-as_bin_set_id_from_name_buf(as_namespace *ns, as_bin *b, uint8_t *buf, int len) {
+as_bin_set_id_from_name_buf(as_namespace *ns, as_bin *b, const uint8_t *buf,
+		int len) {
 	if (! ns->single_bin) {
 		b->id = as_bin_get_or_assign_id_w_len(ns, (const char *)buf, len);
 	}

@@ -124,7 +124,6 @@ extern void as_storage_record_drop_from_mem_stats(as_storage_rd *rd);
 extern bool as_storage_record_get_key(as_storage_rd *rd);
 extern size_t as_storage_record_rec_props_size(as_storage_rd *rd);
 extern void as_storage_record_set_rec_props(as_storage_rd *rd, uint8_t* rec_props_data);
-extern uint32_t as_storage_record_copy_rec_props(as_storage_rd *rd, as_rec_props *p_rec_props);
 
 // Called only at shutdown to flush all device write-queues.
 extern void as_storage_shutdown();

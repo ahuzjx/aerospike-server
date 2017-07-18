@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "citrusleaf/cf_digest.h"
+
 #include "msg.h"
 #include "node.h"
 
@@ -60,15 +62,16 @@ struct udf_record_s;
 // Typedefs & constants.
 //
 
+typedef struct index_metadata_s {
+	uint32_t void_time;
+	uint64_t last_update_time;
+	uint16_t generation;
+} index_metadata;
+
 typedef struct now_times_s {
 	uint64_t now_ns;
 	uint64_t now_ms;
 } now_times;
-
-typedef struct rw_paxos_change_struct_t {
-	cf_node succession[AS_CLUSTER_SZ];
-	cf_node deletions[AS_CLUSTER_SZ];
-} rw_paxos_change_struct;
 
 // For now, use only for as_msg record_ttl special values.
 #define TTL_NAMESPACE_DEFAULT	0
@@ -90,6 +93,7 @@ bool get_msg_key(struct as_transaction_s* tr, struct as_storage_rd_s* rd);
 int handle_msg_key(struct as_transaction_s* tr, struct as_storage_rd_s* rd);
 void update_metadata_in_index(struct as_transaction_s* tr, bool increment_generation, struct as_index_s* r);
 void pickle_all(struct as_storage_rd_s* rd, struct rw_request_s* rw);
+bool write_sindex_update(struct as_namespace_s* ns, const char* set_name, cf_digest* keyd, struct as_bin_s* old_bins, uint32_t n_old_bins, struct as_bin_s* new_bins, uint32_t n_new_bins);
 void record_delete_adjust_sindex(struct as_index_s* r, struct as_namespace_s* ns);
 void delete_adjust_sindex(struct as_storage_rd_s* rd);
 void remove_from_sindex(struct as_namespace_s* ns, const char* set_name, cf_digest* keyd, struct as_bin_s* bins, uint32_t n_bins);

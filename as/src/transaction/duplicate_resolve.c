@@ -30,7 +30,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h> // for alloca() only
 #include <string.h>
 
 #include "citrusleaf/cf_atomic.h"
@@ -234,10 +233,8 @@ dup_res_handle_request(cf_node node, msg* m)
 
 	as_storage_rd_load_bins(&rd, stack_bins); // TODO - handle error returned
 
-	uint8_t* buf;
 	size_t buf_len;
-
-	as_record_pickle(&rd, &buf, &buf_len);
+	uint8_t* buf = as_record_pickle(&rd, &buf_len);
 
 	uint32_t info = 0;
 
@@ -483,9 +480,8 @@ void
 apply_winner(rw_request* rw)
 {
 	uint32_t n = 0;
-	as_record_merge_component dups[rw->n_dest_nodes];
-
-	memset(dups, 0, sizeof(dups));
+	as_remote_record rr = { .rsv = &rw->rsv, .keyd = &rw->keyd };
+	conflict_resolution_pol policy = rw->rsv.ns->conflict_resolution_policy;
 
 	for (int i = 0; i < rw->n_dest_nodes; i++) {
 		msg* m = rw->dup_msg[i];
@@ -505,59 +501,63 @@ apply_winner(rw_request* rw)
 			continue;
 		}
 
-		if (msg_get_uint32(m, RW_FIELD_GENERATION, &dups[n].generation) != 0) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no generation ");
-			continue;
-		}
+		uint8_t* record_buf;
+		size_t record_buf_sz;
 
-		if (msg_get_uint64(m, RW_FIELD_LAST_UPDATE_TIME,
-				&dups[n].last_update_time) != 0) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no last-update-time ");
-			continue;
-		}
-
-		msg_get_uint32(m, RW_FIELD_VOID_TIME, &dups[n].void_time);
-
-		if (msg_get_buf(m, RW_FIELD_RECORD, &dups[n].record_buf,
-				&dups[n].record_buf_sz, MSG_GET_DIRECT) != 0) {
+		if (msg_get_buf(m, RW_FIELD_RECORD, &record_buf, &record_buf_sz,
+				MSG_GET_DIRECT) != 0 || record_buf_sz < 2) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no record ");
 			continue;
 		}
 
-		if (dup_res_ignore_pickle(dups[n].record_buf, m)) {
+		if (dup_res_ignore_pickle(record_buf, m)) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: binless pickle ");
 			continue;
 		}
 
-		uint8_t *set_name = NULL;
-		size_t set_name_len = 0;
+		uint32_t generation;
 
-		msg_get_buf(m, RW_FIELD_SET_NAME, &set_name, &set_name_len,
-				MSG_GET_DIRECT);
-
-		uint8_t *key = NULL;
-		size_t key_size = 0;
-
-		msg_get_buf(m, RW_FIELD_KEY, &key, &key_size, MSG_GET_DIRECT);
-
-		size_t rec_props_data_size = as_rec_props_size_all(set_name,
-				set_name_len, key, key_size);
-
-		if (rec_props_data_size != 0) {
-			// Use alloca() to last the scope of the function. Note that we're
-			// in a loop - stack usage is duplicates * rec-props data size.
-			dups[n].rec_props.p_data = alloca(rec_props_data_size);
-
-			as_rec_props_fill_all(&dups[n].rec_props,
-					dups[n].rec_props.p_data, set_name, set_name_len, key,
-					key_size);
+		if (msg_get_uint32(m, RW_FIELD_GENERATION, &generation) != 0) {
+			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no generation ");
+			continue;
 		}
+
+		uint64_t last_update_time;
+
+		if (msg_get_uint64(m, RW_FIELD_LAST_UPDATE_TIME,
+				&last_update_time) != 0) {
+			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no last-update-time ");
+			continue;
+		}
+
+		// If previous best is better, no-op.
+		if (rr.record_buf && as_record_resolve_conflict(policy,
+				(uint16_t)rr.generation, rr.last_update_time,
+				generation, last_update_time) <= 0) {
+			continue;
+		}
+		// else - this one is better, keep it.
+
+		rr.src = rw->dest_nodes[i];
+		rr.record_buf = record_buf;
+		rr.record_buf_sz = record_buf_sz;
+		rr.generation = generation;
+		rr.last_update_time = last_update_time;
+
+		msg_get_uint32(m, RW_FIELD_VOID_TIME, &rr.void_time);
+
+		msg_get_buf(m, RW_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
+				&rr.set_name_len, MSG_GET_DIRECT);
+
+		msg_get_buf(m, RW_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
+				MSG_GET_DIRECT);
 
 		n++;
 	}
 
 	if (n > 0) {
-		as_record_flatten(&rw->rsv, &rw->keyd, n, dups);
+		// TODO - handle error!
+		as_record_replace_if_better(&rr, policy, false);
 	}
 
 	for (int i = 0; i < rw->n_dest_nodes; i++) {

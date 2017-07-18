@@ -191,7 +191,7 @@ as_bin_copy(as_namespace *ns, as_bin *to, const as_bin *from)
 }
 
 static void
-as_bin_init_w_len(as_namespace *ns, as_bin *b, uint8_t *name, size_t len)
+as_bin_init_w_len(as_namespace *ns, as_bin *b, const uint8_t *name, size_t len)
 {
 	as_bin_state_set(b, AS_BIN_STATE_UNUSED);
 	b->particle = NULL;
@@ -306,7 +306,7 @@ as_bin_create(as_storage_rd *rd, const char *name)
 }
 
 as_bin *
-as_bin_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz)
+as_bin_create_from_buf(as_storage_rd *rd, const uint8_t *name, size_t namesz)
 {
 	if (rd->ns->single_bin) {
 		if (as_bin_inuse(rd->bins)) {

@@ -326,8 +326,8 @@ as_index_get_vlock(as_index_tree *tree, cf_digest *keyd,
 // Returns:
 //		 1 - created and inserted (reference returned in index_ref)
 //		 0 - found already existing (reference returned in index_ref)
-//		-1 - error - found "half created" or deleted record
-//		-2 - error - could not allocate arena stage
+//		-1 - error - could not allocate arena stage
+//		-2 - error - found "half created" or deleted record
 int
 as_index_get_insert_vlock(as_index_tree *tree, cf_digest *keyd,
 		as_index_ref *index_ref)
@@ -670,7 +670,7 @@ as_index_sprig_get_insert_vlock(as_index_sprig *isprig, cf_digest *keyd,
 
 				// Fail if the record is "half created" or deleted.
 				if (as_index_sprig_invalid_record_done(isprig, index_ref)) {
-					return -1;
+					return -2;
 				}
 
 				return 0;
@@ -710,7 +710,7 @@ as_index_sprig_get_insert_vlock(as_index_sprig *isprig, cf_digest *keyd,
 		cf_warning(AS_INDEX, "arenax alloc failed");
 		pthread_mutex_unlock(&isprig->pair->reduce_lock);
 		pthread_mutex_unlock(&isprig->pair->lock);
-		return -2;
+		return -1;
 	}
 
 	as_index *n = RESOLVE_H(n_h);

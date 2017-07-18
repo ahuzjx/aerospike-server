@@ -771,12 +771,11 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 
 	pickled_record pr;
 
-	as_record_pickle(&rd, &pr.record_buf, &pr.record_len);
-
 	pr.keyd = r->keyd;
 	pr.generation = r->generation;
 	pr.void_time = r->void_time;
 	pr.last_update_time = r->last_update_time;
+	pr.record_buf = as_record_pickle(&rd, &pr.record_len);
 
 	as_storage_record_get_key(&rd);
 
@@ -1390,15 +1389,6 @@ immigration_ack_start_request(cf_node src, msg *m, uint32_t op)
 void
 immigration_handle_insert_request(cf_node src, msg *m)
 {
-	cf_digest *keyd;
-
-	if (msg_get_buf(m, MIG_FIELD_DIGEST, (uint8_t **)&keyd, NULL,
-			MSG_GET_DIRECT) != 0) {
-		cf_warning(AS_MIGRATE, "handle insert: msg get for digest failed");
-		as_fabric_msg_put(m);
-		return;
-	}
-
 	uint32_t emig_id;
 
 	if (msg_get_uint32(m, MIG_FIELD_EMIG_ID, &emig_id) != 0) {
@@ -1433,82 +1423,58 @@ immigration_handle_insert_request(cf_node src, msg *m)
 			return;
 		}
 
-		uint32_t generation;
+		as_remote_record rr = { .src = src, .rsv = &immig->rsv };
 
-		if (msg_get_uint32(m, MIG_FIELD_GENERATION, &generation) != 0) {
+		if (msg_get_buf(m, MIG_FIELD_DIGEST, (uint8_t **)&rr.keyd, NULL,
+				MSG_GET_DIRECT) != 0) {
+			cf_warning(AS_MIGRATE, "handle insert: got no digest");
+			as_fabric_msg_put(m);
+			return;
+		}
+
+		if (msg_get_buf(m, MIG_FIELD_RECORD, (uint8_t **)&rr.record_buf,
+				&rr.record_buf_sz, MSG_GET_DIRECT) != 0 ||
+						rr.record_buf_sz < 2) {
+			cf_warning(AS_MIGRATE, "handle insert: got no or bad record");
+			immigration_release(immig);
+			as_fabric_msg_put(m);
+			return;
+		}
+
+		if (msg_get_uint32(m, MIG_FIELD_GENERATION, &rr.generation) != 0) {
 			cf_warning(AS_MIGRATE, "handle insert: got no generation");
 			immigration_release(immig);
 			as_fabric_msg_put(m);
 			return;
 		}
 
-		uint64_t last_update_time;
-
 		if (msg_get_uint64(m, MIG_FIELD_LAST_UPDATE_TIME,
-				&last_update_time) != 0) {
+				&rr.last_update_time) != 0) {
 			cf_warning(AS_MIGRATE, "handle insert: got no last-update-time");
 			immigration_release(immig);
 			as_fabric_msg_put(m);
 			return;
 		}
 
-		uint32_t void_time = 0;
+		msg_get_uint32(m, MIG_FIELD_VOID_TIME, &rr.void_time);
 
-		msg_get_uint32(m, MIG_FIELD_VOID_TIME, &void_time);
+		msg_get_buf(m, MIG_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
+				&rr.set_name_len, MSG_GET_DIRECT);
 
-		void *value;
-		size_t value_sz;
-
-		if (msg_get_buf(m, MIG_FIELD_RECORD, (uint8_t **)&value, &value_sz,
-				MSG_GET_DIRECT) != 0) {
-			cf_warning(AS_MIGRATE, "handle insert: got no record");
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		as_record_merge_component c;
-
-		c.record_buf = value;
-		c.record_buf_sz = value_sz;
-		c.generation = generation;
-		c.void_time = void_time;
-		c.last_update_time = last_update_time;
-		as_rec_props_clear(&c.rec_props);
-
-		uint8_t *rec_props_data = NULL;
-		uint8_t *set_name = NULL;
-		size_t set_name_len = 0;
-
-		msg_get_buf(m, MIG_FIELD_SET_NAME, &set_name, &set_name_len,
+		msg_get_buf(m, MIG_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
 				MSG_GET_DIRECT);
 
-		uint8_t *key = NULL;
-		size_t key_size = 0;
-
-		msg_get_buf(m, MIG_FIELD_KEY, &key, &key_size, MSG_GET_DIRECT);
-
-		size_t rec_props_data_size = as_rec_props_size_all(set_name,
-				set_name_len, key, key_size);
-
-		if (rec_props_data_size != 0) {
-			// Use alloca() until after jump (remove new-cluster scope).
-			rec_props_data = alloca(rec_props_data_size);
-
-			as_rec_props_fill_all(&c.rec_props, rec_props_data, set_name,
-					set_name_len, key, key_size);
-		}
-
-		if (immigration_ignore_pickle(c.record_buf, m)) {
-			cf_warning_digest(AS_MIGRATE, keyd, "handle insert: binless pickle, dropping ");
+		if (immigration_ignore_pickle(rr.record_buf, m)) {
+			cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: binless pickle ");
 		}
 		else {
-			int rv = as_record_flatten(&immig->rsv, keyd, 1, &c);
+			int rv = as_record_replace_if_better(&rr,
+					immig->rsv.ns->conflict_resolution_policy, false);
 
-			// -3: race where we encountered a half-created/deleted record
-			// -8: didn't write record because it's truncated
-			if (rv != 0 && rv != -3 && rv != -8) {
-				cf_warning_digest(AS_MIGRATE, keyd, "handle insert: record flatten failed %d ", rv);
+			// If replace failed, don't ack - it will be retransmitted.
+			if (rv != 0) {
+				cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: failed replace %d ",
+						rv);
 				immigration_release(immig);
 				as_fabric_msg_put(m);
 				return;

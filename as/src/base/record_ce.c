@@ -72,22 +72,10 @@ as_record_drop_stats(as_record* r, as_namespace* ns)
 }
 
 
-void
-as_record_apply_pickle(as_storage_rd* rd)
+int
+as_record_write_from_pickle(as_storage_rd* rd)
 {
 	cf_assert(as_bin_inuse_has(rd), AS_RECORD, "unexpected binless pickle");
 
-	as_storage_record_write(rd);
-}
-
-
-bool
-as_record_apply_replica(as_storage_rd* rd, uint32_t info, as_index_tree* tree)
-{
-	// Should already have handled drop.
-	cf_assert(as_bin_inuse_has(rd), AS_RECORD, "unexpected binless pickle");
-
-	as_storage_record_write(rd);
-
-	return false;
+	return as_storage_record_write(rd);
 }

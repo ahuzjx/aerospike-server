@@ -652,33 +652,6 @@ as_storage_record_set_rec_props(as_storage_rd *rd, uint8_t* rec_props_data)
 	}
 }
 
-// Populates p_rec_props, doing a malloc for data, using index info where
-// possible (gets key from rd parameters).
-uint32_t
-as_storage_record_copy_rec_props(as_storage_rd *rd, as_rec_props *p_rec_props)
-{
-	uint32_t malloc_size = (uint32_t)as_storage_record_rec_props_size(rd);
-
-	if (malloc_size == 0) {
-		return 0;
-	}
-
-	as_rec_props_init_malloc(p_rec_props, malloc_size);
-
-	if (as_index_has_set(rd->r)) {
-		const char *set_name = as_index_get_set_name(rd->r, rd->ns);
-		as_rec_props_add_field(p_rec_props, CL_REC_PROPS_FIELD_SET_NAME,
-				strlen(set_name) + 1, (uint8_t *)set_name);
-	}
-
-	if (rd->key) {
-		as_rec_props_add_field(p_rec_props, CL_REC_PROPS_FIELD_KEY,
-				rd->key_size, rd->key);
-	}
-
-	return malloc_size;
-}
-
 void
 as_storage_shutdown(void)
 {

@@ -251,7 +251,7 @@ update_metadata_in_index(as_transaction* tr, bool increment_generation,
 void
 pickle_all(as_storage_rd* rd, rw_request* rw)
 {
-	as_record_pickle(rd, &rw->pickled_buf, &rw->pickled_sz);
+	rw->pickled_buf = as_record_pickle(rd, &rw->pickled_sz);
 
 	// TODO - we could avoid this copy (and maybe even not do this here at all)
 	// if all callers malloc'd rd->rec_props.p_data upstream for hand-off...
@@ -264,6 +264,109 @@ pickle_all(as_storage_rd* rd, rw_request* rw)
 		memcpy(rw->pickled_rec_props.p_data, rd->rec_props.p_data,
 				rd->rec_props.size);
 	}
+}
+
+
+bool
+write_sindex_update(as_namespace* ns, const char* set_name, cf_digest* keyd,
+		as_bin* old_bins, uint32_t n_old_bins, as_bin* new_bins,
+		uint32_t n_new_bins)
+{
+	int n_populated = 0;
+	bool not_just_created[n_new_bins];
+
+	memset(not_just_created, 0, sizeof(not_just_created));
+
+	// Maximum number of sindexes which can be changed in one transaction is
+	// 2 * ns->sindex_cnt.
+
+	SINDEX_GRLOCK();
+	SINDEX_BINS_SETUP(sbins, 2 * ns->sindex_cnt);
+	as_sindex* si_arr[2 * ns->sindex_cnt];
+	int si_arr_index = 0;
+
+	// Reserve matching SIs.
+
+	for (int i = 0; i < n_old_bins; i++) {
+		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name,
+				old_bins[i].id, &si_arr[si_arr_index]);
+	}
+
+	for (int i = 0; i < n_new_bins; i++) {
+		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name,
+				new_bins[i].id, &si_arr[si_arr_index]);
+	}
+
+	// For every old bin, find the corresponding new bin (if any) and adjust the
+	// secondary index if the bin was modified. If no corresponding new bin is
+	// found, it means the old bin was deleted - also adjust the secondary index
+	// accordingly.
+
+	for (int32_t i_old = 0; i_old < (int32_t)n_old_bins; i_old++) {
+		as_bin* b_old = &old_bins[i_old];
+		bool found = false;
+
+		// Loop over new bins. Start at old bin index (if possible) and go down,
+		// wrapping around to do the higher indexes last. This will find a match
+		// (if any) very quickly - instantly, unless there were bins deleted.
+
+		bool any_new = n_new_bins != 0;
+		int32_t n_new_minus_1 = (int32_t)n_new_bins - 1;
+		int32_t i_new = n_new_minus_1 < i_old ? n_new_minus_1 : i_old;
+
+		while (any_new) {
+			as_bin* b_new = &new_bins[i_new];
+
+			if (b_old->id == b_new->id) {
+				if (as_bin_get_particle_type(b_old) !=
+						as_bin_get_particle_type(b_new) ||
+								b_old->particle != b_new->particle) {
+					n_populated += as_sindex_sbins_populate(
+							&sbins[n_populated], ns, set_name, b_old, b_new);
+				}
+
+				found = true;
+				not_just_created[i_new] = true;
+				break;
+			}
+
+			if (--i_new < 0 && (i_new = n_new_minus_1) <= i_old) {
+				break;
+			}
+
+			if (i_new == i_old) {
+				break;
+			}
+		}
+
+		if (! found) {
+			n_populated += as_sindex_sbins_from_bin(ns, set_name, b_old,
+					&sbins[n_populated], AS_SINDEX_OP_DELETE);
+		}
+	}
+
+	// Now find the new bins that are just-created bins. We've marked the others
+	// in the loop above, so any left are just-created.
+
+	for (uint32_t i_new = 0; i_new < n_new_bins; i_new++) {
+		if (not_just_created[i_new]) {
+			continue;
+		}
+
+		n_populated += as_sindex_sbins_from_bin(ns, set_name, &new_bins[i_new],
+				&sbins[n_populated], AS_SINDEX_OP_INSERT);
+	}
+
+	SINDEX_GRUNLOCK();
+
+	if (n_populated != 0) {
+		as_sindex_update_by_sbin(ns, set_name, sbins, n_populated, keyd);
+		as_sindex_sbin_freeall(sbins, n_populated);
+	}
+
+	as_sindex_release_arr(si_arr, si_arr_index);
+
+	return n_populated != 0;
 }
 
 

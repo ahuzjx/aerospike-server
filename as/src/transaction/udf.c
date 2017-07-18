@@ -944,7 +944,7 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 
 	// Collect information for XDR before closing the record.
 
-	as_generation generation = 0;
+	uint16_t generation = 0;
 
 	if ((urecord->flag & UDF_RECORD_FLAG_OPEN) != 0) {
 		generation = r->generation;
@@ -966,11 +966,11 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 	// Write to XDR pipe.
 	if (udf_xdr_ship_op) {
 		if (urecord_op == UDF_OPTYPE_WRITE) {
-			xdr_write(tr->rsv.ns, tr->keyd, generation, 0, XDR_OP_TYPE_WRITE,
+			xdr_write(tr->rsv.ns, &tr->keyd, generation, 0, XDR_OP_TYPE_WRITE,
 					set_id, &dirty_bins);
 		}
 		else if (urecord_op == UDF_OPTYPE_DELETE) {
-			xdr_write(tr->rsv.ns, tr->keyd, 0, 0,
+			xdr_write(tr->rsv.ns, &tr->keyd, 0, 0,
 					as_transaction_is_durable_delete(tr) ?
 							XDR_OP_TYPE_DURABLE_DELETE : XDR_OP_TYPE_DROP,
 					set_id, NULL);
@@ -1001,11 +1001,10 @@ write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
 }
 
 
-// TODO - assert rec-props allocation and make this void.
 void
 udf_pickle_all(as_storage_rd* rd, pickle_info* pickle)
 {
-	as_record_pickle(rd, &pickle->buf, &pickle->buf_size);
+	pickle->buf = as_record_pickle(rd, &pickle->buf_size);
 
 	pickle->rec_props_data = NULL;
 	pickle->rec_props_size = 0;

@@ -437,7 +437,7 @@ drop_master(as_transaction* tr, as_index_ref* r_ref, rw_request* rw)
 
 	if (xdr_must_ship_delete(ns, as_transaction_is_nsup_delete(tr),
 			as_msg_is_xdr(m))) {
-		xdr_write(ns, tr->keyd, 0, 0, XDR_OP_TYPE_DROP, set_id, NULL);
+		xdr_write(ns, &tr->keyd, 0, 0, XDR_OP_TYPE_DROP, set_id, NULL);
 	}
 
 	return TRANS_IN_PROGRESS;

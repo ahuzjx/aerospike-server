@@ -63,12 +63,6 @@
 
 #define STACK_PARTICLES_SIZE (1024 * 1024)
 
-typedef struct index_metadata_s {
-	uint32_t void_time;
-	uint64_t last_update_time;
-	uint16_t generation;
-} index_metadata;
-
 
 //==========================================================
 // Forward declarations.
@@ -94,8 +88,8 @@ int write_master_policies(as_transaction* tr, bool* p_must_not_create,
 bool check_msg_set_name(as_transaction* tr, const char* set_name);
 
 int write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
-		bool record_created, bool increment_generation, rw_request* rw,
-		bool* is_delete, xdr_dirty_bins* dirty_bins);
+		bool increment_generation, rw_request* rw, bool* is_delete,
+		xdr_dirty_bins* dirty_bins);
 int write_master_dim(as_transaction* tr, const char* set_name,
 		as_storage_rd* rd, bool record_level_replace, bool increment_generation,
 		rw_request* rw, bool* is_delete, xdr_dirty_bins* dirty_bins);
@@ -118,9 +112,6 @@ int write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 		as_bin* result_bins, uint32_t* p_n_result_bins,
 		cf_ll_buf* particles_llb, as_bin* cleanup_bins,
 		uint32_t* p_n_cleanup_bins, xdr_dirty_bins* dirty_bins);
-bool write_master_sindex_update(as_namespace* ns, const char* set_name,
-		cf_digest* keyd, as_bin* old_bins, uint32_t n_old_bins,
-		as_bin* new_bins, uint32_t n_new_bins);
 
 void write_master_index_metadata_unwind(index_metadata* old, as_record* r);
 void write_master_dim_single_bin_unwind(as_bin* old_bin, as_bin* new_bin,
@@ -661,7 +652,7 @@ write_master(rw_request* rw, as_transaction* tr)
 	if (ns->storage_data_in_memory) {
 		if (ns->single_bin) {
 			result = write_master_dim_single_bin(tr, &rd,
-					record_created, increment_generation,
+					increment_generation,
 					rw, &is_delete, &dirty_bins);
 		}
 		else {
@@ -730,7 +721,7 @@ write_master(rw_request* rw, as_transaction* tr)
 	// forwarding enabled.
 	if (! as_msg_is_xdr(m) || is_xdr_forwarding_enabled() ||
 			ns->ns_forward_xdr_writes) {
-		xdr_write(ns, tr->keyd, generation, 0, op_type, set_id, &dirty_bins);
+		xdr_write(ns, &tr->keyd, generation, 0, op_type, set_id, &dirty_bins);
 	}
 
 	return TRANS_IN_PROGRESS;
@@ -985,8 +976,8 @@ check_msg_set_name(as_transaction* tr, const char* set_name)
 
 int
 write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
-		bool record_created, bool increment_generation, rw_request* rw,
-		bool* is_delete, xdr_dirty_bins* dirty_bins)
+		bool increment_generation, rw_request* rw, bool* is_delete,
+		xdr_dirty_bins* dirty_bins)
 {
 	// Shortcut pointers.
 	as_msg* m = &tr->msgp->msg;
@@ -1004,7 +995,7 @@ write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
 	// For memory accounting, note current usage.
 	uint64_t memory_bytes = 0;
 
-	if (! record_created) {
+	if (as_bin_inuse(rd->bins)) {
 		memory_bytes = as_storage_record_get_n_bytes_memory(rd);
 	}
 
@@ -1012,7 +1003,7 @@ write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
 	// Copy existing bin into old_bin to enable unwinding.
 	//
 
-	uint32_t n_old_bins = as_bin_inuse_has(rd) ? 1 : 0;
+	uint32_t n_old_bins = as_bin_inuse(rd->bins) ? 1 : 0;
 	as_bin old_bin;
 
 	as_single_bin_copy(&old_bin, rd->bins);
@@ -1216,8 +1207,8 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 	//
 
 	if (record_has_sindex(r, ns) &&
-			write_master_sindex_update(ns, set_name, &tr->keyd, old_bins,
-					n_old_bins, new_bins, n_new_bins)) {
+			write_sindex_update(ns, set_name, &tr->keyd, old_bins, n_old_bins,
+					new_bins, n_new_bins)) {
 		tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
 	}
 
@@ -1252,7 +1243,6 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 
 	// Accommodate a new stored key - wasn't needed for pickling and writing.
 	if (r->key_stored == 0 && rd->key) {
-		// TODO - should we check allocation failure?
 		as_record_allocate_key(r, rd->key, rd->key_size);
 		r->key_stored = 1;
 	}
@@ -1291,7 +1281,7 @@ write_master_ssd_single_bin(as_transaction* tr, as_storage_rd* rd,
 		return -result;
 	}
 
-	uint32_t n_old_bins = as_bin_inuse_has(rd) ? 1 : 0;
+	uint32_t n_old_bins = as_bin_inuse(rd->bins) ? 1 : 0;
 
 	//------------------------------------------------------
 	// Apply changes to metadata in as_index needed for
@@ -1485,8 +1475,8 @@ write_master_ssd(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 	//
 
 	if (has_sindex &&
-			write_master_sindex_update(ns, set_name, &tr->keyd, old_bins,
-					n_old_bins, new_bins, n_new_bins)) {
+			write_sindex_update(ns, set_name, &tr->keyd, old_bins, n_old_bins,
+					new_bins, n_new_bins)) {
 		tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
 	}
 
@@ -1809,109 +1799,6 @@ write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 	}
 
 	return 0;
-}
-
-
-bool
-write_master_sindex_update(as_namespace* ns, const char* set_name,
-		cf_digest* keyd, as_bin* old_bins, uint32_t n_old_bins,
-		as_bin* new_bins, uint32_t n_new_bins)
-{
-	int sbins_populated = 0;
-	bool not_just_created[n_new_bins];
-
-	for (uint32_t i_new = 0; i_new < n_new_bins; i_new++) {
-		not_just_created[i_new] = false;
-	}
-
-	// Maximum number of sindexes which can be changed in one transaction is
-	// 2 * ns->sindex_cnt.
-
-	SINDEX_GRLOCK();
-	SINDEX_BINS_SETUP(sbins, 2 * ns->sindex_cnt);
-	as_sindex* si_arr[2 * ns->sindex_cnt];
-	int si_arr_index = 0;
-
-	// Reserve matching SIs.
-
-	for (int i = 0; i < n_old_bins; i++) {
-		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name,
-				old_bins[i].id, &si_arr[si_arr_index]);
-	}
-
-	for (int i = 0; i < n_new_bins; i++) {
-		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name,
-				new_bins[i].id, &si_arr[si_arr_index]);
-	}
-
-	// For every old bin, find the corresponding new bin (if any) and adjust the
-	// secondary index if the bin was modified. If no corresponding new bin is
-	// found, it means the old bin was deleted - also adjust the secondary index
-	// accordingly.
-
-	for (int32_t i_old = 0; i_old < (int32_t)n_old_bins; i_old++) {
-		as_bin* b_old = &old_bins[i_old];
-		bool found = false;
-
-		// Loop over new bins. Start at old bin index (if possible) and go down,
-		// wrapping around to do the higher indexes last. This will find a match
-		// (if any) very quickly - instantly, unless there were bins deleted.
-
-		bool any_new = n_new_bins != 0;
-		int32_t n_new_minus_1 = (int32_t)n_new_bins - 1;
-		int32_t i_new = n_new_minus_1 < i_old ? n_new_minus_1 : i_old;
-
-		while (any_new) {
-			as_bin* b_new = &new_bins[i_new];
-
-			if (b_old->id == b_new->id) {
-				if (as_bin_get_particle_type(b_old) != as_bin_get_particle_type(b_new) ||
-						b_old->particle != b_new->particle) {
-					sbins_populated += as_sindex_sbins_populate(&sbins[sbins_populated], ns, set_name, b_old, b_new);
-				}
-
-				found = true;
-				not_just_created[i_new] = true;
-				break;
-			}
-
-			if (--i_new < 0 && (i_new = n_new_minus_1) <= i_old) {
-				break;
-			}
-
-			if (i_new == i_old) {
-				break;
-			}
-		}
-
-		if (! found) {
-			sbins_populated += as_sindex_sbins_from_bin(ns, set_name, b_old,
-					&sbins[sbins_populated], AS_SINDEX_OP_DELETE);
-		}
-	}
-
-	// Now find the new bins that are just-created bins. We've marked the others
-	// in the loop above, so any left are just-created.
-
-	for (uint32_t i_new = 0; i_new < n_new_bins; i_new++) {
-		if (not_just_created[i_new]) {
-			continue;
-		}
-
-		sbins_populated += as_sindex_sbins_from_bin(ns, set_name,
-				&new_bins[i_new], &sbins[sbins_populated], AS_SINDEX_OP_INSERT);
-	}
-
-	SINDEX_GRUNLOCK();
-
-	if (sbins_populated != 0) {
-		as_sindex_update_by_sbin(ns, set_name, sbins, sbins_populated, keyd);
-		as_sindex_sbin_freeall(sbins, sbins_populated);
-	}
-
-	as_sindex_release_arr(si_arr, si_arr_index);
-
-	return sbins_populated != 0;
 }
 
 

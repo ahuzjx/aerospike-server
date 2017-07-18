@@ -229,9 +229,9 @@ available_size(drv_ssd *ssd)
 }
 
 
-// Since some write threads can't yet unwind on failure, we ensure that they'll
-// succeed by checking before writing on all threads that there's at least one
-// wblock per thread. TODO - deprecate this methodology when we can unwind.
+// Since UDF writes can't yet unwind on failure, we ensure that they'll succeed
+// by checking before writing on all threads that there's at least one wblock
+// per thread. TODO - deprecate this methodology when everything can unwind.
 static inline int
 min_free_wblocks(as_namespace *ns)
 {
@@ -249,7 +249,6 @@ min_free_wblocks(as_namespace *ns)
 			1 +							// always 1 defrag thread
 			DEFRAG_RUNTIME_RESERVE +	// reserve for defrag at runtime
 			DEFRAG_STARTUP_RESERVE;		// reserve for defrag at startup
-			// TODO - what about UDFs?
 }
 
 
@@ -2702,6 +2701,46 @@ is_record_expired(as_namespace* ns, const drv_ssd_block* block,
 }
 
 
+void
+apply_rec_props(as_record* r, as_namespace* ns, const as_rec_props* p_props)
+{
+	// Set record's set-id. (If it already has one, assume they're the same.)
+	if (! as_index_has_set(r) && p_props->size != 0) {
+		const char* set_name;
+
+		if (as_rec_props_get_value(p_props, CL_REC_PROPS_FIELD_SET_NAME, NULL,
+				(uint8_t**)&set_name) == 0) {
+			as_index_set_set(r, ns, set_name, false);
+		}
+	}
+
+	uint32_t key_size;
+	uint8_t* key;
+	bool got_key = p_props->size != 0 &&
+			as_rec_props_get_value(p_props, CL_REC_PROPS_FIELD_KEY, &key_size,
+					&key) == 0;
+
+	// If a key wasn't stored, and we got one, accommodate it.
+	if (r->key_stored == 0) {
+		if (got_key) {
+			if (ns->storage_data_in_memory) {
+				as_record_allocate_key(r, key, key_size);
+			}
+
+			r->key_stored = 1;
+		}
+	}
+	// If a key was stored, but we didn't get one, remove the key.
+	else if (! got_key) {
+		if (ns->storage_data_in_memory) {
+			as_record_remove_key(r);
+		}
+
+		r->key_stored = 0;
+	}
+}
+
+
 // Add a record just read from drive to the index, if all is well.
 // Return values:
 //  0 - success, record added or updated
@@ -2751,23 +2790,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	}
 
 	// Get/create the record from/in the appropriate index tree.
-	int rv;
-	int retries = 0;
-
-	while (true) {
-		if ((rv = as_record_get_create(p_partition->vp, &block->keyd, &r_ref,
-				ns)) != -1) {
-			break;
-		}
-
-		// rv = -1 - race can occur if versions of this record are on more than
-		// one drive - wait for other thread to finish create.
-		usleep(50);
-
-		if (++retries % 20000 == 0) {
-			cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add as_record_get_create() stuck ");
-		}
-	}
+	int rv = as_record_get_create(p_partition->vp, &block->keyd, &r_ref, ns);
 
 	if (rv < 0) {
 		cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add as_record_get_create() failed ");
@@ -2845,12 +2868,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		uint64_t bytes_memory = as_storage_record_get_n_bytes_memory(&rd);
 
 		// Do this early since set-id is needed for the secondary index update.
-		if (props.size != 0) {
-			as_record_apply_properties(r, ns, &props);
-		}
-		else {
-			as_record_clear_properties(r, ns);
-		}
+		apply_rec_props(r, ns, &props);
 
 		uint16_t old_n_bins = rd.n_bins;
 
@@ -2931,12 +2949,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		as_storage_record_close(&rd);
 	}
 	else {
-		if (props.size != 0) {
-			as_record_apply_properties(r, ns, &props);
-		}
-		else {
-			as_record_clear_properties(r, ns);
-		}
+		apply_rec_props(r, ns, &props);
 	}
 
 	if (is_create) {
