@@ -1405,84 +1405,89 @@ immigration_handle_insert_request(cf_node src, msg *m)
 	immigration *immig;
 
 	if (cf_rchash_get(g_immigration_hash, (void *)&hkey, sizeof(hkey),
-			(void **)&immig) == CF_RCHASH_OK) {
-		if (immig->start_result != AS_MIGRATE_OK || immig->start_recv_ms == 0) {
-			// If this immigration didn't start and reserve a partition, it's
-			// likely in the hash on a retransmit and this insert is for the
-			// original - ignore, and let this immigration proceed.
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		cf_atomic_int_incr(&immig->rsv.ns->migrate_record_receives);
-
-		if (immig->cluster_key != as_exchange_cluster_key()) {
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		as_remote_record rr = { .src = src, .rsv = &immig->rsv };
-
-		if (msg_get_buf(m, MIG_FIELD_DIGEST, (uint8_t **)&rr.keyd, NULL,
-				MSG_GET_DIRECT) != 0) {
-			cf_warning(AS_MIGRATE, "handle insert: got no digest");
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		if (msg_get_buf(m, MIG_FIELD_RECORD, (uint8_t **)&rr.record_buf,
-				&rr.record_buf_sz, MSG_GET_DIRECT) != 0 ||
-						rr.record_buf_sz < 2) {
-			cf_warning(AS_MIGRATE, "handle insert: got no or bad record");
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		if (msg_get_uint32(m, MIG_FIELD_GENERATION, &rr.generation) != 0) {
-			cf_warning(AS_MIGRATE, "handle insert: got no generation");
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		if (msg_get_uint64(m, MIG_FIELD_LAST_UPDATE_TIME,
-				&rr.last_update_time) != 0) {
-			cf_warning(AS_MIGRATE, "handle insert: got no last-update-time");
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		msg_get_uint32(m, MIG_FIELD_VOID_TIME, &rr.void_time);
-
-		msg_get_buf(m, MIG_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
-				&rr.set_name_len, MSG_GET_DIRECT);
-
-		msg_get_buf(m, MIG_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
-				MSG_GET_DIRECT);
-
-		if (immigration_ignore_pickle(rr.record_buf, m)) {
-			cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: binless pickle ");
-		}
-		else {
-			int rv = as_record_replace_if_better(&rr,
-					immig->rsv.ns->conflict_resolution_policy, false);
-
-			// If replace failed, don't ack - it will be retransmitted.
-			if (rv != 0) {
-				cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: failed replace %d ",
-						rv);
-				immigration_release(immig);
-				as_fabric_msg_put(m);
-				return;
-			}
-		}
-
-		immigration_release(immig);
+			(void **)&immig) != CF_RCHASH_OK) {
+		// The immig no longer exists, likely the cluster key advanced and this
+		// record immigration is from prior round. Do not ack this request.
+		as_fabric_msg_put(m);
+		return;
 	}
+
+	if (immig->start_result != AS_MIGRATE_OK || immig->start_recv_ms == 0) {
+		// If this immigration didn't start and reserve a partition, it's
+		// likely in the hash on a retransmit and this insert is for the
+		// original - ignore, and let this immigration proceed.
+		immigration_release(immig);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	cf_atomic_int_incr(&immig->rsv.ns->migrate_record_receives);
+
+	if (immig->cluster_key != as_exchange_cluster_key()) {
+		immigration_release(immig);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	as_remote_record rr = { .src = src, .rsv = &immig->rsv };
+
+	if (msg_get_buf(m, MIG_FIELD_DIGEST, (uint8_t **)&rr.keyd, NULL,
+			MSG_GET_DIRECT) != 0) {
+		cf_warning(AS_MIGRATE, "handle insert: got no digest");
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	if (msg_get_buf(m, MIG_FIELD_RECORD, (uint8_t **)&rr.record_buf,
+			&rr.record_buf_sz, MSG_GET_DIRECT) != 0 ||
+			rr.record_buf_sz < 2) {
+		cf_warning(AS_MIGRATE, "handle insert: got no or bad record");
+		immigration_release(immig);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	if (msg_get_uint32(m, MIG_FIELD_GENERATION, &rr.generation) != 0) {
+		cf_warning(AS_MIGRATE, "handle insert: got no generation");
+		immigration_release(immig);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	if (msg_get_uint64(m, MIG_FIELD_LAST_UPDATE_TIME,
+			&rr.last_update_time) != 0) {
+		cf_warning(AS_MIGRATE, "handle insert: got no last-update-time");
+		immigration_release(immig);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	msg_get_uint32(m, MIG_FIELD_VOID_TIME, &rr.void_time);
+
+	msg_get_buf(m, MIG_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
+			&rr.set_name_len, MSG_GET_DIRECT);
+
+	msg_get_buf(m, MIG_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
+			MSG_GET_DIRECT);
+
+	if (immigration_ignore_pickle(rr.record_buf, m)) {
+		cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: binless pickle ");
+	}
+	else {
+		int rv = as_record_replace_if_better(&rr,
+				immig->rsv.ns->conflict_resolution_policy, false);
+
+		// If replace failed, don't ack - it will be retransmitted.
+		if (rv != 0) {
+			cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: failed replace %d ",
+				rv);
+			immigration_release(immig);
+			as_fabric_msg_put(m);
+			return;
+		}
+	}
+
+	immigration_release(immig);
 
 	msg_preserve_fields(m, 2, MIG_FIELD_EMIG_INSERT_ID, MIG_FIELD_EMIG_ID);
 
