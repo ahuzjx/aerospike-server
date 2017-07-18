@@ -1439,8 +1439,7 @@ immigration_handle_insert_request(cf_node src, msg *m)
 	}
 
 	if (msg_get_buf(m, MIG_FIELD_RECORD, (uint8_t **)&rr.record_buf,
-			&rr.record_buf_sz, MSG_GET_DIRECT) != 0 ||
-			rr.record_buf_sz < 2) {
+			&rr.record_buf_sz, MSG_GET_DIRECT) != 0 || rr.record_buf_sz < 2) {
 		cf_warning(AS_MIGRATE, "handle insert: got no or bad record");
 		immigration_release(immig);
 		as_fabric_msg_put(m);
@@ -1495,7 +1494,6 @@ immigration_handle_insert_request(cf_node src, msg *m)
 
 	if (as_fabric_send(src, m, AS_FABRIC_CHANNEL_BULK) != AS_FABRIC_SUCCESS) {
 		as_fabric_msg_put(m);
-		return;
 	}
 }
 
