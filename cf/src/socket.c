@@ -1698,7 +1698,9 @@ netlink_dump(int32_t type, int32_t filter1, int32_t filter2a, int32_t filter2b, 
 			}
 
 			if (h->nlmsg_type == NLMSG_ERROR) {
-				cf_warning(CF_SOCKET, "Received netlink error message");
+				int32_t *err = NLMSG_DATA(h);
+				cf_warning(CF_SOCKET, "Received netlink error message: %d (%s)",
+						-*err, cf_strerror(-*err));
 				goto cleanup2;
 			}
 
