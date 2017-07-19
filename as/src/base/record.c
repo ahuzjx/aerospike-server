@@ -772,13 +772,14 @@ record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 
 	uint16_t n_old_bins = rd->n_bins;
 	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
+	uint16_t n_max_bins = n_new_bins > n_old_bins ? n_new_bins : n_old_bins;
 
 	// Needed for as_storage_rd_load_bins() to clear all unused bins.
-	rd->n_bins = n_new_bins;
+	rd->n_bins = n_max_bins;
 
 	// Stack space for resulting record's bins.
 	as_bin old_bins[n_old_bins];
-	as_bin new_bins[n_new_bins];
+	as_bin new_bins[n_max_bins];
 
 	// Set rd->bins!
 	if ((result = as_storage_rd_load_bins(rd, new_bins)) < 0) {
@@ -792,6 +793,8 @@ record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 		memcpy(old_bins, new_bins, n_old_bins * sizeof(as_bin));
 		as_bin_set_all_empty(rd);
 	}
+
+	rd->n_bins = n_new_bins;
 
 	// Fill the new bins and particles.
 	cf_ll_buf_define(particles_llb, STACK_PARTICLES_SIZE);
