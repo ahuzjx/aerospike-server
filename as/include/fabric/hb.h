@@ -30,6 +30,7 @@
 
 #include "msg.h"
 #include "socket.h"
+#include "tls.h"
 
 #include "fabric/hlc.h"
 
@@ -198,6 +199,12 @@ typedef struct as_hb_config_s
 	cf_serv_cfg bind_cfg;
 
 	/**
+	 * Global TLS configuration.
+	 */
+
+	cf_tls_info tls;
+
+	/**
 	 * Multicast mode only config for multicast groups.
 	 */
 	cf_mserv_cfg multicast_group_cfg;
@@ -234,6 +241,7 @@ typedef struct as_hb_config_s
 	 */
 	char* mesh_seed_addrs[AS_CLUSTER_SZ];
 	int mesh_seed_ports[AS_CLUSTER_SZ];
+	bool mesh_seed_tls[AS_CLUSTER_SZ];
 
 } as_hb_config;
 
@@ -440,7 +448,7 @@ void as_hb_info_listen_addr_get(as_hb_mode* mode, char* addr_port, size_t addr_p
  * -----------------------------------------------------------------
  */
 
-int as_hb_mesh_tip(char* host, int port);
+int as_hb_mesh_tip(char* host, int port, bool tls);
 
 int as_hb_mesh_tip_clear(char* host, int port);
 

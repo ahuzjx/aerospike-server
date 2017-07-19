@@ -33,6 +33,7 @@
 #include "msg.h"
 #include "node.h"
 #include "socket.h"
+#include "tls.h"
 
 #include "fabric/hb.h"
 
@@ -85,7 +86,7 @@ typedef int (*as_fabric_transact_complete_fn) (msg *rsp, void *udata, int as_fab
 //
 
 extern cf_serv_cfg g_fabric_bind;
-extern cf_ip_port g_fabric_port;
+extern cf_tls_info g_fabric_tls;
 
 
 //==========================================================

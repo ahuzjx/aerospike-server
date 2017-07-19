@@ -31,6 +31,7 @@
 #include "citrusleaf/alloc.h"
 
 #include "fault.h"
+#include "socket.h"
 
 #include "base/cfg.h"
 
@@ -164,21 +165,19 @@ as_endpoint_capability_disable(as_endpoint* endpoint, uint8_t capability_mask)
  * Connect to an endpoint.
  *
  * @param endpoint the peer endpoint to connect to.
- * @param owner the socket owner module.
  * @param timeout the overall connect timeout.
  * @param sock (output) will be populated if connections is successful.
  * @return -1 on success, 0 on failure.
  */
 int
-as_endpoint_connect(const as_endpoint* endpoint, cf_sock_owner owner, int32_t timeout,
-	cf_socket* sock)
+as_endpoint_connect(const as_endpoint* endpoint, int32_t timeout, cf_socket* sock)
 {
 	if (!endpoint_addr_type_is_valid(endpoint->addr_type)) {
 		return -1;
 	}
 
 	cf_sock_cfg cfg;
-	cf_sock_cfg_init(&cfg, owner);
+	cf_sock_cfg_init(&cfg, CF_SOCK_OWNER_INVALID);
 	cfg.port = endpoint->port;
 	if (cf_ip_addr_from_binary(endpoint->addr, endpoint_addr_binary_size(endpoint->addr_type),
 		&cfg.addr) <= 0) {
@@ -205,7 +204,7 @@ as_endpoint_connect(const as_endpoint* endpoint, cf_sock_owner owner, int32_t ti
  * connected.
  */
 const as_endpoint*
-as_endpoint_connect_any(const as_endpoint_list* endpoint_list, cf_sock_owner owner,
+as_endpoint_connect_any(const as_endpoint_list* endpoint_list,
 	as_endpoint_filter_fn filter_fn, void* filter_udata, int32_t timeout, cf_socket* sock)
 {
 	if (endpoint_list->n_endpoints == 0) {
@@ -233,7 +232,7 @@ as_endpoint_connect_any(const as_endpoint_list* endpoint_list, cf_sock_owner own
 		}
 
 		// Try this potential candidate.
-		if (as_endpoint_connect(ordered_endpoints[i], owner, timeout, sock) == 0) {
+		if (as_endpoint_connect(ordered_endpoints[i], timeout, sock) == 0) {
 			// Connect succeeded.
 			rv = ordered_endpoints[i];
 			break;
@@ -580,9 +579,8 @@ endpoint_from_sock_cfg(const cf_sock_cfg* src, as_endpoint* endpoint)
 		cf_ip_addr_to_binary(&src->addr, endpoint->addr,
 			endpoint_addr_binary_size(endpoint->addr_type)));
 
-	// TODO: how to programmatically get TLS from the server cfg. Maybe cfg
-	// should have a separate field / flag for TLS.
-	endpoint->capabilities = 0;
+	endpoint->capabilities = (src->owner == CF_SOCK_OWNER_HEARTBEAT_TLS ||
+		src->owner == CF_SOCK_OWNER_FABRIC_TLS) ? AS_ENDPOINT_TLS_MASK : 0;
 }
 
 /**
@@ -773,11 +771,8 @@ endpoints_are_equal(const as_endpoint* endpoint1, const as_endpoint* endpoint2,
 		return false;
 	}
 
-	if (!ignore_capabilities) {
-		return memcmp(endpoint1->addr, endpoint2, size1) == 0;
-	}
-
-	return endpoint1->port == endpoint2->port && endpoint1->addr_type == endpoint2->addr_type
+	return (ignore_capabilities || endpoint1->capabilities == endpoint2->capabilities)
+		&& endpoint1->port == endpoint2->port && endpoint1->addr_type == endpoint2->addr_type
 		&& memcmp(endpoint1->addr, endpoint2->addr, endpoint_addr_binary_size(endpoint1->addr_type)) == 0;
 }
 

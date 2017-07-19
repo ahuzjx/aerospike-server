@@ -168,8 +168,7 @@ as_endpoint_capability_disable(as_endpoint* endpoint, uint8_t capability_mask);
  * @return -1 on success, 0 on failure.
  */
 int
-as_endpoint_connect(const as_endpoint* endpoint, const cf_sock_owner owner, int32_t timeout,
-	cf_socket* sock);
+as_endpoint_connect(const as_endpoint* endpoint, int32_t timeout, cf_socket* sock);
 
 /**
  * Connect to the best matching endpoint in the endpoint list.
@@ -184,7 +183,7 @@ as_endpoint_connect(const as_endpoint* endpoint, const cf_sock_owner owner, int3
  * connected.
  */
 const as_endpoint*
-as_endpoint_connect_any(const as_endpoint_list* endpoint_list, cf_sock_owner owner,
+as_endpoint_connect_any(const as_endpoint_list* endpoint_list,
 	as_endpoint_filter_fn filter_fn, void* filter_udata, int32_t timeout, cf_socket* sock);
 /**
  * Convert a socket configuration to an endpoint inplace.
@@ -209,14 +208,6 @@ as_endpoint_from_sock_cfg(const cf_sock_cfg* src);
  */
 int
 as_endpoint_to_sock_addr(const as_endpoint* endpoint, cf_sock_addr* sock_addr);
-
-/**
- * Convert a socket configuration to an endpoint.
- * @return a heap allocated, converted endpoint. Should be freed using cf_free
- * once the endpoint is no longer needed.
- */
-as_endpoint*
-as_endpoint_from_sock_cfg(const cf_sock_cfg* src);
 
 /**
  * Indicates if an endpoint supports listed capabilities.

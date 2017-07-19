@@ -72,6 +72,7 @@
 #include "node.h"
 #include "shash.h"
 #include "socket.h"
+#include "tls.h"
 
 #include "base/cfg.h"
 #include "base/stats.h"
@@ -175,6 +176,7 @@ typedef struct fabric_node_s {
 
 typedef struct fabric_connection_s {
 	cf_socket sock;
+	cf_sock_addr peer;
 	fabric_node *node;
 
 	bool failed;
@@ -219,7 +221,7 @@ COMPILER_ASSERT(sizeof(CHANNEL_NAMES) / sizeof(const char *) ==
 //
 
 cf_serv_cfg g_fabric_bind = { .n_cfgs = 0 };
-cf_ip_port g_fabric_port = 0;
+cf_tls_info g_fabric_tls = { .ssl_ctx_ser = NULL, .ssl_ctx_cli = NULL, .cbl = NULL };
 
 static fabric_state g_fabric;
 static cf_poll g_accept_poll;
@@ -270,14 +272,15 @@ inline static void fabric_buffer_free_extra(fabric_buffer *fb);
 inline static bool fabric_buffer_resize(fabric_buffer *fb, size_t sz);
 
 // fabric_connection
-fabric_connection *fabric_connection_create(cf_socket *sock);
+fabric_connection *fabric_connection_create(cf_socket *sock, cf_sock_addr *peer);
+static bool fabric_connection_accept_tls(fabric_connection *fc);
+static bool fabric_connection_connect_tls(fabric_connection *fc);
 inline static void fabric_connection_reserve(fabric_connection *fc);
 static void fabric_connection_release(fabric_connection *fc);
 inline static cf_node fabric_connection_get_id(const fabric_connection *fc);
 
 static void fabric_connection_send_assign(fabric_connection *fc);
 static void fabric_connection_send_unassign(fabric_connection *fc);
-static void fabric_connection_activate(fabric_connection *fc, uint32_t ch);
 static void fabric_connection_recv_rearm(fabric_connection *fc);
 static void fabric_connection_send_rearm(fabric_connection *fc);
 static void fabric_connection_disconnect(fabric_connection *fc);
@@ -642,13 +645,12 @@ fabric_published_serv_cfg_fill(const cf_serv_cfg *bind_cfg,
 	cf_serv_cfg_init(published_cfg);
 
 	cf_sock_cfg sock_cfg;
-	cf_sock_cfg_init(&sock_cfg, CF_SOCK_OWNER_HEARTBEAT);
 
 	for (int i = 0; i < bind_cfg->n_cfgs; i++) {
-		sock_cfg.port = bind_cfg->cfgs[i].port;
+		cf_sock_cfg_copy(&bind_cfg->cfgs[i], &sock_cfg);
 
 		// Expand "any" address to all interfaces.
-		if (cf_ip_addr_is_any(&bind_cfg->cfgs[0].addr)) {
+		if (cf_ip_addr_is_any(&sock_cfg.addr)) {
 			cf_ip_addr all_addrs[CF_SOCK_CFG_MAX];
 			uint32_t n_all_addrs = CF_SOCK_CFG_MAX;
 
@@ -675,8 +677,6 @@ fabric_published_serv_cfg_fill(const cf_serv_cfg *bind_cfg,
 			if (ipv4_only && ! cf_ip_addr_is_legacy(&bind_cfg->cfgs[i].addr)) {
 				continue;
 			}
-
-			cf_ip_addr_copy(&bind_cfg->cfgs[i].addr, &sock_cfg.addr);
 
 			if (cf_serv_cfg_add_sock_cfg(published_cfg, &sock_cfg)) {
 				cf_crash(AS_FABRIC, "error initializing published address list");
@@ -968,8 +968,7 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 
 	cf_socket sock;
 	const as_endpoint *connected_endpoint = as_endpoint_connect_any(
-			endpoint_list, CF_SOCK_OWNER_FABRIC, fabric_connect_endpoint_filter,
-			NULL, 0, &sock);
+			endpoint_list, fabric_connect_endpoint_filter, NULL, 0, &sock);
 
 	if (! connected_endpoint) {
 		as_endpoint_list_to_string(endpoint_list, endpoint_list_str,
@@ -978,6 +977,13 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 		cf_detail(AS_FABRIC, "fabric_node_connect(%p, %u) node_id %lx failed for endpoints {%s}", node, ch, node->node_id, endpoint_list_str);
 		pthread_mutex_unlock(&node->connect_lock);
 		return NULL;
+	}
+
+	cf_sock_addr addr;
+	as_endpoint_to_sock_addr(connected_endpoint, &addr);
+
+	if (as_endpoint_capability_is_supported(connected_endpoint, AS_ENDPOINT_TLS_MASK)) {
+		tls_socket_prepare_client(&g_fabric_tls, &sock);
 	}
 
 	cf_atomic64_incr(&g_stats.fabric_connections_opened);
@@ -994,7 +1000,7 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 	msg_set_uint32(m, FS_CHANNEL, ch);
 	m->benchmark_time = g_config.fabric_benchmarks_enabled ? cf_getns() : 0;
 
-	fabric_connection *fc = fabric_connection_create(&sock);
+	fabric_connection *fc = fabric_connection_create(&sock, &addr);
 
 	fc->s_msg_in_progress = m;
 	fc->started_via_connect = true;
@@ -1079,7 +1085,13 @@ fabric_node_connect_all(fabric_node *node)
 				break;
 			}
 
-			fabric_connection_activate(fc, ch);
+			// TLS connections are one-way. Outgoing connections are for
+			// outgoing data.
+			if (fc->sock.state == CF_SOCKET_STATE_NON_TLS) {
+				fabric_recv_thread_pool_add_fc(&g_fabric.recv_pool[ch], fc);
+				cf_detail(AS_FABRIC, "{%16lX, %u} activated", fabric_connection_get_id(fc), fc->sock.fd);
+			}
+
 			// Rearm takes the remaining ref for send_poll and idle queue.
 			fabric_connection_send_rearm(fc);
 		}
@@ -1309,18 +1321,61 @@ fabric_buffer_resize(fabric_buffer *fb, size_t sz)
 //
 
 fabric_connection *
-fabric_connection_create(cf_socket *sock)
+fabric_connection_create(cf_socket *sock, cf_sock_addr *peer)
 {
 	fabric_connection *fc = cf_rc_alloc(sizeof(fabric_connection));
 
 	memset(fc, 0, sizeof(fabric_connection));
 
 	cf_socket_copy(sock, &fc->sock);
+	cf_sock_addr_copy(peer, &fc->peer);
 
 	fc->r_buf_in_progress = fabric_buffer_create(sizeof(msg_hdr));
 	fc->r_type = M_TYPE_FABRIC;
 
 	return fc;
+}
+
+static bool
+fabric_connection_accept_tls(fabric_connection *fc)
+{
+	int32_t tls_ev = tls_socket_accept(&fc->sock);
+
+	if (tls_ev == EPOLLERR) {
+		cf_warning(AS_FABRIC, "fabric TLS server handshake with %s failed",
+				cf_sock_addr_print(&fc->peer));
+		return false;
+	}
+
+	if (tls_ev == 0) {
+		tls_socket_must_not_have_data(&fc->sock, "fabric server handshake");
+		tls_ev = EPOLLIN;
+	}
+
+	cf_poll_modify_socket(g_accept_poll, &fc->sock,
+			tls_ev | EPOLLERR | EPOLLHUP | EPOLLRDHUP, fc);
+	return true;
+}
+
+static bool
+fabric_connection_connect_tls(fabric_connection *fc)
+{
+	int32_t tls_ev = tls_socket_connect(&fc->sock);
+
+	if (tls_ev == EPOLLERR) {
+		cf_warning(AS_FABRIC, "fabric TLS client handshake with %s failed",
+				cf_sock_addr_print(&fc->peer));
+		return false;
+	}
+
+	if (tls_ev == 0) {
+		tls_socket_must_not_have_data(&fc->sock, "fabric client handshake");
+		tls_ev = EPOLLOUT;
+	}
+
+	cf_poll_modify_socket(fc->send_ptr->poll, &fc->sock,
+			tls_ev | DEFAULT_EVENTS, fc);
+	return true;
 }
 
 inline static void
@@ -1445,14 +1500,6 @@ fabric_connection_send_unassign(fabric_connection *fc)
 	fc->send_ptr = NULL;
 
 	pthread_mutex_unlock(&g_fabric.send_lock);
-}
-
-static void
-fabric_connection_activate(fabric_connection *fc, uint32_t ch)
-{
-	fabric_recv_thread_pool_add_fc(&g_fabric.recv_pool[ch], fc);
-
-	cf_detail(AS_FABRIC, "{%16lX, %u} activated", fabric_connection_get_id(fc), fc->sock.fd);
 }
 
 static void
@@ -1722,21 +1769,25 @@ fabric_connection_process_fabric_msg(fabric_connection *fc, const msg *m)
 	// fc->pool needs to be set before placing into send_idle_fc_queue.
 	fabric_recv_thread_pool_add_fc(&g_fabric.recv_pool[pool_id], fc);
 
-	pthread_mutex_lock(&node->send_idle_fc_queue_lock);
+	// TLS connections are one-way. Incoming connections are for
+	// incoming data.
+	if (fc->sock.state == CF_SOCKET_STATE_NON_TLS) {
+		pthread_mutex_lock(&node->send_idle_fc_queue_lock);
 
-	if (node->live && ! fc->failed) {
-		fabric_connection_reserve(fc); // for send poll & idleQ
+		if (node->live && ! fc->failed) {
+			fabric_connection_reserve(fc); // for send poll & idleQ
 
-		if (cf_queue_pop(&node->send_queue[pool_id], &fc->s_msg_in_progress,
-				CF_QUEUE_NOWAIT) == CF_QUEUE_EMPTY) {
-			cf_queue_push(&node->send_idle_fc_queue[pool_id], &fc);
+			if (cf_queue_pop(&node->send_queue[pool_id], &fc->s_msg_in_progress,
+					CF_QUEUE_NOWAIT) == CF_QUEUE_EMPTY) {
+				cf_queue_push(&node->send_idle_fc_queue[pool_id], &fc);
+			}
+			else {
+				fabric_connection_send_rearm(fc);
+			}
 		}
-		else {
-			fabric_connection_send_rearm(fc);
-		}
+
+		pthread_mutex_unlock(&node->send_idle_fc_queue_lock);
 	}
-
-	pthread_mutex_unlock(&node->send_idle_fc_queue_lock);
 
 	fabric_node_release(node); // from cf_rchash_get
 	fabric_connection_release(fc); // from g_accept_poll
@@ -1771,6 +1822,7 @@ fabric_connection_read_fabric_msg(fabric_connection *fc)
 		fc->r_bytes += recv_sz;
 
 		if ((size_t)recv_sz < recv_full) {
+			tls_socket_must_not_have_data(&fc->sock, "partial fabric read");
 			break;
 		}
 
@@ -1789,6 +1841,8 @@ fabric_connection_read_fabric_msg(fabric_connection *fc)
 
 			continue;
 		}
+
+		tls_socket_must_not_have_data(&fc->sock, "full fabric read");
 
 		if (fc->r_type != M_TYPE_FABRIC) {
 			cf_warning(AS_FABRIC, "fabric_connection_read_fabric_msg() expected type M_TYPE_FABRIC(%d) got type %d", M_TYPE_FABRIC, fc->r_type);
@@ -2051,7 +2105,12 @@ fabric_connect_endpoint_filter(const as_endpoint *endpoint, void *udata)
 		return false;
 	}
 
-	// TODO: If fabric supports tls filter mismatching capabilities here.
+	// If we don't offer TLS, then we won't connect via TLS, either.
+	if (g_config.tls_fabric.bind_port == 0 &&
+			as_endpoint_capability_is_supported(endpoint, AS_ENDPOINT_TLS_MASK)) {
+		return false;
+	}
+
 	return true;
 }
 
@@ -2169,6 +2228,17 @@ run_fabric_send(void *arg)
 				continue;
 			}
 
+			if (tls_socket_needs_handshake(&fc->sock)) {
+				if (! fabric_connection_connect_tls(fc)) {
+					fabric_connection_disconnect(fc);
+					fabric_connection_send_unassign(fc);
+					fabric_connection_reroute_msg(fc);
+					fabric_connection_release(fc);
+				}
+
+				continue;
+			}
+
 			cf_assert(events[i].events == EPOLLOUT, AS_FABRIC, "epoll not setup correctly for %p", fc);
 
 			if (! fabric_connection_process_writable(fc)) {
@@ -2222,9 +2292,15 @@ run_fabric_accept(void *arg)
 				cf_detail(AS_FABRIC, "fabric_accept: accepting new sock %d", CSFD(&csock));
 				cf_atomic64_incr(&g_stats.fabric_connections_opened);
 
-				fabric_connection *fc = fabric_connection_create(&csock);
-				uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
+				fabric_connection *fc = fabric_connection_create(&csock, &sa);
 
+				cf_sock_cfg *cfg = ssock->cfg;
+
+				if (cfg->owner == CF_SOCK_OWNER_FABRIC_TLS) {
+					tls_socket_prepare_server(&g_fabric_tls, &fc->sock);
+				}
+
+				uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
 				cf_poll_add_socket(g_accept_poll, &fc->sock, events, fc);
 			}
 			else {
@@ -2232,6 +2308,14 @@ run_fabric_accept(void *arg)
 
 				if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
 					fabric_connection_release(fc);
+					continue;
+				}
+
+				if (tls_socket_needs_handshake(&fc->sock)) {
+					if (! fabric_connection_accept_tls(fc)) {
+						fabric_connection_release(fc);
+					}
+
 					continue;
 				}
 
