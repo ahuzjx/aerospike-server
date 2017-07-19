@@ -612,10 +612,8 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 
 	as_bin* old_bins = rd->bins;
 	as_bin new_bins[n_new_bins];
-	size_t new_bins_size = sizeof(new_bins);
 
-	memset(new_bins, 0, new_bins_size);
-
+	memset(new_bins, 0, sizeof(new_bins));
 	rd->n_bins = n_new_bins;
 	rd->bins = new_bins;
 
@@ -632,7 +630,7 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 
 	if (n_new_bins != 0) {
 		new_bin_space = (as_bin_space*)
-				cf_malloc_ns(sizeof(as_bin_space) + new_bins_size);
+				cf_malloc_ns(sizeof(as_bin_space) + sizeof(new_bins));
 
 		cf_assert(new_bin_space, AS_RECORD, "alloc failed");
 	}
@@ -667,7 +665,7 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	// Fill out new_bin_space.
 	if (n_new_bins != 0) {
 		new_bin_space->n_bins = rd->n_bins;
-		memcpy((void*)new_bin_space->bins, new_bins, new_bins_size);
+		memcpy((void*)new_bin_space->bins, new_bins, sizeof(new_bins));
 	}
 
 	// Swizzle the index element's as_bin_space pointer.
@@ -699,19 +697,6 @@ record_apply_ssd_single_bin(as_remote_record *rr, as_storage_rd *rd,
 	as_namespace* ns = rr->rsv->ns;
 	as_record* r = rd->r;
 
-	rd->ignore_record_on_device = true;
-	rd->n_bins = 1;
-
-	as_bin stack_bin;
-
-	// Set rd->bins!
-	int result = as_storage_rd_load_bins(rd, &stack_bin);
-
-	if (result < 0) {
-		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed load bins ", ns->name);
-		return -result;
-	}
-
 	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
 
 	if (n_new_bins > 1) {
@@ -719,8 +704,15 @@ record_apply_ssd_single_bin(as_remote_record *rr, as_storage_rd *rd,
 		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
+	as_bin stack_bin = { { 0 } };
+
+	rd->n_bins = 1;
+	rd->bins = &stack_bin;
+
 	// Fill the new bin and particle.
 	cf_ll_buf_define(particles_llb, STACK_PARTICLES_SIZE);
+
+	int result;
 
 	if (n_new_bins == 1 &&
 			(result = unpickle_bins(rr, rd, &particles_llb)) < 0) {
@@ -760,41 +752,36 @@ record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	as_record* r = rd->r;
 	bool has_sindex = record_has_sindex(r, ns);
 
-	rd->ignore_record_on_device = ! has_sindex;
+	uint16_t n_old_bins = 0;
+	int result;
 
-	// Set rd->n_bins!
-	int result = as_storage_rd_load_n_bins(rd);
+	if (has_sindex) {
+		// Set rd->n_bins!
+		if ((result = as_storage_rd_load_n_bins(rd)) < 0) {
+			cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed load n-bins ", ns->name);
+			return -result;
+		}
 
-	if (result < 0) {
-		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed load n-bins ", ns->name);
-		return -result;
+		n_old_bins = rd->n_bins;
 	}
 
-	uint16_t n_old_bins = rd->n_bins;
-	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
-	uint16_t n_max_bins = n_new_bins > n_old_bins ? n_new_bins : n_old_bins;
+	as_bin old_bins[n_old_bins];
 
-	// Needed for as_storage_rd_load_bins() to clear all unused bins.
-	rd->n_bins = n_max_bins;
+	if (has_sindex) {
+		// Set rd->bins!
+		if ((result = as_storage_rd_load_bins(rd, old_bins)) < 0) {
+			cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed load bins ", ns->name);
+			return -result;
+		}
+	}
 
 	// Stack space for resulting record's bins.
-	as_bin old_bins[n_old_bins];
-	as_bin new_bins[n_max_bins];
+	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
+	as_bin new_bins[n_new_bins];
 
-	// Set rd->bins!
-	if ((result = as_storage_rd_load_bins(rd, new_bins)) < 0) {
-		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed load bins ", ns->name);
-		return -result;
-	}
-
-	// Copy old bins (if any) - which are currently in new bins array - to old
-	// bins array, for sindex purposes, and clear new bins array.
-	if (has_sindex && n_old_bins != 0) {
-		memcpy(old_bins, new_bins, n_old_bins * sizeof(as_bin));
-		as_bin_set_all_empty(rd);
-	}
-
+	memset(new_bins, 0, sizeof(new_bins));
 	rd->n_bins = n_new_bins;
+	rd->bins = new_bins;
 
 	// Fill the new bins and particles.
 	cf_ll_buf_define(particles_llb, STACK_PARTICLES_SIZE);
