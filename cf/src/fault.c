@@ -1110,3 +1110,28 @@ cf_fault_cache_event(cf_fault_context context, cf_fault_severity severity,
 		break;
 	}
 }
+
+void
+cf_fault_hex_dump(const char *title, const void *data, size_t len)
+{
+	const uint8_t *data8 = data;
+	char line[8 + 3 * 16 + 17];
+	size_t k;
+
+	cf_info(CF_MISC, "hex dump - %s", title);
+
+	for (size_t i = 0; i < len; i += k) {
+		sprintf(line, "%06zx:                                                                 ", i);
+
+		for (k = 0; i + k < len && k < 16; ++k) {
+			char num[3];
+			uint8_t d = data8[i + k];
+			sprintf(num, "%02x", d);
+			line[8 + 3 *  k + 0] = num[0];
+			line[8 + 3 *  k + 1] = num[1];
+			line[8 + 3 * 16 + k] = d >= 32 && d <= 126 ? d : '.';
+		}
+
+		cf_info(CF_MISC, "%s", line);
+	}
+}

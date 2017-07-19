@@ -384,8 +384,8 @@ bind_to_port(cf_serv_cfg *cfg, cf_sock_owner owner)
 	return 0;
 }
 
-static char *
-bind_to_string(cf_serv_cfg *cfg, cf_sock_owner owner)
+char *
+as_info_bind_to_string(const cf_serv_cfg *cfg, cf_sock_owner owner)
 {
 	cf_dyn_buf_define_size(db, 2500);
 	uint32_t count = 0;
@@ -432,7 +432,7 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 	cf_ip_port port = bind_to_port(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	info_append_int(db, "service.port", port);
 
-	char *string = bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE);
+	char *string = as_info_bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	info_append_string(db, "service.addresses", string);
 	cf_free(string);
 
@@ -451,7 +451,7 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 	port = bind_to_port(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
 	info_append_int(db, "service.tls-port", port);
 
-	string = bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
+	string = as_info_bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
 	info_append_string(db, "service.tls-addresses", string);
 	cf_free(string);
 
@@ -469,15 +469,23 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 
 	as_hb_info_endpoints_get(db);
 
-	info_append_int(db, "fabric.port", g_fabric_port);
+	port = bind_to_port(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
+	info_append_int(db, "fabric.port", port);
 
-	string = bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
+	string = as_info_bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
 	info_append_string(db, "fabric.addresses", string);
+	cf_free(string);
+
+	port = bind_to_port(&g_fabric_bind, CF_SOCK_OWNER_FABRIC_TLS);
+	info_append_int(db, "fabric.tls-port", port);
+
+	string = as_info_bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC_TLS);
+	info_append_string(db, "fabric.tls-addresses", string);
 	cf_free(string);
 
 	info_append_int(db, "info.port", g_info_port);
 
-	string = bind_to_string(&g_info_bind, CF_SOCK_OWNER_INFO);
+	string = as_info_bind_to_string(&g_info_bind, CF_SOCK_OWNER_INFO);
 	info_append_string(db, "info.addresses", string);
 	cf_free(string);
 
@@ -551,8 +559,11 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	char port_str[50];
 	int  port_str_len = sizeof(port_str);
 
+	char tls_str[50];
+	int  tls_str_len = sizeof(tls_str);
+
 	/*
-	 *  Command Format:  "tip:host=<IPAddr>;port=<PortNum>"
+	 *  Command Format:  "tip:host=<IPAddr>;port=<PortNum>[;tls=<Bool>]"
 	 *
 	 *  where <IPAddr> is an IP address and <PortNum> is a valid TCP port number.
 	 */
@@ -567,13 +578,30 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 		return(0);
 	}
 
+	if (0 != as_info_parameter_get(params, "tls", tls_str, &tls_str_len)) {
+		strcpy(tls_str, "false");
+	}
+
 	int port = 0;
 	if (0 != cf_str_atoi(port_str, &port)) {
 		cf_warning(AS_INFO, "tip command: port must be an integer in: %s", port_str);
 		return(0);
 	}
 
-	int rv = as_hb_mesh_tip(host_str, port);
+	bool tls;
+	if (strcmp(tls_str, "true") == 0) {
+		tls = true;
+	}
+	else if (strcmp(tls_str, "false") == 0) {
+		tls = false;
+	}
+	else {
+		cf_warning(AS_INFO, "The \"%s:\" command argument \"tls\" value must be one of {\"true\", \"false\"}, not \"%s\"", name, tls_str);
+		cf_dyn_buf_append_string(db, "error");
+		return 0;
+	}
+
+	int rv = as_hb_mesh_tip(host_str, port, tls);
 
 	switch (rv) {
 		case CF_SHASH_OK:
@@ -1557,7 +1585,8 @@ info_network_config_get(cf_dyn_buf *db)
 	append_addrs(db, "service.tls-access-address", &g_config.tls_service.std);
 	info_append_int(db, "service.tls-alternate-access-port", g_config.tls_service.alt_port);
 	append_addrs(db, "service.tls-alternate-access-address", &g_config.tls_service.alt);
-	info_append_string_safe(db, "service.tls-name", g_config.tls_name);
+	info_append_string_safe(db, "service.tls-name", g_config.tls_service.tls_our_name);
+	info_append_bool(db, "service.tls-authenticate-client", g_config.tls_service.tls_peer_name);
 
 	// Heartbeat:
 
@@ -1565,8 +1594,11 @@ info_network_config_get(cf_dyn_buf *db)
 
 	// Fabric:
 
-	append_addrs(db, "fabric.address", &g_config.info.bind);
+	append_addrs(db, "fabric.address", &g_config.fabric.bind);
 	info_append_int(db, "fabric.port", g_config.fabric.bind_port);
+	append_addrs(db, "fabric.tls-address", &g_config.tls_fabric.bind);
+	info_append_int(db, "fabric.tls-port", g_config.tls_fabric.bind_port);
+	info_append_string_safe(db, "fabric.tls-name", g_config.tls_fabric.tls_our_name);
 	info_append_int(db, "fabric.channel-bulk-fds", g_config.n_fabric_channel_fds[AS_FABRIC_CHANNEL_BULK]);
 	info_append_int(db, "fabric.channel-bulk-recv-threads", g_config.n_fabric_channel_recv_threads[AS_FABRIC_CHANNEL_BULK]);
 	info_append_int(db, "fabric.channel-ctrl-fds", g_config.n_fabric_channel_fds[AS_FABRIC_CHANNEL_CTRL]);
@@ -1587,6 +1619,37 @@ info_network_config_get(cf_dyn_buf *db)
 
 	append_addrs(db, "info.address", &g_config.info.bind);
 	info_append_int(db, "info.port", g_config.info.bind_port);
+
+	// TLS:
+
+	for (uint32_t i = 0; i < g_config.n_tls_specs; ++i) {
+		cf_tls_spec *spec = g_config.tls_specs + i;
+		char key[100];
+
+		snprintf(key, sizeof(key), "tls[%u].name", i);
+		info_append_string_safe(db, key, spec->name);
+
+		snprintf(key, sizeof(key), "tls[%u].cert_file", i);
+		info_append_string_safe(db, key, spec->cert_file);
+
+		snprintf(key, sizeof(key), "tls[%u].key_file", i);
+		info_append_string_safe(db, key, spec->key_file);
+
+		snprintf(key, sizeof(key), "tls[%u].ca_file", i);
+		info_append_string_safe(db, key, spec->ca_file);
+
+		snprintf(key, sizeof(key), "tls[%u].ca_path", i);
+		info_append_string_safe(db, key, spec->ca_path);
+
+		snprintf(key, sizeof(key), "tls[%u].cert_blacklist", i);
+		info_append_string_safe(db, key, spec->cert_blacklist);
+
+		snprintf(key, sizeof(key), "tls[%u].protocols", i);
+		info_append_string_safe(db, key, spec->protocols);
+
+		snprintf(key, sizeof(key), "tls[%u].cipher_suite", i);
+		info_append_string_safe(db, key, spec->cipher_suite);
+	}
 }
 
 
@@ -4339,7 +4402,7 @@ info_interfaces_fn(void *unused)
 						',');
 			}
 
-			if (chg_name && g_config.tls_name == NULL) {
+			if (chg_name && g_config.tls_service.tls_our_name == NULL) {
 				g_serv_tls_name = tls_name;
 			}
 
@@ -6686,8 +6749,8 @@ as_info_init()
 	// Initialize services info exchange machinery.
 	set_static_services();
 
-	if (g_config.tls_name != NULL) {
-		g_serv_tls_name = g_config.tls_name;
+	if (g_config.tls_service.tls_our_name != NULL) {
+		g_serv_tls_name = g_config.tls_service.tls_our_name;
 	}
 
 	++g_serv_gen;

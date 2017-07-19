@@ -917,6 +917,8 @@ cf_socket_available(cf_socket *sock)
 int32_t
 cf_socket_send_to(cf_socket *sock, const void *buff, size_t size, int32_t flags, const cf_sock_addr *addr)
 {
+	cf_assert(sock->ssl == NULL, CF_SOCKET, "cannot use cf_socket_send_to() with TLS");
+
 	struct sockaddr_storage sas;
 	struct sockaddr *sa = NULL;
 	socklen_t sa_len = 0;
@@ -962,6 +964,8 @@ cf_socket_send(cf_socket *sock, const void *buff, size_t size, int32_t flags)
 int32_t
 cf_socket_recv_from(cf_socket *sock, void *buff, size_t size, int32_t flags, cf_sock_addr *addr)
 {
+	cf_assert(sock->ssl == NULL, CF_SOCKET, "cannot use cf_socket_recv_from() with TLS");
+
 	struct sockaddr_storage sas;
 	struct sockaddr *sa = NULL;
 	socklen_t sa_len = 0;
@@ -1044,6 +1048,8 @@ int32_t
 cf_socket_send_to_all(cf_socket *sock, const void *buffp, size_t size, int32_t flags,
 		const cf_sock_addr *addr, int32_t timeout)
 {
+	cf_assert(sock->ssl == NULL, CF_SOCKET, "cannot use cf_socket_send_to_all() with TLS");
+
 	uint8_t *buff = (uint8_t *) buffp;
 	cf_detail(CF_SOCKET, "Blocking send on FD %d, size = %zu", sock->fd, size);
 	size_t off = 0;
@@ -1097,6 +1103,8 @@ int32_t
 cf_socket_recv_from_all(cf_socket *sock, void *buffp, size_t size, int32_t flags,
 		cf_sock_addr *addr, int32_t timeout)
 {
+	cf_assert(sock->ssl == NULL, CF_SOCKET, "cannot use cf_socket_recv_from_all() with TLS");
+
 	uint8_t *buff = (uint8_t *) buffp;
 	cf_detail(CF_SOCKET, "Blocking receive on FD %d, size = %zu", sock->fd, size);
 	size_t off = 0;

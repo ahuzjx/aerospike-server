@@ -23,7 +23,27 @@
 #pragma once
 
 #include "socket.h"
-#include "tls_mode.h"
+
+struct ssl_ctx_st;
+struct cbl_header_s;
+
+typedef struct cf_tls_spec_s {
+	char *ca_file;
+	char *ca_path;
+	char *cert_blacklist;
+	char *cert_file;
+	char *cipher_suite;
+	char *key_file;
+	char *name;
+	char *protocols;
+} cf_tls_spec;
+
+typedef struct cf_tls_info_s {
+	struct ssl_ctx_st *ssl_ctx_ser;
+	struct ssl_ctx_st *ssl_ctx_cli;
+	struct cbl_header_s *cbl;
+	char *peer_name;
+} cf_tls_info;
 
 void tls_check_init();
 
@@ -35,22 +55,32 @@ void tls_socket_init(cf_socket *sock);
 
 void tls_socket_term(cf_socket *sock);
 
-void tls_config_context(cf_serv_spec *spec);
-
 int tls_socket_shutdown(cf_socket *sock);
 
 void tls_socket_close(cf_socket *sock);
 
-void tls_socket_prepare(const cf_serv_spec *spec, cf_socket *sock, cf_sock_addr *sa);
+void tls_config_server_context(cf_tls_spec *tspec, bool auth_client, char *peer_name, cf_tls_info *info);
+
+void tls_config_intra_context(cf_tls_spec *tspec, cf_tls_info *info);
+
+void tls_socket_prepare_server(cf_tls_info *info, cf_socket *sock);
+
+void tls_socket_prepare_client(cf_tls_info *info, cf_socket *sock);
 
 static inline bool tls_socket_needs_handshake(cf_socket *sock)
 {
 	return sock->state == CF_SOCKET_STATE_TLS_HANDSHAKE;
 }
 
+void tls_socket_must_not_have_data(cf_socket *sock, const char *caller);
+
 int tls_socket_accept(cf_socket *sock);
 
 int tls_socket_connect(cf_socket *sock);
+
+int tls_socket_accept_block(cf_socket *sock);
+
+int tls_socket_connect_block(cf_socket *sock);
 
 int tls_socket_recv(cf_socket *sock, void *buf, size_t sz, int32_t flags,
 					uint64_t timeout_msec);

@@ -80,6 +80,7 @@ as_info_access g_access = {
 };
 
 cf_serv_cfg g_service_bind = { .n_cfgs = 0 };
+cf_tls_info g_service_tls = { .ssl_ctx_ser = NULL, .ssl_ctx_cli = NULL, .cbl = NULL };
 
 static cf_sockets g_sockets;
 
@@ -461,7 +462,7 @@ thr_demarshal(void *unused)
 
 				// Initialize the TLS part of the socket.
 				if (cfg->owner == CF_SOCK_OWNER_SERVICE_TLS) {
-					tls_socket_prepare(&g_config.tls_service, &csock, &sa);
+					tls_socket_prepare_server(&g_service_tls, &csock);
 				}
 
 				// Create as_file_handle and queue it up in epoll_fd for further
@@ -556,6 +557,7 @@ thr_demarshal(void *unused)
 					}
 
 					if (tls_ev == 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "service handshake");
 						tls_ev = EPOLLIN;
 					}
 
@@ -585,6 +587,7 @@ thr_demarshal(void *unused)
 					fd_h->proto_unread -= recv_sz;
 
 					if (fd_h->proto_unread != 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "partial client read (size)");
 						thr_demarshal_rearm(fd_h);
 						goto NextEvent;
 					}
@@ -647,11 +650,13 @@ thr_demarshal(void *unused)
 					fd_h->proto_unread -= recv_sz;
 
 					if (fd_h->proto_unread != 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "partial client read (body)");
 						thr_demarshal_rearm(fd_h);
 						goto NextEvent;
 					}
 				}
 
+				tls_socket_must_not_have_data(&fd_h->sock, "full client read");
 				cf_debug(AS_DEMARSHAL, "running on CPU %hu", cf_topo_current_cpu());
 
 				// fd_h->proto_unread == 0 - finished reading complete proto.

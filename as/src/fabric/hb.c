@@ -43,6 +43,7 @@
 
 #include "base/cfg.h"
 #include "base/stats.h"
+#include "base/thr_info.h"
 #include "fabric/endpoint.h"
 #include "fabric/fabric.h"
 #include "fabric/partition_balance.h"
@@ -667,6 +668,12 @@ typedef struct as_hb_mesh_node_s
 	 * The port of this seed mesh host.
 	 */
 	cf_ip_port seed_port;
+
+	/**
+	 * Identifies TLS mesh seed hosts.
+	 */
+
+	bool tls;
 
 	/**
 	 * The heap allocated end point list for this mesh host. Should be freed
@@ -1401,6 +1408,23 @@ typedef struct endpoint_list_overlap_check_udata_s
  */
 typedef void (*endpoint_list_process_fn)(const as_endpoint_list* endpoint_list, void* udata);
 
+/**
+ * Seed host list reduce udata.
+ */
+typedef struct as_hb_seed_host_list_udata_s
+{
+	/**
+	 * The buffer to receive the list.
+	 */
+	cf_dyn_buf* db;
+
+	/**
+	 * Selects TLS seed nodes.
+	 */
+	bool tls;
+
+} as_hb_seed_host_list_udata;
+
 /*
  * ----------------------------------------------------------------------------
  * Globals
@@ -1578,7 +1602,7 @@ static void mesh_node_status_change(as_hb_mesh_node* mesh_node, as_hb_mesh_node_
 static void mesh_seed_node_real_nodeid_set(as_hb_mesh_node* mesh_node, as_hb_mesh_node_key* existing_node_key, cf_node nodeid, as_hb_mesh_node_status new_status);
 static void mesh_listening_sockets_close();
 static int mesh_seed_host_list_reduce(const void* key, void* data, void* udata);
-static void mesh_seed_host_list_get(cf_dyn_buf* db);
+static void mesh_seed_host_list_get(cf_dyn_buf* db, bool tls);
 static void mesh_stop();
 static int mesh_node_endpoint_list_fill(as_hb_mesh_node* mesh_node);
 static int mesh_tend_reduce(const void* key, void* data, void* udata);
@@ -1611,7 +1635,7 @@ static void mesh_channel_on_pulse(msg* msg);
 static void mesh_channel_on_info_request(msg* msg);
 static void mesh_channel_on_info_reply(msg* msg);
 static void mesh_seed_node_add(as_hb_mesh_node* new_node);
-static int mesh_tip(char* host, int port);
+static int mesh_tip(char* host, int port, bool tls);
 static void mesh_channel_event_process(as_hb_channel_event* event);
 static void mesh_init();
 static int mesh_free_node_data_reduce(const void* key, void* data, void* udata);
@@ -1701,7 +1725,8 @@ as_hb_init()
 		for (int i = 0; i < AS_CLUSTER_SZ; i++) {
 			if (g_config.hb_config.mesh_seed_addrs[i]) {
 				int rv = mesh_tip(g_config.hb_config.mesh_seed_addrs[i],
-						g_config.hb_config.mesh_seed_ports[i]);
+						g_config.hb_config.mesh_seed_ports[i],
+						g_config.hb_config.mesh_seed_tls[i]);
 
 				switch (rv) {
 				case CF_SHASH_OK:
@@ -1992,7 +2017,14 @@ as_hb_info_config_get(cf_dyn_buf* db)
 		info_append_addrs(db, "heartbeat.address", &g_config.hb_serv_spec.bind);
 		info_append_uint32(db, "heartbeat.port",
 			(uint32_t)g_config.hb_serv_spec.bind_port);
-		mesh_seed_host_list_get(db);
+		mesh_seed_host_list_get(db, false);
+		info_append_addrs(db, "heartbeat.tls-address",
+			&g_config.hb_tls_serv_spec.bind);
+		info_append_uint32(db, "heartbeat.tls-port",
+			g_config.hb_tls_serv_spec.bind_port);
+		info_append_string_safe(db, "heartbeat.tls-name",
+			g_config.hb_tls_serv_spec.tls_our_name);
+		mesh_seed_host_list_get(db, true);
 	}
 	else {
 		info_append_string(db, "heartbeat.mode", "multicast");
@@ -2030,17 +2062,15 @@ as_hb_info_endpoints_get(cf_dyn_buf* db)
 
 	info_append_int(db, "heartbeat.port", g_config.hb_serv_spec.bind_port);
 
-	cf_dyn_buf_append_string(db, "heartbeat.addresses=");
-	uint32_t count = 0;
-	for (uint32_t i = 0; i < cfg->n_cfgs; ++i) {
-		if (count > 0) {
-			cf_dyn_buf_append_char(db, ',');
-		}
+	char *string = as_info_bind_to_string(cfg, CF_SOCK_OWNER_HEARTBEAT);
+	info_append_string(db, "heartbeat.addresses", string);
+	cf_free(string);
 
-		cf_dyn_buf_append_string(db, cf_ip_addr_print(&cfg->cfgs[i].addr));
-		++count;
-	}
-	cf_dyn_buf_append_char(db, ';');
+	info_append_int(db, "heartbeat.tls-port", g_config.hb_tls_serv_spec.bind_port);
+
+	string = as_info_bind_to_string(cfg, CF_SOCK_OWNER_HEARTBEAT_TLS);
+	info_append_string(db, "heartbeat.tls-addresses", string);
+	cf_free(string);
 
 	if (hb_is_mesh()) {
 		return;
@@ -2053,7 +2083,7 @@ as_hb_info_endpoints_get(cf_dyn_buf* db)
 	}
 
 	cf_dyn_buf_append_string(db, "heartbeat.multicast-groups=");
-	count = 0;
+	uint32_t count = 0;
 	for (uint32_t i = 0; i < multicast_cfg->n_cfgs; ++i) {
 		if (count > 0) {
 			cf_dyn_buf_append_char(db, ',');
@@ -2130,14 +2160,14 @@ as_hb_info_listen_addr_get(as_hb_mode* mode, char* addr_port,
  * Add an aerospike instance from the mesh seed list.
  */
 int
-as_hb_mesh_tip(char* host, int port)
+as_hb_mesh_tip(char* host, int port, bool tls)
 {
 	if (!hb_is_mesh()) {
 		WARNING("tip not applicable for multicast");
 		return (-1);
 	}
 
-	return mesh_tip(host, port);
+	return mesh_tip(host, port, tls);
 }
 
 /**
@@ -3153,13 +3183,12 @@ config_bind_serv_cfg_expand(const cf_serv_cfg* bind_cfg,
 {
 	cf_serv_cfg_init(published_cfg);
 	cf_sock_cfg sock_cfg;
-	cf_sock_cfg_init(&sock_cfg, CF_SOCK_OWNER_HEARTBEAT);
 
 	for (int i = 0; i < bind_cfg->n_cfgs; i++) {
-		sock_cfg.port = bind_cfg->cfgs[i].port;
+		cf_sock_cfg_copy(&bind_cfg->cfgs[i], &sock_cfg);
 
 		// Expand "any" address to all interfaces.
-		if (cf_ip_addr_is_any(&bind_cfg->cfgs[0].addr)) {
+		if (cf_ip_addr_is_any(&sock_cfg.addr)) {
 			cf_ip_addr all_addrs[CF_SOCK_CFG_MAX];
 			uint32_t n_all_addrs = CF_SOCK_CFG_MAX;
 			if (cf_inter_get_addr_all(all_addrs, &n_all_addrs) != 0) {
@@ -3190,7 +3219,6 @@ config_bind_serv_cfg_expand(const cf_serv_cfg* bind_cfg,
 				continue;
 			}
 
-			cf_ip_addr_copy(&bind_cfg->cfgs[i].addr, &sock_cfg.addr);
 			if (cf_serv_cfg_add_sock_cfg(published_cfg, &sock_cfg)) {
 				CRASH("error initializing published address list");
 			}
@@ -3696,17 +3724,32 @@ channel_accept_connection(cf_socket* lsock)
 		}
 	}
 
-	// Allocate a new socket.
-	cf_socket* sock = cf_malloc(sizeof(cf_socket));
-	cf_socket_init(sock);
-	cf_socket_copy(&csock, sock);
-
 	// Update the stats to reflect to a new connection opened.
 	cf_atomic_int_incr(&g_stats.heartbeat_connections_opened);
 
 	char caddr_str[HOST_NAME_MAX];
 	cf_sock_addr_to_string_safe(&caddr, caddr_str, sizeof(caddr_str));
 	DEBUG("new connection from %s", caddr_str);
+
+	cf_sock_cfg *cfg = lsock->cfg;
+
+	if (cfg->owner == CF_SOCK_OWNER_HEARTBEAT_TLS) {
+		tls_socket_prepare_server(&g_config.hb_config.tls, &csock);
+
+		if (tls_socket_accept_block(&csock) != 1) {
+			WARNING("heartbeat TLS server handshake with %s failed", caddr_str);
+			cf_socket_close(&csock);
+			cf_socket_term(&csock);
+
+			cf_atomic_int_incr(&g_stats.heartbeat_connections_closed);
+			return;
+		}
+	}
+
+	// Allocate a new socket.
+	cf_socket* sock = cf_malloc(sizeof(cf_socket));
+	cf_socket_init(sock);
+	cf_socket_copy(&csock, sock);
 
 	// Register this socket with the channel subsystem.
 	channel_socket_register(sock, false, true, NULL);
@@ -3975,12 +4018,11 @@ channel_mesh_msg_read(cf_socket* socket, msg* msg)
 	uint8_t* buffer = NULL;
 
 	as_hb_channel_msg_read_status rv = AS_HB_CHANNEL_MSG_READ_UNDEF;
-	int flags = (MSG_NOSIGNAL | MSG_PEEK);
 	uint8_t len_buff[MSG_WIRE_LENGTH_SIZE];
 
-	if (cf_socket_recv(socket, len_buff, MSG_WIRE_LENGTH_SIZE, flags) <
-			MSG_WIRE_LENGTH_SIZE) {
-		WARNING("on fd %d recv peek error", CSFD(socket));
+	if (cf_socket_recv_all(socket, len_buff, MSG_WIRE_LENGTH_SIZE,
+			0, MESH_RW_TIMEOUT) < 0) {
+		WARNING("mesh size recv failed fd %d : %s", CSFD(socket), cf_strerror(errno));
 		rv = AS_HB_CHANNEL_MSG_CHANNEL_FAIL;
 		goto Exit;
 	}
@@ -3990,15 +4032,15 @@ channel_mesh_msg_read(cf_socket* socket, msg* msg)
 	buffer = MSG_BUFF_ALLOC(buffer_len);
 
 	if (!buffer) {
-		WARNING("error allocating space for multicast recv buffer of size %d on fd %d",
+		WARNING("error allocating space for mesh recv buffer of size %d on fd %d",
 				buffer_len, CSFD(socket));
 		goto Exit;
 	}
 
 	memcpy(buffer, len_buff, MSG_WIRE_LENGTH_SIZE);
 
-	if (cf_socket_recv_all(socket, buffer, buffer_len, MSG_NOSIGNAL,
-			MESH_RW_TIMEOUT) < 0) {
+	if (cf_socket_recv_all(socket, buffer + MSG_WIRE_LENGTH_SIZE,
+			buffer_len - MSG_WIRE_LENGTH_SIZE, 0, MESH_RW_TIMEOUT) < 0) {
 		DETAIL("mesh recv failed fd %d : %s", CSFD(socket), cf_strerror(errno));
 		rv = AS_HB_CHANNEL_MSG_CHANNEL_FAIL;
 		goto Exit;
@@ -4595,7 +4637,12 @@ channel_mesh_endpoint_filter(const as_endpoint* endpoint, void* udata)
 		return false;
 	}
 
-	// TODO: If heartbeat supports tls filter mismatching capabilities here.
+	// If we don't offer TLS, then we won't connect via TLS, either.
+	if (g_config.hb_tls_serv_spec.bind_port == 0 &&
+			as_endpoint_capability_is_supported(endpoint, AS_ENDPOINT_TLS_MASK)) {
+		return false;
+	}
+
 	return true;
 }
 
@@ -4622,8 +4669,7 @@ channel_mesh_channel_establish(as_endpoint_list** endpoint_lists,
 		cf_socket* sock = (cf_socket*)cf_malloc(sizeof(cf_socket));
 
 		const as_endpoint* connected_endpoint = as_endpoint_connect_any(
-				endpoint_lists[i], CF_SOCK_OWNER_HEARTBEAT,
-				channel_mesh_endpoint_filter, NULL,
+				endpoint_lists[i], channel_mesh_endpoint_filter, NULL,
 				CONNECT_TIMEOUT(), sock);
 
 		if (connected_endpoint) {
@@ -4641,6 +4687,19 @@ channel_mesh_channel_establish(as_endpoint_list** endpoint_lists,
 
 				cf_atomic_int_incr(&g_stats.heartbeat_connections_closed);
 				continue;
+			}
+
+			if (as_endpoint_capability_is_supported(connected_endpoint, AS_ENDPOINT_TLS_MASK)) {
+				tls_socket_prepare_client(&g_config.hb_config.tls, sock);
+
+				if (tls_socket_connect_block(sock) != 1) {
+					WARNING("heartbeat TLS client handshake with {%s} failed", endpoint_list_str);
+					channel_socket_destroy(sock);
+					sock = NULL;
+
+					cf_atomic_int_incr(&g_stats.heartbeat_connections_closed);
+					return;
+				}
 			}
 
 			channel_socket_register(sock, false, false, &endpoint_addr);
@@ -4904,7 +4963,7 @@ channel_mesh_msg_send(cf_socket* socket, uint8_t* buff, size_t buffer_length)
 	CHANNEL_LOCK();
 	int rv;
 
-	if (cf_socket_send_to_all(socket, buff, buffer_length, 0, 0,
+	if (cf_socket_send_all(socket, buff, buffer_length, 0,
 		MESH_RW_TIMEOUT) < 0) {
 		as_hb_channel channel;
 		if (channel_get_channel(socket, &channel) == 0) {
@@ -5452,22 +5511,23 @@ static int
 mesh_seed_host_list_reduce(const void* key, void* data, void* udata)
 {
 	as_hb_mesh_node* mesh_node = (as_hb_mesh_node*)data;
-	cf_dyn_buf* db = (cf_dyn_buf*)udata;
+	as_hb_seed_host_list_udata* seed_host_list_udata =
+		(as_hb_seed_host_list_udata*)udata;
 
-	if (mesh_node->is_seed) {
-		char endpoint_list_str[ENDPOINT_LIST_STR_SIZE];
-		if (as_endpoint_list_to_string(mesh_node->endpoint_list,
-				endpoint_list_str, sizeof(endpoint_list_str)) > 0) {
-
-			cf_dyn_buf_append_string(db, "heartbeat.mesh-seed-address-port=");
-			cf_dyn_buf_append_string(db, endpoint_list_str);
-			cf_dyn_buf_append_char(db, ';');
-		}
-		else {
-			WARNING("error converting mesh host %s and port %d to string",
-					mesh_node->seed_host_name, mesh_node->seed_port);
-		}
+	if (!mesh_node->is_seed ||
+		seed_host_list_udata->tls != mesh_node->tls) {
+		return CF_SHASH_OK;
 	}
+
+	const char* info_key = mesh_node->tls ?
+		"heartbeat.tls-mesh-seed-address-port=" :
+		"heartbeat.mesh-seed-address-port=";
+
+	cf_dyn_buf_append_string(seed_host_list_udata->db, info_key);
+	cf_dyn_buf_append_string(seed_host_list_udata->db, mesh_node->seed_host_name);
+	cf_dyn_buf_append_char(seed_host_list_udata->db, ':');
+	cf_dyn_buf_append_uint32(seed_host_list_udata->db, mesh_node->seed_port);
+	cf_dyn_buf_append_char(seed_host_list_udata->db, ';');
 
 	return CF_SHASH_OK;
 }
@@ -5476,7 +5536,7 @@ mesh_seed_host_list_reduce(const void* key, void* data, void* udata)
  * Populate the buffer with mesh seed list.
  */
 static void
-mesh_seed_host_list_get(cf_dyn_buf* db)
+mesh_seed_host_list_get(cf_dyn_buf* db, bool tls)
 {
 	if (!hb_is_mesh()) {
 		return;
@@ -5484,7 +5544,8 @@ mesh_seed_host_list_get(cf_dyn_buf* db)
 	MESH_LOCK();
 
 	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
-			mesh_seed_host_list_reduce, db);
+			mesh_seed_host_list_reduce,
+			&(as_hb_seed_host_list_udata){ db, tls });
 
 	MESH_UNLOCK();
 }
@@ -5572,7 +5633,9 @@ mesh_node_endpoint_list_fill(as_hb_mesh_node* mesh_node)
 	cf_serv_cfg_init(&temp_serv_cfg);
 
 	cf_sock_cfg sock_cfg;
-	cf_sock_cfg_init(&sock_cfg, CF_SOCK_OWNER_HEARTBEAT);
+	cf_sock_cfg_init(&sock_cfg, mesh_node->tls ?
+			CF_SOCK_OWNER_HEARTBEAT_TLS :
+			CF_SOCK_OWNER_HEARTBEAT);
 	sock_cfg.port = mesh_node->seed_port;
 
 	for (int i = 0; i < n_resolved_addresses; i++) {
@@ -7027,10 +7090,11 @@ mesh_seed_node_add(as_hb_mesh_node* new_node)
  * Add a host / port to the mesh seed list.
  * @param host the seed node hostname / ip address
  * @param port the seed node port.
+ * @param tls indicates TLS support.
  * @return CF_SHASH_OK, CF_SHASH_ERR, CF_SHASH_ERR_FOUND.
  */
 static int
-mesh_tip(char* host, int port)
+mesh_tip(char* host, int port, bool tls)
 {
 	MESH_LOCK();
 
@@ -7045,6 +7109,7 @@ mesh_tip(char* host, int port)
 	strncpy(new_node.seed_host_name, host, sizeof(new_node.seed_host_name));
 	new_node.seed_port = port;
 	new_node.is_seed = true;
+	new_node.tls = tls;
 
 	if (mesh_node_endpoint_list_fill(&new_node) != 0) {
 		WARNING("error resolving ip address for mesh host %s:%d", host, port);
