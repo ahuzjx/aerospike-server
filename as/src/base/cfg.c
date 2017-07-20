@@ -4182,6 +4182,14 @@ cfg_mserv_config_from_addrs(cf_addr_list* addrs, cf_addr_list* bind_addrs,
 		cf_mserv_cfg* serv_cfg, cf_ip_port port, cf_sock_owner owner,
 		uint8_t ttl)
 {
+	static cf_addr_list def_addrs = {
+		.n_addrs = 1, .addrs = { "any" }
+	};
+
+	if (bind_addrs->n_addrs == 0) {
+		bind_addrs = &def_addrs;
+	}
+
 	for (uint32_t i = 0; i < addrs->n_addrs; ++i) {
 
 		cf_ip_addr resol[CF_SOCK_CFG_MAX];
