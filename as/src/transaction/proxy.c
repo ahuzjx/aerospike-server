@@ -418,11 +418,6 @@ proxyer_handle_response(msg* m, uint32_t tid)
 		batch_sub_proxy_update_stats(pr.ns, result);
 		// Note - no worries about msgp, proxy divert copied it.
 		break;
-	case FROM_PROXY:
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// Should be impossible for proxyee, internal UDFs, and nsup deletes to
-		// get here.
 	default:
 		cf_crash(AS_PROXY, "unexpected transaction origin %u", pr.origin);
 		break;
@@ -668,10 +663,6 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 			// Note - no worries about msgp, proxy divert copied it.
 			batch_sub_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 			break;
-		case FROM_PROXY:
-		case FROM_IUDF:
-		case FROM_NSUP:
-			// Proxyees, internal UDFs, and nsup deletes don't proxy.
 		default:
 			cf_crash(AS_PROXY, "unexpected transaction origin %u", pr->origin);
 			break;

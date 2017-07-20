@@ -336,9 +336,6 @@ send_delete_response(as_transaction* tr)
 		break;
 	case FROM_NSUP:
 		break;
-	case FROM_BATCH:
-	case FROM_IUDF:
-		// Should be impossible for batch reads and internal UDFs to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", tr->origin);
 		break;
@@ -365,9 +362,6 @@ delete_timeout_cb(rw_request* rw)
 		break;
 	case FROM_NSUP:
 		break;
-	case FROM_BATCH:
-	case FROM_IUDF:
-		// Should be impossible for batch reads and internal UDFs to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", rw->origin);
 		break;

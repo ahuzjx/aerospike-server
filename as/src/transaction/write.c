@@ -427,11 +427,6 @@ send_write_response(as_transaction* tr, cf_dyn_buf* db)
 					0, NULL, as_transaction_trid(tr), NULL);
 		}
 		break;
-	case FROM_BATCH:
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// Should be impossible for batch reads, internal UDFs, and nsup deletes
-		// to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", tr->origin);
 		break;
@@ -458,11 +453,6 @@ write_timeout_cb(rw_request* rw)
 		break;
 	case FROM_PROXY:
 		break;
-	case FROM_BATCH:
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// Should be impossible for batch reads, internal UDFs, and nsup deletes
-		// to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", rw->origin);
 		break;

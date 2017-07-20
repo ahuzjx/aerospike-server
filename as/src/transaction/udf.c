@@ -569,9 +569,6 @@ send_udf_response(as_transaction* tr, cf_dyn_buf* db)
 		BENCHMARK_NEXT_DATA_POINT(tr, udf_sub, response);
 		udf_sub_udf_update_stats(tr->rsv.ns, tr->result_code);
 		break;
-	case FROM_BATCH:
-	case FROM_NSUP:
-		// Should be impossible for batch reads and nsup deletes to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", tr->origin);
 		break;
@@ -603,9 +600,6 @@ udf_timeout_cb(rw_request* rw)
 		// Timeouts aren't included in histograms.
 		udf_sub_udf_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 		break;
-	case FROM_BATCH:
-	case FROM_NSUP:
-		// Should be impossible for batch reads and nsup deletes to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", rw->origin);
 		break;

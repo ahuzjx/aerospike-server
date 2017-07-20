@@ -147,8 +147,8 @@ typedef enum {
 	FROM_UNDEF	= 0
 } transaction_origin;
 
-struct iudf_origin_s;
 struct as_batch_shared_s;
+struct iudf_origin_s;
 
 typedef struct as_transaction_s {
 
@@ -168,8 +168,8 @@ typedef struct as_transaction_s {
 		void*						any;
 		as_file_handle*				proto_fd_h;
 		cf_node						proxy_node;
-		struct iudf_origin_s*		iudf_orig;
 		struct as_batch_shared_s*	batch_shared;
+		struct iudf_origin_s*		iudf_orig;
 	} from;
 
 	union {

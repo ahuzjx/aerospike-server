@@ -84,6 +84,7 @@ rw_request_create(cf_digest* keyd)
 	pthread_mutex_init(&rw->lock, NULL);
 
 	rw->wait_queue_head = NULL;
+	rw->wait_queue_tail = NULL;
 
 	rw->is_set_up = false;
 	rw->has_udf = false;

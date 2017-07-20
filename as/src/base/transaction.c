@@ -374,12 +374,7 @@ as_transaction_error(as_transaction* tr, as_namespace* ns, uint32_t error_code)
 		error_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
-	// The 'from' checks below should not be necessary, but there's a known race
-	// between duplicate-resolution's cluster-key-mismatch handler (which
-	// re-queues transactions) and retransmit thread timeouts which can allow a
-	// null 'from' to get here. That race will be fixed in a future release, but
-	// for now these checks keep us safe.
-
+	// The 'from' checks below are unnecessary, only paranoia.
 	switch (tr->origin) {
 	case FROM_CLIENT:
 		if (tr->from.proto_fd_h) {

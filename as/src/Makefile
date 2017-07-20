@@ -72,7 +72,8 @@ endif
 TRANSACTION_HEADERS += delete.h duplicate_resolve.h proxy.h read.h replica_write.h rw_request_hash.h rw_request.h rw_utils.h udf.h write.h
 TRANSACTION_SOURCES += delete.c duplicate_resolve.c proxy.c read.c replica_write.c rw_request_hash.c rw_request.c rw_utils.c udf.c write.c
 ifneq ($(USE_EE),1)
-  TRANSACTION_SOURCES += delete_ce.c rw_utils_ce.c
+  TRANSACTION_SOURCES += delete_ce.c
+  TRANSACTION_SOURCES += rw_utils_ce.c
 endif
 
 HEADERS = $(BASE_HEADERS:%=base/%) $(FABRIC_HEADERS:%=fabric/%) $(STORAGE_HEADERS:%=storage/%) $(GEOSPATIAL_HEADERS:%=geospatial/%) $(TRANSACTION_HEADERS:%=transaction/%)

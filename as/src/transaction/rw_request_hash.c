@@ -251,8 +251,16 @@ handle_hot_key(rw_request* rw0, as_transaction* tr)
 		tr->from.any = NULL;
 		tr->msgp = NULL;
 
-		e->next = rw0->wait_queue_head;
-		rw0->wait_queue_head = e;
+		e->next = NULL;
+
+		if (rw0->wait_queue_tail) {
+			rw0->wait_queue_tail->next = e;
+			rw0->wait_queue_tail = e;
+		}
+		else {
+			rw0->wait_queue_head = e;
+			rw0->wait_queue_tail = e;
+		}
 
 		return TRANS_WAITING;
 	}

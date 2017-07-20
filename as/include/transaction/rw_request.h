@@ -117,6 +117,7 @@ typedef struct rw_request_s {
 	pthread_mutex_t		lock;
 
 	rw_wait_ele*		wait_queue_head;
+	rw_wait_ele*		wait_queue_tail;
 
 	bool				is_set_up; // TODO - redundant with timeout_cb
 	bool				has_udf; // TODO - only for stats?

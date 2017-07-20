@@ -251,9 +251,6 @@ send_read_response(as_transaction* tr, as_msg_op** ops, as_bin** response_bins,
 		BENCHMARK_NEXT_DATA_POINT(tr, batch_sub, response);
 		batch_sub_read_update_stats(tr->rsv.ns, tr->result_code);
 		break;
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// Should be impossible for internal UDFs and nsup deletes to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", tr->origin);
 		break;
@@ -285,9 +282,6 @@ read_timeout_cb(rw_request* rw)
 		// Timeouts aren't included in histograms.
 		batch_sub_read_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 		break;
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// Should be impossible for internal UDFs and nsup deletes to get here.
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", rw->origin);
 		break;
