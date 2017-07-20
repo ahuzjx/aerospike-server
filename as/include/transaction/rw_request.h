@@ -118,6 +118,7 @@ typedef struct rw_request_s {
 
 	rw_wait_ele*		wait_queue_head;
 	rw_wait_ele*		wait_queue_tail;
+	uint32_t			wait_queue_depth;
 
 	bool				is_set_up; // TODO - redundant with timeout_cb
 	bool				has_udf; // TODO - only for stats?
@@ -163,6 +164,7 @@ typedef struct rw_request_s {
 
 rw_request* rw_request_create();
 void rw_request_destroy(rw_request* rw);
+void rw_request_wait_q_push(rw_request* rw, as_transaction* tr);
 
 
 static inline void
@@ -179,21 +181,6 @@ rw_request_release(rw_request* rw)
 		rw_request_destroy(rw);
 		cf_rc_free(rw);
 	}
-}
-
-
-static inline uint32_t
-rw_request_wait_q_depth(rw_request* rw)
-{
-	uint32_t depth = 0;
-	rw_wait_ele* e = rw->wait_queue_head;
-
-	while (e) {
-		depth++;
-		e = e->next;
-	}
-
-	return depth;
 }
 
 

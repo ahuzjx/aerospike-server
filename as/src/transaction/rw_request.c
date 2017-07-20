@@ -85,6 +85,7 @@ rw_request_create(cf_digest* keyd)
 
 	rw->wait_queue_head = NULL;
 	rw->wait_queue_tail = NULL;
+	rw->wait_queue_depth = 0;
 
 	rw->is_set_up = false;
 	rw->has_udf = false;
@@ -166,4 +167,29 @@ rw_request_destroy(rw_request* rw)
 		cf_free(e);
 		e = next;
 	}
+}
+
+
+void
+rw_request_wait_q_push(rw_request* rw, as_transaction* tr)
+{
+	rw_wait_ele* e = cf_malloc(sizeof(rw_wait_ele));
+	cf_assert(e, AS_RW, "alloc rw_wait_ele");
+
+	as_transaction_copy_head(&e->tr, tr);
+	tr->from.any = NULL;
+	tr->msgp = NULL;
+
+	e->next = NULL;
+
+	if (rw->wait_queue_tail) {
+		rw->wait_queue_tail->next = e;
+		rw->wait_queue_tail = e;
+	}
+	else {
+		rw->wait_queue_head = e;
+		rw->wait_queue_tail = e;
+	}
+
+	rw->wait_queue_depth++;
 }

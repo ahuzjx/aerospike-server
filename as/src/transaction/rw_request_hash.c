@@ -233,7 +233,7 @@ handle_hot_key(rw_request* rw0, as_transaction* tr)
 		return TRANS_DONE_SUCCESS;
 	}
 	else if (g_config.transaction_pending_limit != 0 &&
-			rw_request_wait_q_depth(rw0) > g_config.transaction_pending_limit) {
+			rw0->wait_queue_depth > g_config.transaction_pending_limit) {
 		// If we're over the hot key pending limit, fail this transaction.
 		cf_atomic64_incr(&tr->rsv.ns->n_fail_key_busy);
 		tr->result_code = AS_PROTO_RESULT_FAIL_KEY_BUSY;
@@ -243,24 +243,7 @@ handle_hot_key(rw_request* rw0, as_transaction* tr)
 	else {
 		// Queue this transaction on the original rw_request - it will be
 		// retried when the original is complete.
-
-		rw_wait_ele* e = cf_malloc(sizeof(rw_wait_ele));
-		cf_assert(e, AS_RW, "alloc rw_wait_ele");
-
-		as_transaction_copy_head(&e->tr, tr);
-		tr->from.any = NULL;
-		tr->msgp = NULL;
-
-		e->next = NULL;
-
-		if (rw0->wait_queue_tail) {
-			rw0->wait_queue_tail->next = e;
-			rw0->wait_queue_tail = e;
-		}
-		else {
-			rw0->wait_queue_head = e;
-			rw0->wait_queue_tail = e;
-		}
+		rw_request_wait_q_push(rw0, tr);
 
 		return TRANS_WAITING;
 	}
