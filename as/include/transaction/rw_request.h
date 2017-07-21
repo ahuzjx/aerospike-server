@@ -105,7 +105,8 @@ typedef struct rw_request_s {
 	as_partition_reservation rsv;
 
 	uint64_t			end_time;
-	// Don't (yet) need result or flags.
+	uint8_t				result_code;
+	// Don't (yet) need flags.
 	uint16_t			generation;
 	uint32_t			void_time;
 	// Don't (yet) need last_update_time.
@@ -136,6 +137,7 @@ typedef struct rw_request_s {
 	// alternatively, timeouts.
 	uint32_t			tid;
 	bool				dup_res_complete;
+	bool				repl_write_complete;
 	dup_res_done_cb		dup_res_cb;
 	repl_write_done_cb	repl_write_cb;
 	timeout_done_cb		timeout_cb;

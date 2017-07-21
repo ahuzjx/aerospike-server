@@ -39,6 +39,7 @@
 #include "fault.h"
 
 #include "base/datamodel.h"
+#include "base/proto.h"
 #include "base/rec_props.h"
 #include "base/thr_tsvc.h"
 #include "base/transaction.h"
@@ -77,6 +78,7 @@ rw_request_create(cf_digest* keyd)
 	AS_PARTITION_RESERVATION_INIT(rw->rsv);
 
 	rw->end_time			= 0;
+	rw->result_code			= AS_PROTO_RESULT_OK;
 	rw->generation			= 0;
 	rw->void_time			= 0;
 	// End of as_transaction look-alike.
@@ -102,6 +104,7 @@ rw_request_create(cf_digest* keyd)
 
 	rw->tid = cf_atomic32_incr(&g_rw_tid);
 	rw->dup_res_complete = false;
+	rw->repl_write_complete = false;
 	rw->dup_res_cb = NULL;
 	rw->repl_write_cb = NULL;
 	rw->timeout_cb = NULL;

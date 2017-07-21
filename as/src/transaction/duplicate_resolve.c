@@ -55,9 +55,11 @@
 // Forward declarations.
 //
 
-void done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref);
+void done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref, as_storage_rd* rd);
 void send_dup_res_ack(cf_node node, msg* m, uint32_t result);
 void send_ack_for_bad_request(cf_node node, msg* m);
+bool dup_res_should_retry_transaction(uint32_t result_code);
+bool dup_res_should_fail_transaction(uint32_t result_code);
 void apply_winner(rw_request* rw);
 
 
@@ -193,12 +195,10 @@ dup_res_handle_request(cf_node node, msg* m)
 	msg_preserve_fields(m, 3, RW_FIELD_NS_ID, RW_FIELD_DIGEST, RW_FIELD_TID);
 
 	as_partition_reservation rsv;
-	AS_PARTITION_RESERVATION_INIT(rsv); // TODO - not really needed?
-
 	as_partition_reserve_migrate(ns, as_partition_getid(keyd), &rsv, NULL);
 
 	if (rsv.cluster_key != cluster_key) {
-		done_handle_request(&rsv, NULL);
+		done_handle_request(&rsv, NULL, NULL);
 		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
 		return;
 	}
@@ -207,7 +207,7 @@ dup_res_handle_request(cf_node node, msg* m)
 	r_ref.skip_lock = false;
 
 	if (as_record_get(rsv.tree, keyd, &r_ref) != 0) {
-		done_handle_request(&rsv, NULL);
+		done_handle_request(&rsv, NULL, NULL);
 		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_NOTFOUND);
 		return;
 	}
@@ -218,8 +218,8 @@ dup_res_handle_request(cf_node node, msg* m)
 			0 >= as_record_resolve_conflict(ns->conflict_resolution_policy,
 					generation, last_update_time, r->generation,
 					r->last_update_time)) {
-		done_handle_request(&rsv, &r_ref);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		done_handle_request(&rsv, &r_ref, NULL);
+		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_RECORD_EXISTS);
 		return;
 	}
 
@@ -227,11 +227,21 @@ dup_res_handle_request(cf_node node, msg* m)
 
 	as_storage_record_open(ns, r, &rd);
 
-	as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
+	int result;
+
+	if ((result = as_storage_rd_load_n_bins(&rd)) < 0) {
+		done_handle_request(&rsv, &r_ref, &rd);
+		send_dup_res_ack(node, m, (uint32_t)-result);
+		return;
+	}
 
 	as_bin stack_bins[rd.ns->storage_data_in_memory ? 0 : rd.n_bins];
 
-	as_storage_rd_load_bins(&rd, stack_bins); // TODO - handle error returned
+	if ((result = as_storage_rd_load_bins(&rd, stack_bins)) < 0) {
+		done_handle_request(&rsv, &r_ref, &rd);
+		send_dup_res_ack(node, m, (uint32_t)-result);
+		return;
+	}
 
 	size_t buf_len;
 	uint8_t* buf = as_record_pickle(&rd, &buf_len);
@@ -257,8 +267,6 @@ dup_res_handle_request(cf_node node, msg* m)
 		msg_set_buf(m, RW_FIELD_KEY, rd.key, rd.key_size, MSG_SET_COPY);
 	}
 
-	as_storage_record_close(&rd);
-
 	msg_set_buf(m, RW_FIELD_RECORD, (void*)buf, buf_len,
 			MSG_SET_HANDOFF_MALLOC);
 
@@ -269,7 +277,7 @@ dup_res_handle_request(cf_node node, msg* m)
 		msg_set_uint32(m, RW_FIELD_VOID_TIME, r->void_time);
 	}
 
-	done_handle_request(&rsv, &r_ref);
+	done_handle_request(&rsv, &r_ref, &rd);
 	send_dup_res_ack(node, m, AS_PROTO_RESULT_OK);
 }
 
@@ -302,14 +310,6 @@ dup_res_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	uint32_t result_code;
-
-	if (msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0) {
-		cf_warning(AS_RW, "dup-res ack: no result_code");
-		as_fabric_msg_put(m);
-		return;
-	}
-
 	rw_request_hkey hkey = { ns_id, *keyd };
 	rw_request* rw = rw_request_hash_get(&hkey);
 
@@ -332,34 +332,6 @@ dup_res_handle_ack(cf_node node, msg* m)
 	if (rw->dup_res_complete) {
 		// Ack arriving after rw_request was aborted or finished dup-res.
 		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
-
-	if (result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH) {
-		if (! rw->from.any) {
-			// Lost race against timeout in retransmit thread.
-			pthread_mutex_unlock(&rw->lock);
-			rw_request_release(rw);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		as_transaction tr;
-		as_transaction_init_head_from_rw(&tr, rw);
-
-		// Note that tr now owns msgp - make sure rw destructor doesn't free it.
-		// Note also that rw will release rsv - tr will get a new one.
-		rw->msgp = NULL;
-
-		tr.from_flags |= FROM_FLAG_RESTART;
-		as_tsvc_enqueue(&tr);
-
-		rw->dup_res_complete = true;
-
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_hash_delete(&hkey, rw);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
 		return;
@@ -394,6 +366,62 @@ dup_res_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
+	// We've saved m - so from here down we never call as_fabric_msg_put(m)!
+
+	uint32_t result_code;
+	bool no_result = msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0;
+
+	// If proceeding further is pointless, report failure to sender.
+	if (no_result || dup_res_should_fail_transaction(result_code)) {
+		if (! rw->from.any) {
+			// Lost race against timeout in retransmit thread.
+			pthread_mutex_unlock(&rw->lock);
+			rw_request_release(rw);
+			return;
+		}
+
+		if (no_result) {
+			cf_warning(AS_RW, "dup-res ack: no result_code");
+		}
+
+		rw->result_code = (uint8_t)result_code;
+		rw->dup_res_cb(rw);
+
+		rw->dup_res_complete = true;
+
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_hash_delete(&hkey, rw);
+		rw_request_release(rw);
+		return;
+	}
+
+	// If it makes sense, retry transaction from the beginning.
+	if (dup_res_should_retry_transaction(result_code)) {
+		if (! rw->from.any) {
+			// Lost race against timeout in retransmit thread.
+			pthread_mutex_unlock(&rw->lock);
+			rw_request_release(rw);
+			return;
+		}
+
+		as_transaction tr;
+		as_transaction_init_head_from_rw(&tr, rw);
+
+		// Note that tr now owns msgp - make sure rw destructor doesn't free it.
+		// Note also that rw will release rsv - tr will get a new one.
+		rw->msgp = NULL;
+
+		tr.from_flags |= FROM_FLAG_RESTART;
+		as_tsvc_enqueue(&tr);
+
+		rw->dup_res_complete = true;
+
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_hash_delete(&hkey, rw);
+		rw_request_release(rw);
+		return;
+	}
+
 	for (int j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
 			// Still haven't heard from all duplicates, so save this response.
@@ -401,16 +429,19 @@ dup_res_handle_ack(cf_node node, msg* m)
 
 			pthread_mutex_unlock(&rw->lock);
 			rw_request_release(rw);
-			// Note - don't call as_fabric_msg_put(m)!
 			return;
 		}
 	}
 
-	apply_winner(rw);
-	// Note - apply_winner() puts all rw->dup_msg[]s including m, so don't call
-	// as_fabric_msg_put(m) afterwards.
+	apply_winner(rw); // sets rw->result_code to pass along to callback
 
-	rw->dup_res_complete = true;
+	// Free all the saved messages.
+	for (int i = 0; i < rw->n_dest_nodes; i++) {
+		if (rw->dup_msg[i]) {
+			as_fabric_msg_put(rw->dup_msg[i]);
+			rw->dup_msg[i] = NULL;
+		}
+	}
 
 	// Check for lost race against timeout in retransmit thread *after* applying
 	// winner - may save a future transaction from re-fetching the duplicates.
@@ -422,6 +453,8 @@ dup_res_handle_ack(cf_node node, msg* m)
 	}
 
 	bool delete_from_hash = rw->dup_res_cb(rw);
+
+	rw->dup_res_complete = true;
 
 	pthread_mutex_unlock(&rw->lock);
 
@@ -438,8 +471,13 @@ dup_res_handle_ack(cf_node node, msg* m)
 //
 
 void
-done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref)
+done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref,
+		as_storage_rd* rd)
 {
+	if (rd) {
+		as_storage_record_close(rd);
+	}
+
 	if (r_ref) {
 		as_record_done(r_ref, rsv->ns);
 	}
@@ -476,10 +514,27 @@ send_ack_for_bad_request(cf_node node, msg* m)
 }
 
 
+bool
+dup_res_should_retry_transaction(uint32_t result_code)
+{
+	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
+}
+
+
+bool
+dup_res_should_fail_transaction(uint32_t result_code)
+{
+	return ! (result_code == AS_PROTO_RESULT_OK ||
+			result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
+			result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
+}
+
+
 void
 apply_winner(rw_request* rw)
 {
-	uint32_t n = 0;
+	bool better_remote = false;
 	as_remote_record rr = { .rsv = &rw->rsv, .keyd = &rw->keyd };
 	conflict_resolution_pol policy = rw->rsv.ns->conflict_resolution_policy;
 
@@ -488,7 +543,8 @@ apply_winner(rw_request* rw)
 
 		if (! m) {
 			// We can mark a dest node complete without getting a response.
-			continue;
+			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return;
 		}
 
 		uint32_t result_code;
@@ -496,10 +552,12 @@ apply_winner(rw_request* rw)
 		// Already made sure this field is present.
 		msg_get_uint32(m, RW_FIELD_RESULT, &result_code);
 
-		if (result_code != AS_PROTO_RESULT_OK) {
-			// Typical result here might be NOT_FOUND.
+		if (result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+				result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
+			// Remote record is no better than local.
 			continue;
 		}
+		// else - result_code OK - remote record thinks it's better than local.
 
 		uint8_t* record_buf;
 		size_t record_buf_sz;
@@ -507,19 +565,22 @@ apply_winner(rw_request* rw)
 		if (msg_get_buf(m, RW_FIELD_RECORD, &record_buf, &record_buf_sz,
 				MSG_GET_DIRECT) != 0 || record_buf_sz < 2) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no record ");
-			continue;
+			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return;
 		}
 
 		if (dup_res_ignore_pickle(record_buf, m)) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: binless pickle ");
-			continue;
+			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return;
 		}
 
 		uint32_t generation;
 
 		if (msg_get_uint32(m, RW_FIELD_GENERATION, &generation) != 0) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no generation ");
-			continue;
+			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return;
 		}
 
 		uint64_t last_update_time;
@@ -527,7 +588,8 @@ apply_winner(rw_request* rw)
 		if (msg_get_uint64(m, RW_FIELD_LAST_UPDATE_TIME,
 				&last_update_time) != 0) {
 			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no last-update-time ");
-			continue;
+			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return;
 		}
 
 		// If previous best is better, no-op.
@@ -537,6 +599,8 @@ apply_winner(rw_request* rw)
 			continue;
 		}
 		// else - this one is better, keep it.
+
+		better_remote = true;
 
 		rr.src = rw->dest_nodes[i];
 		rr.record_buf = record_buf;
@@ -551,19 +615,11 @@ apply_winner(rw_request* rw)
 
 		msg_get_buf(m, RW_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
 				MSG_GET_DIRECT);
-
-		n++;
 	}
 
-	if (n > 0) {
-		// TODO - handle error!
-		as_record_replace_if_better(&rr, policy, false);
+	if (better_remote) {
+		rw->result_code = (uint8_t)
+				as_record_replace_if_better(&rr, policy, false);
 	}
-
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
-		if (rw->dup_msg[i]) {
-			as_fabric_msg_put(rw->dup_msg[i]);
-			rw->dup_msg[i] = NULL;
-		}
-	}
+	// else - local is best - rw->result_code was initialized to OK.
 }

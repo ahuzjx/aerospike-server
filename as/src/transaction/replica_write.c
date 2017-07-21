@@ -61,7 +61,8 @@
 
 uint32_t pack_info_bits(as_transaction* tr, bool has_udf);
 void send_repl_write_ack(cf_node node, msg* m, uint32_t result);
-
+bool repl_write_should_retransmit_replicas(uint32_t result_code);
+bool repl_write_should_fail_transaction(uint32_t result_code);
 int drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 		bool is_nsup_delete, bool is_xdr_op, cf_node master);
 
@@ -343,21 +344,6 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	// TODO - handle failure results other than CLUSTER_KEY_MISMATCH.
-	uint32_t result_code;
-
-	if (msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0) {
-		cf_warning(AS_RW, "repl-write ack: no result_code");
-		as_fabric_msg_put(m);
-		return;
-	}
-
-	// TODO - force retransmit to happen faster than default.
-	if (result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH) {
-		as_fabric_msg_put(m);
-		return;
-	}
-
 	rw_request_hkey hkey = { ns_id, *keyd };
 	rw_request* rw = rw_request_hash_get(&hkey);
 
@@ -371,6 +357,23 @@ repl_write_handle_ack(cf_node node, msg* m)
 
 	if (rw->tid != tid) {
 		// Extra ack, rw_request is that of newer transaction for same digest.
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	if (rw->repl_write_complete) {
+		// Ack arriving after rw_request was aborted.
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	if (! rw->from.any && rw->origin != FROM_NSUP &&
+			! rw->respond_client_on_master_completion) {
+		// Lost race against timeout in retransmit thread.
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
@@ -405,9 +408,42 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
+	uint32_t result_code;
+	bool no_result = msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0;
+
+	// If proceeding further is pointless, report failure to sender.
+	if (no_result || repl_write_should_fail_transaction(result_code)) {
+		if (no_result) {
+			cf_warning(AS_RW, "repl-write ack: no result_code");
+		}
+
+		if (! rw->respond_client_on_master_completion) {
+			rw->result_code = (uint8_t)result_code;
+			rw->repl_write_cb(rw);
+		}
+
+		rw->repl_write_complete = true;
+
+		pthread_mutex_unlock(&rw->lock);
+
+		rw_request_hash_delete(&hkey, rw);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
+
+	// If it makes sense, retransmit replicas.
+	if (repl_write_should_retransmit_replicas(result_code)) {
+		// TODO - force retransmit to happen faster than default - how ???
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
+
 	for (int j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
-			// Still haven't heard from all duplicates.
+			// Still haven't heard from all replicas.
 			pthread_mutex_unlock(&rw->lock);
 			rw_request_release(rw);
 			as_fabric_msg_put(m);
@@ -415,18 +451,12 @@ repl_write_handle_ack(cf_node node, msg* m)
 		}
 	}
 
-	if (! rw->from.any && rw->origin != FROM_NSUP &&
-			! rw->respond_client_on_master_completion) {
-		// Lost race against timeout in retransmit thread.
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
-
 	if (! rw->respond_client_on_master_completion) {
+		// Success for all replicas - rw->result_code was initialized to OK.
 		rw->repl_write_cb(rw);
 	}
+
+	rw->repl_write_complete = true;
 
 	pthread_mutex_unlock(&rw->lock);
 
@@ -437,7 +467,7 @@ repl_write_handle_ack(cf_node node, msg* m)
 
 
 //==========================================================
-// Local helpers - messages.
+// Local helpers.
 //
 
 uint32_t
@@ -479,9 +509,20 @@ send_repl_write_ack(cf_node node, msg* m, uint32_t result)
 }
 
 
-//==========================================================
-// Local helpers - drop  or write replicas.
-//
+bool
+repl_write_should_retransmit_replicas(uint32_t result_code)
+{
+	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
+}
+
+
+bool
+repl_write_should_fail_transaction(uint32_t result_code)
+{
+	return ! (result_code == AS_PROTO_RESULT_OK ||
+			result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
+}
+
 
 int
 drop_replica(as_partition_reservation* rsv, cf_digest* keyd,

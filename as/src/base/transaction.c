@@ -112,7 +112,7 @@ as_transaction_init_from_rw(as_transaction *tr, rw_request *rw)
 	// Note - destructor will still release the reservation.
 
 	tr->end_time = rw->end_time;
-	tr->result_code = AS_PROTO_RESULT_OK;
+	tr->result_code = rw->result_code;
 	tr->flags = 0;
 	tr->generation = rw->generation;
 	tr->void_time = rw->void_time;
