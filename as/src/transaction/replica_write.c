@@ -380,28 +380,19 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	int i;
+	// Find remote node in replicas list.
+	int i = index_of_node(rw->dest_nodes, rw->n_dest_nodes, node);
 
-	for (i = 0; i < rw->n_dest_nodes; i++) {
-		if (rw->dest_nodes[i] != node) {
-			continue;
-		}
-
-		if (rw->dest_complete[i]) {
-			// Extra ack for this replica write.
-			pthread_mutex_unlock(&rw->lock);
-			rw_request_release(rw);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		rw->dest_complete[i] = true;
-
-		break;
+	if (i == -1) {
+		cf_warning(AS_RW, "repl-write ack: from non-dest node %lx", node);
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
 	}
 
-	if (i == rw->n_dest_nodes) {
-		cf_warning(AS_RW, "repl-write ack: from non-dest node %lx", node);
+	if (rw->dest_complete[i]) {
+		// Extra ack for this replica write.
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
@@ -432,14 +423,17 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	// If it makes sense, retransmit replicas.
+	// If it makes sense, retransmit replicas. Note - rw->dest_complete[i] not
+	// yet set true, so that retransmit will go to this remote node.
 	if (repl_write_should_retransmit_replicas(result_code)) {
-		// TODO - force retransmit to happen faster than default - how ???
+		rw->xmit_ms = 0; // force retransmit on next cycle
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
 		return;
 	}
+
+	rw->dest_complete[i] = true;
 
 	for (int j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {

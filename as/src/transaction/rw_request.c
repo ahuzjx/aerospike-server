@@ -115,6 +115,10 @@ rw_request_create(cf_digest* keyd)
 
 	rw->n_dest_nodes = 0;
 
+	rw->best_dup_msg = NULL;
+	rw->best_dup_gen = 0;
+	rw->best_dup_lut = 0;
+
 	return rw;
 }
 
@@ -147,11 +151,8 @@ rw_request_destroy(rw_request* rw)
 			as_fabric_msg_put(rw->dest_msg);
 		}
 
-		// Can't use rw->n_dest_nodes - might now count replica-write nodes.
-		for (int i = 0; i < rw->rsv.n_dupl; i++) {
-			if (rw->dup_msg[i]) {
-				as_fabric_msg_put(rw->dup_msg[i]);
-			}
+		if (rw->best_dup_msg) {
+			as_fabric_msg_put(rw->best_dup_msg);
 		}
 
 		as_partition_release(&rw->rsv);

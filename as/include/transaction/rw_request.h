@@ -155,7 +155,9 @@ typedef struct rw_request_s {
 	bool				dest_complete[AS_CLUSTER_SZ];
 
 	// Duplicate resolution response messages from nodes with duplicates.
-	msg*				dup_msg[AS_CLUSTER_SZ];
+	msg*				best_dup_msg;
+	uint16_t			best_dup_gen;
+	uint64_t			best_dup_lut;
 
 } rw_request;
 

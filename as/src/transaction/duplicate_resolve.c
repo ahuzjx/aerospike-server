@@ -60,6 +60,7 @@ void send_dup_res_ack(cf_node node, msg* m, uint32_t result);
 void send_ack_for_bad_request(cf_node node, msg* m);
 bool dup_res_should_retry_transaction(uint32_t result_code);
 bool dup_res_should_fail_transaction(uint32_t result_code);
+uint32_t parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time);
 void apply_winner(rw_request* rw);
 
 
@@ -137,7 +138,6 @@ dup_res_setup_rw(rw_request* rw, as_transaction* tr, dup_res_done_cb dup_res_cb,
 	for (int i = 0; i < rw->n_dest_nodes; i++) {
 		rw->dest_complete[i] = false;
 		rw->dest_nodes[i] = tr->rsv.dupl_nodes[i];
-		rw->dup_msg[i] = NULL;
 	}
 
 	// Allow retransmit thread to destroy rw as soon as we unlock.
@@ -337,28 +337,10 @@ dup_res_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	int i;
+	// Find remote node in duplicates list.
+	int i = index_of_node(rw->dest_nodes, rw->n_dest_nodes, node);
 
-	for (i = 0; i < rw->n_dest_nodes; i++) {
-		if (rw->dest_nodes[i] != node) {
-			continue;
-		}
-
-		if (rw->dest_complete[i]) {
-			// Extra ack for this duplicate.
-			pthread_mutex_unlock(&rw->lock);
-			rw_request_release(rw);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		rw->dest_complete[i] = true;
-		rw->dup_msg[i] = m;
-
-		break;
-	}
-
-	if (i == rw->n_dest_nodes) {
+	if (i == -1) {
 		cf_warning(AS_RW, "dup-res ack: from non-dest node %lx", node);
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
@@ -366,22 +348,28 @@ dup_res_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	// We've saved m - so from here down we never call as_fabric_msg_put(m)!
+	if (rw->dest_complete[i]) {
+		// Extra ack for this duplicate.
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
 
-	uint32_t result_code;
-	bool no_result = msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0;
+	rw->dest_complete[i] = true;
+
+	uint32_t generation = 0;
+	uint64_t last_update_time = 0;
+	uint32_t result_code = parse_dup_meta(m, &generation, &last_update_time);
 
 	// If proceeding further is pointless, report failure to sender.
-	if (no_result || dup_res_should_fail_transaction(result_code)) {
+	if (dup_res_should_fail_transaction(result_code)) {
 		if (! rw->from.any) {
 			// Lost race against timeout in retransmit thread.
 			pthread_mutex_unlock(&rw->lock);
 			rw_request_release(rw);
+			as_fabric_msg_put(m);
 			return;
-		}
-
-		if (no_result) {
-			cf_warning(AS_RW, "dup-res ack: no result_code");
 		}
 
 		rw->result_code = (uint8_t)result_code;
@@ -392,15 +380,18 @@ dup_res_handle_ack(cf_node node, msg* m)
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_hash_delete(&hkey, rw);
 		rw_request_release(rw);
+		as_fabric_msg_put(m);
 		return;
 	}
 
 	// If it makes sense, retry transaction from the beginning.
+	// TODO - is this retry too fast? Should there be a throttle? If so, how?
 	if (dup_res_should_retry_transaction(result_code)) {
 		if (! rw->from.any) {
 			// Lost race against timeout in retransmit thread.
 			pthread_mutex_unlock(&rw->lock);
 			rw_request_release(rw);
+			as_fabric_msg_put(m);
 			return;
 		}
 
@@ -419,14 +410,36 @@ dup_res_handle_ack(cf_node node, msg* m)
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_hash_delete(&hkey, rw);
 		rw_request_release(rw);
+		as_fabric_msg_put(m);
 		return;
 	}
 
+	// If this duplicate is no better than previous best, no-op.
+	if (rw->best_dup_msg &&
+			as_record_resolve_conflict(rw->rsv.ns->conflict_resolution_policy,
+					rw->best_dup_gen, rw->best_dup_lut,
+					(uint16_t)generation, last_update_time) <= 0) {
+		pthread_mutex_unlock(&rw->lock);
+		rw_request_release(rw);
+		as_fabric_msg_put(m);
+		return;
+	}
+	// else - this one is better, keep it.
+
+	if (rw->best_dup_msg) {
+		as_fabric_msg_put(rw->best_dup_msg);
+	}
+
+	// Save m - from here down we never call as_fabric_msg_put(m)!
+
+	msg_preserve_all_fields(m);
+	rw->best_dup_msg = m;
+	rw->best_dup_gen = generation;
+	rw->best_dup_lut = last_update_time;
+
 	for (int j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
-			// Still haven't heard from all duplicates, so save this response.
-			msg_preserve_all_fields(rw->dup_msg[i]);
-
+			// Still haven't heard from all duplicates.
 			pthread_mutex_unlock(&rw->lock);
 			rw_request_release(rw);
 			return;
@@ -434,14 +447,6 @@ dup_res_handle_ack(cf_node node, msg* m)
 	}
 
 	apply_winner(rw); // sets rw->result_code to pass along to callback
-
-	// Free all the saved messages.
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
-		if (rw->dup_msg[i]) {
-			as_fabric_msg_put(rw->dup_msg[i]);
-			rw->dup_msg[i] = NULL;
-		}
-	}
 
 	// Check for lost race against timeout in retransmit thread *after* applying
 	// winner - may save a future transaction from re-fetching the duplicates.
@@ -531,95 +536,88 @@ dup_res_should_fail_transaction(uint32_t result_code)
 }
 
 
+uint32_t
+parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
+{
+	uint32_t result_code;
+
+	if (msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0) {
+		cf_warning(AS_RW, "dup-res ack: no result_code");
+		return AS_PROTO_RESULT_FAIL_UNKNOWN;
+	}
+
+	if (dup_res_should_fail_transaction(result_code) ||
+			dup_res_should_retry_transaction(result_code) ||
+			// With these result codes, msg fields below aren't sent.
+			result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
+		return result_code;
+	}
+
+	if (msg_get_uint32(m, RW_FIELD_GENERATION, p_generation) != 0) {
+		cf_warning(AS_RW, "dup-res ack: no generation");
+		return AS_PROTO_RESULT_FAIL_UNKNOWN;
+	}
+
+	if (msg_get_uint64(m, RW_FIELD_LAST_UPDATE_TIME, p_last_update_time) != 0) {
+		cf_warning(AS_RW, "dup-res ack: no last-update-time");
+		return AS_PROTO_RESULT_FAIL_UNKNOWN;
+	}
+
+	return result_code;
+}
+
+
 void
 apply_winner(rw_request* rw)
 {
-	bool better_remote = false;
-	as_remote_record rr = { .rsv = &rw->rsv, .keyd = &rw->keyd };
-	conflict_resolution_pol policy = rw->rsv.ns->conflict_resolution_policy;
+	msg* m = rw->best_dup_msg;
 
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
-		msg* m = rw->dup_msg[i];
+	uint32_t result_code;
 
-		if (! m) {
-			// We can mark a dest node complete without getting a response.
-			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
+	// FIXME - best node index could fetch best dup result.
+	// Already made sure this field is present.
+	msg_get_uint32(m, RW_FIELD_RESULT, &result_code);
 
-		uint32_t result_code;
+	if (result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
+		// Remote record is no better than local - rw->result_code was
+		// initialized to OK.
+		return;
+	}
+	// else - result_code OK - remote record thinks it's better than local.
 
-		// Already made sure this field is present.
-		msg_get_uint32(m, RW_FIELD_RESULT, &result_code);
+	as_remote_record rr = {
+			.rsv = &rw->rsv,
+			.keyd = &rw->keyd,
+			.generation = rw->best_dup_gen,
+			.last_update_time = rw->best_dup_lut
+	};
 
-		if (result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
-				result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
-			// Remote record is no better than local.
-			continue;
-		}
-		// else - result_code OK - remote record thinks it's better than local.
-
-		uint8_t* record_buf;
-		size_t record_buf_sz;
-
-		if (msg_get_buf(m, RW_FIELD_RECORD, &record_buf, &record_buf_sz,
-				MSG_GET_DIRECT) != 0 || record_buf_sz < 2) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no record ");
-			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
-
-		if (dup_res_ignore_pickle(record_buf, m)) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: binless pickle ");
-			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
-
-		uint32_t generation;
-
-		if (msg_get_uint32(m, RW_FIELD_GENERATION, &generation) != 0) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no generation ");
-			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
-
-		uint64_t last_update_time;
-
-		if (msg_get_uint64(m, RW_FIELD_LAST_UPDATE_TIME,
-				&last_update_time) != 0) {
-			cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no last-update-time ");
-			rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
-
-		// If previous best is better, no-op.
-		if (rr.record_buf && as_record_resolve_conflict(policy,
-				(uint16_t)rr.generation, rr.last_update_time,
-				generation, last_update_time) <= 0) {
-			continue;
-		}
-		// else - this one is better, keep it.
-
-		better_remote = true;
-
-		rr.src = rw->dest_nodes[i];
-		rr.record_buf = record_buf;
-		rr.record_buf_sz = record_buf_sz;
-		rr.generation = generation;
-		rr.last_update_time = last_update_time;
-
-		msg_get_uint32(m, RW_FIELD_VOID_TIME, &rr.void_time);
-
-		msg_get_buf(m, RW_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
-				&rr.set_name_len, MSG_GET_DIRECT);
-
-		msg_get_buf(m, RW_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
-				MSG_GET_DIRECT);
+	if (msg_get_buf(m, RW_FIELD_RECORD, &rr.record_buf, &rr.record_buf_sz,
+			MSG_GET_DIRECT) != 0 || rr.record_buf_sz < 2) {
+		cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: no record ");
+		rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+		return;
 	}
 
-	if (better_remote) {
-		rw->result_code = (uint8_t)
-				as_record_replace_if_better(&rr, policy, false);
+	if (dup_res_ignore_pickle(rr.record_buf, m)) {
+		cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: binless pickle ");
+		rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+		return;
 	}
-	// else - local is best - rw->result_code was initialized to OK.
+
+	// FIXME - could store best node index - worth it?
+//	rr.src = rw->dest_nodes[i];
+
+	msg_get_uint32(m, RW_FIELD_VOID_TIME, &rr.void_time);
+
+	msg_get_buf(m, RW_FIELD_SET_NAME, (uint8_t **)&rr.set_name,
+			&rr.set_name_len, MSG_GET_DIRECT);
+
+	msg_get_buf(m, RW_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
+			MSG_GET_DIRECT);
+
+	rw->result_code = (uint8_t)as_record_replace_if_better(&rr,
+			rw->rsv.ns->conflict_resolution_policy, false);
 }
