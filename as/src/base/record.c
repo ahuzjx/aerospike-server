@@ -72,6 +72,7 @@ int record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete);
 
 void update_index_metadata(as_remote_record *rr, index_metadata *old, as_record *r);
 void unwind_index_metadata(const index_metadata *old, as_record *r);
+void unwind_dim_single_bin(as_bin* old_bin, as_bin* new_bin);
 
 int unpickle_bins(as_remote_record *rr, as_storage_rd *rd, cf_ll_buf *particles_llb);
 
@@ -564,8 +565,7 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 	if (n_new_bins == 1 &&
 			(result = unpickle_bins(rr, rd, NULL)) < 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bin ", ns->name);
-		as_bin_particle_destroy(rd->bins, true);
-		as_single_bin_copy(rd->bins, &old_bin);
+		unwind_dim_single_bin(&old_bin, rd->bins);
 		return -result;
 	}
 
@@ -578,8 +578,7 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 	if ((result = as_record_write_from_pickle(rd)) < 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed write ", ns->name);
 		unwind_index_metadata(&old_metadata, r);
-		as_bin_particle_destroy(rd->bins, true);
-		as_single_bin_copy(rd->bins, &old_bin);
+		unwind_dim_single_bin(&old_bin, rd->bins);
 		return -result;
 	}
 
@@ -836,6 +835,17 @@ unwind_index_metadata(const index_metadata *old, as_record *r)
 	r->void_time = old->void_time;
 	r->last_update_time = old->last_update_time;
 	r->generation = old->generation;
+}
+
+
+void
+unwind_dim_single_bin(as_bin* old_bin, as_bin* new_bin)
+{
+	if (as_bin_inuse(new_bin)) {
+		as_bin_particle_destroy(new_bin, true);
+	}
+
+	as_single_bin_copy(new_bin, old_bin);
 }
 
 
