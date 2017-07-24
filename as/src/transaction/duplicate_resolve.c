@@ -414,28 +414,29 @@ dup_res_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	// If this duplicate is no better than previous best, no-op.
-	if (rw->best_dup_msg &&
+	// Compare this duplicate with previous best, if any.
+	bool keep_previous_best = rw->best_dup_msg &&
 			as_record_resolve_conflict(rw->rsv.ns->conflict_resolution_policy,
 					rw->best_dup_gen, rw->best_dup_lut,
-					(uint16_t)generation, last_update_time) <= 0) {
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
+					(uint16_t)generation, last_update_time) <= 0;
+
+	if (keep_previous_best) {
+		// This duplicate is no better than previous best - keep previous best.
 		as_fabric_msg_put(m);
-		return;
 	}
-	// else - this one is better, keep it.
+	else {
+		// No previous best, or this duplicate is better - keep this one.
+		if (rw->best_dup_msg) {
+			as_fabric_msg_put(rw->best_dup_msg);
+		}
 
-	if (rw->best_dup_msg) {
-		as_fabric_msg_put(rw->best_dup_msg);
+		msg_preserve_all_fields(m);
+		rw->best_dup_msg = m;
+		rw->best_dup_gen = generation;
+		rw->best_dup_lut = last_update_time;
 	}
 
-	// Save m - from here down we never call as_fabric_msg_put(m)!
-
-	msg_preserve_all_fields(m);
-	rw->best_dup_msg = m;
-	rw->best_dup_gen = generation;
-	rw->best_dup_lut = last_update_time;
+	// Saved or discarded m - from here down don't call as_fabric_msg_put(m)!
 
 	for (int j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
