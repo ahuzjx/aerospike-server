@@ -545,17 +545,18 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 		memory_bytes = as_storage_record_get_n_bytes_memory(rd);
 	}
 
-	// Copy existing bin into old_bin to enable unwinding.
-	as_bin old_bin;
-
-	as_single_bin_copy(&old_bin, rd->bins);
-
 	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
 
 	if (n_new_bins > 1) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: single-bin got %u bins ", ns->name, n_new_bins);
 		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
+
+	// Keep old bin intact for unwinding, clear record bin for incoming.
+	as_bin old_bin;
+
+	as_single_bin_copy(&old_bin, rd->bins);
+	as_bin_set_empty(rd->bins);
 
 	int result;
 
@@ -564,6 +565,7 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 			(result = unpickle_bins(rr, rd, NULL)) < 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bin ", ns->name);
 		as_bin_particle_destroy(rd->bins, true);
+		as_single_bin_copy(rd->bins, &old_bin);
 		return -result;
 	}
 
@@ -577,6 +579,7 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed write ", ns->name);
 		unwind_index_metadata(&old_metadata, r);
 		as_bin_particle_destroy(rd->bins, true);
+		as_single_bin_copy(rd->bins, &old_bin);
 		return -result;
 	}
 
@@ -605,12 +608,11 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	// For memory accounting, note current usage.
 	uint64_t memory_bytes = as_storage_record_get_n_bytes_memory(rd);
 
-	// Copy existing bins to new space, and keep old bins intact for sindex
-	// adjustment and so it's possible to unwind on failure.
+	// Keep old bins intact for sindex adjustment and unwinding.
 	uint16_t n_old_bins = rd->n_bins;
-	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
-
 	as_bin* old_bins = rd->bins;
+
+	uint16_t n_new_bins = cf_swap_from_be16(*(uint16_t *)rr->record_buf);
 	as_bin new_bins[n_new_bins];
 
 	memset(new_bins, 0, sizeof(new_bins));
@@ -626,15 +628,6 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 		return -result;
 	}
 
-	as_bin_space* new_bin_space = NULL;
-
-	if (n_new_bins != 0) {
-		new_bin_space = (as_bin_space*)
-				cf_malloc_ns(sizeof(as_bin_space) + sizeof(new_bins));
-
-		cf_assert(new_bin_space, AS_RECORD, "alloc failed");
-	}
-
 	// Apply changes to metadata in as_index needed for and writing.
 	index_metadata old_metadata;
 
@@ -643,11 +636,6 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	// Write the record to storage.
 	if ((result = as_record_write_from_pickle(rd)) < 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed write ", ns->name);
-
-		if (new_bin_space) {
-			cf_free(new_bin_space);
-		}
-
 		unwind_index_metadata(&old_metadata, r);
 		destroy_stack_bins(new_bins, n_new_bins);
 		return -result;
@@ -663,7 +651,14 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	destroy_stack_bins(old_bins, n_old_bins);
 
 	// Fill out new_bin_space.
+	as_bin_space* new_bin_space = NULL;
+
 	if (n_new_bins != 0) {
+		new_bin_space = (as_bin_space*)
+				cf_malloc_ns(sizeof(as_bin_space) + sizeof(new_bins));
+
+		cf_assert(new_bin_space, AS_RECORD, "alloc failed");
+
 		new_bin_space->n_bins = rd->n_bins;
 		memcpy((void*)new_bin_space->bins, new_bins, sizeof(new_bins));
 	}
