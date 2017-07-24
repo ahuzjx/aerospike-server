@@ -135,7 +135,7 @@ dup_res_setup_rw(rw_request* rw, as_transaction* tr, dup_res_done_cb dup_res_cb,
 
 	rw->n_dest_nodes = tr->rsv.n_dupl;
 
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
+	for (uint32_t i = 0; i < rw->n_dest_nodes; i++) {
 		rw->dest_complete[i] = false;
 		rw->dest_nodes[i] = tr->rsv.dupl_nodes[i];
 	}
@@ -321,16 +321,9 @@ dup_res_handle_ack(cf_node node, msg* m)
 
 	pthread_mutex_lock(&rw->lock);
 
-	if (rw->tid != tid) {
-		// Extra ack, rw_request is that of newer transaction for same digest.
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
-
-	if (rw->dup_res_complete) {
-		// Ack arriving after rw_request was aborted or finished dup-res.
+	if (rw->tid != tid || rw->dup_res_complete) {
+		// Extra ack - rw_request is newer transaction for same digest, or ack
+		// is arriving after rw_request was aborted or finished dup-res.
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
@@ -438,7 +431,7 @@ dup_res_handle_ack(cf_node node, msg* m)
 
 	// Saved or discarded m - from here down don't call as_fabric_msg_put(m)!
 
-	for (int j = 0; j < rw->n_dest_nodes; j++) {
+	for (uint32_t j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
 			// Still haven't heard from all duplicates.
 			pthread_mutex_unlock(&rw->lock);

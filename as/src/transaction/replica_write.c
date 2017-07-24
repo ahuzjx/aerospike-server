@@ -180,7 +180,7 @@ repl_write_setup_rw(rw_request* rw, as_transaction* tr,
 	rw->xmit_ms = cf_getms() + g_config.transaction_retry_ms;
 	rw->retry_interval_ms = g_config.transaction_retry_ms;
 
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
+	for (uint32_t i = 0; i < rw->n_dest_nodes; i++) {
 		rw->dest_complete[i] = false;
 	}
 
@@ -206,7 +206,7 @@ repl_write_reset_rw(rw_request* rw, as_transaction* tr, repl_write_done_cb cb)
 	rw->xmit_ms = cf_getms() + g_config.transaction_retry_ms;
 	rw->retry_interval_ms = g_config.transaction_retry_ms;
 
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
+	for (uint32_t i = 0; i < rw->n_dest_nodes; i++) {
 		rw->dest_complete[i] = false;
 	}
 }
@@ -355,16 +355,9 @@ repl_write_handle_ack(cf_node node, msg* m)
 
 	pthread_mutex_lock(&rw->lock);
 
-	if (rw->tid != tid) {
-		// Extra ack, rw_request is that of newer transaction for same digest.
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
-
-	if (rw->repl_write_complete) {
-		// Ack arriving after rw_request was aborted.
+	if (rw->tid != tid || rw->repl_write_complete) {
+		// Extra ack - rw_request is newer transaction for same digest, or ack
+		// is arriving after rw_request was aborted.
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
@@ -416,7 +409,6 @@ repl_write_handle_ack(cf_node node, msg* m)
 		rw->repl_write_complete = true;
 
 		pthread_mutex_unlock(&rw->lock);
-
 		rw_request_hash_delete(&hkey, rw);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);
@@ -435,7 +427,7 @@ repl_write_handle_ack(cf_node node, msg* m)
 
 	rw->dest_complete[i] = true;
 
-	for (int j = 0; j < rw->n_dest_nodes; j++) {
+	for (uint32_t j = 0; j < rw->n_dest_nodes; j++) {
 		if (! rw->dest_complete[j]) {
 			// Still haven't heard from all replicas.
 			pthread_mutex_unlock(&rw->lock);
@@ -453,7 +445,6 @@ repl_write_handle_ack(cf_node node, msg* m)
 	rw->repl_write_complete = true;
 
 	pthread_mutex_unlock(&rw->lock);
-
 	rw_request_hash_delete(&hkey, rw);
 	rw_request_release(rw);
 	as_fabric_msg_put(m);

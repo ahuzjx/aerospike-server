@@ -150,7 +150,7 @@ typedef struct rw_request_s {
 	uint32_t			retry_interval_ms; // interval to add for next retransmit
 
 	// Destination info for duplicate resolution and replica write requests.
-	int					n_dest_nodes;
+	uint32_t			n_dest_nodes;
 	cf_node				dest_nodes[AS_CLUSTER_SZ];
 	bool				dest_complete[AS_CLUSTER_SZ];
 

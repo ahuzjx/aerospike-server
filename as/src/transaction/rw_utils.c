@@ -77,7 +77,7 @@ xdr_allows_write(as_transaction* tr)
 void
 send_rw_messages(rw_request* rw)
 {
-	for (int i = 0; i < rw->n_dest_nodes; i++) {
+	for (uint32_t i = 0; i < rw->n_dest_nodes; i++) {
 		if (rw->dest_complete[i]) {
 			continue;
 		}
