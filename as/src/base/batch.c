@@ -457,20 +457,20 @@ as_batch_buffer_pop(as_batch_shared* shared, uint32_t size)
 		else if (status == CF_QUEUE_EMPTY) {
 			// Queue is empty.  Create new buffer.
 			buffer = as_batch_buffer_create(batch_buffer_pool.buffer_size);
+		}
+		else {
+			cf_warning(AS_BATCH, "Failed to pop new batch buffer: %d", status);
+			// Try to allocate small buffer with just header.
+			as_batch_buffer* buffer = cf_malloc(sizeof(as_batch_buffer));
+			buffer->capacity = 0;
+			buffer->size = 0;
+			buffer->tran_count = 1;
+			buffer->writers = 2;
+			shared->buffer = buffer;
+			shared->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return 0;
+		}
 	}
-	else {
-		cf_warning(AS_BATCH, "Failed to pop new batch buffer: %d", status);
-		// Try to allocate small buffer with just header.
-		as_batch_buffer* buffer = cf_malloc(sizeof(as_batch_buffer));
-		buffer->capacity = 0;
-		buffer->size = 0;
-		buffer->tran_count = 1;
-		buffer->writers = 2;
-		shared->buffer = buffer;
-		shared->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		return 0;
-	}
-}
 
 	// Reserve a slot in new buffer.
 	buffer->size = size;
@@ -636,7 +636,7 @@ as_batch_queue_task(as_transaction* btr)
 	as_proto* bproto = &btr->msgp->proto;
 
 	if (bproto->sz > PROTO_SIZE_MAX) {
-		cf_warning(AS_BATCH, "can't process message: invalid size %"PRIu64" should be %d or less",
+		cf_warning(AS_BATCH, "can't process message: invalid size %lu should be %d or less",
 				(uint64_t)bproto->sz, PROTO_SIZE_MAX);
 		return as_batch_send_error(btr, AS_PROTO_RESULT_FAIL_PARAMETER);
 	}

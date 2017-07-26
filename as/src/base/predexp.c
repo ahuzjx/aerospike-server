@@ -22,6 +22,7 @@
 
 #include "base/predexp.h"
 
+#include <inttypes.h>
 #include <regex.h>
 
 #include <aerospike/as_arraylist.h>
