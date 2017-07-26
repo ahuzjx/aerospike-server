@@ -59,17 +59,18 @@
 
 
 //==========================================================
-// Globals.
+// Typedefs & constants.
 //
 
-pthread_t g_nsup_thread;
+#define EVAL_STOP_WRITES_PERIOD 10 // seconds
 
 
 //==========================================================
 // Forward declarations.
 //
 
-static void eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes);
+static bool eval_stop_writes(as_namespace *ns);
+static bool eval_hwm_breached(as_namespace *ns);
 
 
 //==========================================================
@@ -310,20 +311,15 @@ as_cold_start_evict_if_needed(as_namespace* ns)
 		cf_atomic32_set(&ns->cold_start_threshold_void_time, now);
 	}
 
-	// Evaluate whether or not we need to evict.
-	bool hwm_breached = false, stop_writes = false;
-
-	eval_write_state(ns, &hwm_breached, &stop_writes);
-
 	// Are we out of control?
-	if (stop_writes) {
+	if (eval_stop_writes(ns)) {
 		cf_warning(AS_NSUP, "{%s} hit stop-writes limit", ns->name);
 		pthread_mutex_unlock(&ns->cold_start_evict_lock);
 		return false;
 	}
 
 	// If we don't need to evict, we're done.
-	if (! hwm_breached) {
+	if (! eval_hwm_breached(ns)) {
 		pthread_mutex_unlock(&ns->cold_start_evict_lock);
 		return true;
 	}
@@ -515,7 +511,6 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 
 
 static cf_queue* g_p_nsup_delete_q = NULL;
-static pthread_t g_nsup_delete_thread;
 
 int
 as_nsup_queue_get_size()
@@ -945,7 +940,7 @@ update_stats(as_namespace* ns, uint64_t n_master, uint64_t n_0_void_time,
 // Namespace supervisor thread "run" function.
 //
 void *
-thr_nsup(void *arg)
+run_nsup(void *arg)
 {
 	// Garbage-collect long-expired proles, one partition per loop.
 	int prole_pids[g_config.n_namespaces];
@@ -1024,15 +1019,7 @@ thr_nsup(void *arg)
 
 			// Check whether or not we need to do general eviction.
 
-			bool hwm_breached = false, stop_writes = false;
-
-			eval_write_state(ns, &hwm_breached, &stop_writes);
-
-			// Store the state of the threshold breaches.
-			cf_atomic32_set(&ns->stop_writes, stop_writes ? 1 : 0);
-			cf_atomic32_set(&ns->hwm_breached, hwm_breached ? 1 : 0);
-
-			if (hwm_breached) {
+			if (eval_hwm_breached(ns)) {
 				// Eviction is necessary.
 
 				linear_hist_clear(ns->obj_size_hist, 0, cf_atomic32_get(ns->obj_size_hist_max));
@@ -1146,6 +1133,23 @@ thr_nsup(void *arg)
 }
 
 //------------------------------------------------
+// Namespace stop-writes thread "run" function.
+//
+void *
+run_stop_writes(void *arg)
+{
+	while (true) {
+		sleep(EVAL_STOP_WRITES_PERIOD);
+
+		for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
+			eval_stop_writes(g_config.namespaces[ns_ix]);
+		}
+	}
+
+	return NULL;
+}
+
+//------------------------------------------------
 // Start supervisor threads.
 //
 void
@@ -1161,14 +1165,25 @@ as_nsup_start()
 
 	cf_info(AS_NSUP, "starting namespace supervisor threads");
 
+	pthread_t thread;
+	pthread_attr_t attrs;
+
+	pthread_attr_init(&attrs);
+	pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+
 	// Start thread to handle all nsup-generated deletions.
-	if (0 != pthread_create(&g_nsup_delete_thread, 0, run_nsup_delete, NULL)) {
+	if (0 != pthread_create(&thread, &attrs, run_nsup_delete, NULL)) {
 		cf_crash(AS_NSUP, "nsup delete thread create failed");
 	}
 
 	// Start namespace supervisor thread to do expiration & eviction.
-	if (0 != pthread_create(&g_nsup_thread, NULL, thr_nsup, NULL)) {
+	if (0 != pthread_create(&thread, &attrs, run_nsup, NULL)) {
 		cf_crash(AS_NSUP, "nsup thread create failed");
+	}
+
+	// Start thread to do stop-writes evaluation.
+	if (0 != pthread_create(&thread, &attrs, run_stop_writes, NULL)) {
+		cf_crash(AS_NSUP, "nsup stop-writes thread create failed");
 	}
 }
 
@@ -1177,24 +1192,16 @@ as_nsup_start()
 // Local helpers.
 //
 
-static void
-eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes)
+static bool
+eval_stop_writes(as_namespace *ns)
 {
-	*hwm_breached = false;
-	*stop_writes = false;
-
-	// Compute the high-watermarks - memory.
-	uint64_t mem_hwm = (ns->memory_size * ns->hwm_memory_pct) / 100;
+	// Compute the high-watermark.
 	uint64_t mem_stop_writes = (ns->memory_size * ns->stop_writes_pct) / 100;
 
-	// Compute the high-watermark - disk.
-	uint64_t ssd_hwm = (ns->ssd_size * ns->hwm_disk_pct) / 100;
-
-	// Compute disk usage for namespace.
-	uint64_t used_disk_sz = 0;
+	// Compute disk available percent for namespace.
 	int disk_avail_pct = 0;
 
-	as_storage_stats(ns, &disk_avail_pct, &used_disk_sz);
+	as_storage_stats(ns, &disk_avail_pct, NULL);
 
 	// Compute memory usage for namespace.
 	uint64_t index_sz = ns->n_objects * as_index_size_get(ns);
@@ -1204,47 +1211,97 @@ eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes)
 	uint64_t memory_sz = index_sz + tombstone_index_sz + data_in_memory_sz + sindex_sz;
 
 	// Possible reasons for eviction or stopping writes.
-	// (We don't use all combinations, but in case we change our minds...)
 	static const char* reasons[] = {
-		"", " (memory)", " (disk)", " (memory & disk)", " (disk avail pct)", " (memory & disk avail pct)", " (disk & disk avail pct)", " (all)"
+		NULL, "(memory)", "(disk avail-pct)", "(memory & disk avail-pct)"
 	};
 
-	// Check if the high water mark is breached.
-	uint32_t how_breached = 0x0;
-
-	if (memory_sz > mem_hwm) {
-		*hwm_breached = true;
-		how_breached = 0x1;
-	}
-
-	if (used_disk_sz > ssd_hwm) {
-		*hwm_breached = true;
-		how_breached |= 0x2;
-	}
-
 	// Check if the writes should be stopped.
+	bool stop_writes = false;
 	uint32_t why_stopped = 0x0;
 
 	if (memory_sz > mem_stop_writes) {
-		*stop_writes = true;
+		stop_writes = true;
 		why_stopped = 0x1;
 	}
 
 	if (disk_avail_pct < (int)ns->storage_min_avail_pct) {
-		*stop_writes = true;
-		why_stopped |= 0x4;
+		stop_writes = true;
+		why_stopped |= 0x2;
 	}
 
-	if (*hwm_breached || *stop_writes) {
-		cf_warning(AS_NAMESPACE, "{%s} hwm_breached %s%s, stop_writes %s%s, memory sz:%lu (%lu + %lu) hwm:%lu sw:%lu, disk sz:%lu hwm:%lu",
-				ns->name, *hwm_breached ? "true" : "false", reasons[how_breached], *stop_writes ? "true" : "false", reasons[why_stopped],
-				memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes,
+	if (stop_writes) {
+		cf_warning(AS_NSUP, "{%s} breached stop-writes limit %s, memory sz:%lu (%lu + %lu) limit:%lu, disk avail-pct:%d",
+				ns->name, reasons[why_stopped],
+				memory_sz, index_sz, data_in_memory_sz, mem_stop_writes,
+				disk_avail_pct);
+	}
+	else {
+		cf_debug(AS_NSUP, "{%s} stop-writes limit not breached, memory sz:%lu (%lu + %lu) limit:%lu, disk avail-pct:%d",
+				ns->name,
+				memory_sz, index_sz, data_in_memory_sz, mem_stop_writes,
+				disk_avail_pct);
+	}
+
+	cf_atomic32_set(&ns->stop_writes, stop_writes ? 1 : 0);
+
+	return stop_writes;
+}
+
+static bool
+eval_hwm_breached(as_namespace *ns)
+{
+	// Compute the high-watermark - memory.
+	uint64_t mem_hwm = (ns->memory_size * ns->hwm_memory_pct) / 100;
+
+	// Compute the high-watermark - disk.
+	uint64_t ssd_hwm = (ns->ssd_size * ns->hwm_disk_pct) / 100;
+
+	// Compute disk usage for namespace.
+	uint64_t used_disk_sz = 0;
+
+	as_storage_stats(ns, NULL, &used_disk_sz);
+
+	// Compute memory usage for namespace.
+	uint64_t index_sz = ns->n_objects * as_index_size_get(ns);
+	uint64_t tombstone_index_sz = ns->n_tombstones * as_index_size_get(ns);
+	uint64_t sindex_sz = ns->n_bytes_sindex_memory;
+	uint64_t data_in_memory_sz = ns->n_bytes_memory;
+	uint64_t memory_sz = index_sz + tombstone_index_sz + data_in_memory_sz + sindex_sz;
+
+	// Possible reasons for eviction.
+	// (We don't use all combinations, but in case we change our minds...)
+	static const char* reasons[] = {
+		NULL, "(memory)", "(disk)", "(memory & disk)"
+	};
+
+	// Check if either high water mark is breached.
+	bool hwm_breached = false;
+	uint32_t how_breached = 0x0;
+
+	if (memory_sz > mem_hwm) {
+		hwm_breached = true;
+		how_breached = 0x1;
+	}
+
+	if (used_disk_sz > ssd_hwm) {
+		hwm_breached = true;
+		how_breached |= 0x2;
+	}
+
+	if (hwm_breached) {
+		cf_warning(AS_NSUP, "{%s} breached eviction hwm %s, memory sz:%lu (%lu + %lu) hwm:%lu, disk sz:%lu hwm:%lu",
+				ns->name, reasons[how_breached],
+				memory_sz, index_sz, data_in_memory_sz, mem_hwm,
 				used_disk_sz, ssd_hwm);
 	}
 	else {
-		cf_debug(AS_NAMESPACE, "{%s} hwm_breached false, stop_writes false, memory sz:%lu (%lu + %lu) hwm:%lu sw:%lu, disk sz:%lu hwm:%lu",
+		cf_debug(AS_NSUP, "{%s} neither eviction hwm breached, memory sz:%lu (%lu + %lu) hwm:%lu, disk sz:%lu hwm:%lu",
 				ns->name,
-				memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes,
+				memory_sz, index_sz, data_in_memory_sz, mem_hwm,
 				used_disk_sz, ssd_hwm);
 	}
+
+	cf_atomic32_set(&ns->hwm_breached, hwm_breached ? 1 : 0);
+
+	return hwm_breached;
 }
