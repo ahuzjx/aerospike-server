@@ -347,11 +347,10 @@ as_proxy_send_response(cf_node dst, uint32_t proxy_tid, uint32_t result_code,
 	msg_set_uint32(m, PROXY_FIELD_TID, proxy_tid);
 
 	size_t msg_sz = 0;
-	cl_msg* msgp = as_msg_make_response_msg(result_code, generation, void_time,
-			ops, bins, bin_count, ns, 0, &msg_sz, trid, set_name);
+	uint8_t* msgp = (uint8_t*)as_msg_make_response_msg(result_code, generation,
+			void_time, ops, bins, bin_count, ns, 0, &msg_sz, trid, set_name);
 
-	msg_set_buf(m, PROXY_FIELD_AS_PROTO, (uint8_t*)msgp, msg_sz,
-			MSG_SET_HANDOFF_MALLOC);
+	msg_set_buf(m, PROXY_FIELD_AS_PROTO, msgp, msg_sz, MSG_SET_HANDOFF_MALLOC);
 
 	if (as_fabric_send(dst, m, AS_FABRIC_CHANNEL_RW) != AS_FABRIC_SUCCESS) {
 		as_fabric_msg_put(m);

@@ -48,6 +48,7 @@
 #include "base/as_stap.h"
 #include "base/batch.h"
 #include "base/cfg.h"
+#include "base/datamodel.h"
 #include "base/packet_compression.h"
 #include "base/proto.h"
 #include "base/security.h"
@@ -210,7 +211,7 @@ thr_demarshal_reaper_fn(void *arg)
 
 		// Validate the system statistics.
 		if (g_stats.proto_connections_opened - g_stats.proto_connections_closed != inuse_cnt) {
-			cf_debug(AS_DEMARSHAL, "reaper: mismatched connection count:  %"PRIu64" in stats vs %u calculated",
+			cf_debug(AS_DEMARSHAL, "reaper: mismatched connection count:  %lu in stats vs %u calculated",
 					g_stats.proto_connections_opened - g_stats.proto_connections_closed,
 					inuse_cnt);
 		}
@@ -355,6 +356,22 @@ thr_demarshal_config_xdr(cf_socket *sock)
 	cf_socket_set_window(sock, XDR_READ_BUFFER_SIZE);
 	cf_socket_enable_nagle(sock);
 	return 0;
+}
+
+bool
+peek_data_in_memory(const as_msg *m)
+{
+	as_msg_field *f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_NAMESPACE);
+
+	if (! f) {
+		// Should never happen, but don't bark here.
+		return false;
+	}
+
+	as_namespace *ns = as_namespace_get_bymsgfield(f);
+
+	// If ns is null, don't be the first to bark.
+	return ns && ns->storage_data_in_memory;
 }
 
 // Set of threads which talk to client over the connection for doing the needful
@@ -618,7 +635,7 @@ thr_demarshal(void *unused)
 					as_proto_swap(&fd_h->proto_hdr);
 
 					if (fd_h->proto_hdr.sz > PROTO_SIZE_MAX) {
-						cf_warning(AS_DEMARSHAL, "proto input from %s: msg greater than %d, likely request from non-Aerospike client, rejecting: sz %"PRIu64,
+						cf_warning(AS_DEMARSHAL, "proto input from %s: msg greater than %d, likely request from non-Aerospike client, rejecting: sz %lu",
 								fd_h->client, PROTO_SIZE_MAX, (uint64_t)fd_h->proto_hdr.sz);
 						goto NextEvent_FD_Cleanup;
 					}
@@ -646,7 +663,7 @@ thr_demarshal(void *unused)
 					}
 
 					// Decrement bytes-unread counter.
-					cf_detail(AS_DEMARSHAL, "read fd %d (%d %"PRIu64")", CSFD(sock), recv_sz, fd_h->proto_unread);
+					cf_detail(AS_DEMARSHAL, "read fd %d (%d %lu)", CSFD(sock), recv_sz, fd_h->proto_unread);
 					fd_h->proto_unread -= recv_sz;
 
 					if (fd_h->proto_unread != 0) {
@@ -769,7 +786,7 @@ thr_demarshal(void *unused)
 				if (g_config.n_namespaces_in_memory != 0 &&
 						(g_config.n_namespaces_not_in_memory == 0 ||
 								// Only peek if at least one of each config.
-								as_msg_peek_data_in_memory(&tr.msgp->msg))) {
+								peek_data_in_memory(&tr.msgp->msg))) {
 					// Data-in-memory namespace - process in this thread.
 					as_tsvc_process_transaction(&tr);
 				}

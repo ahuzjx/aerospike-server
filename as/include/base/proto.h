@@ -294,18 +294,6 @@ static inline uint32_t as_msg_field_get_value_sz(as_msg_field *f)
 	return f->field_sz - 1;
 }
 
-static inline uint32_t as_msg_op_get_value_sz_unswap(as_msg_op *op)
-{
-	uint32_t sz = ntohl(op->op_sz);
-	return sz - (4 + op->name_sz);
-}
-
-static inline uint32_t as_msg_field_get_value_sz_unswap(as_msg_field *f)
-{
-	uint32_t sz = ntohl(f->field_sz);
-	return sz - 1;
-}
-
 static inline uint32_t as_msg_field_get_strncpy(as_msg_field *f, char *dst, int sz)
 {
 	int fsz = f->field_sz - 1;
@@ -380,12 +368,6 @@ static inline as_msg_field *
 as_msg_field_get_next(as_msg_field *mf)
 {
 	return (as_msg_field*)(((uint8_t*)mf) + sizeof(mf->field_sz) + mf->field_sz);
-}
-
-static inline as_msg_field *
-as_msg_field_get_next_unswap(as_msg_field *mf)
-{
-	return (as_msg_field*)(((uint8_t*)mf) + sizeof(mf->field_sz) + ntohl(mf->field_sz));
 }
 
 static inline uint8_t *
@@ -491,41 +473,36 @@ as_proto_wrapped_is_valid(const as_proto *proto, size_t size)
 			as_proto_size_get(proto) == size;
 }
 
-extern void as_proto_swap(as_proto *m);
-extern void as_msg_swap_header(as_msg *m);
-extern void as_msg_swap_field(as_msg_field *mf);
-extern void as_msg_swap_op(as_msg_op *op);
-extern int as_msg_send_reply(struct as_file_handle_s *fd_h, uint32_t result_code,
-		uint32_t generation, uint32_t void_time, as_msg_op **ops,
-		struct as_bin_s **bins, uint16_t bin_count, struct as_namespace_s *ns,
-		uint64_t trid, const char *setname);
-extern int as_msg_send_ops_reply(struct as_file_handle_s *fd_h, cf_dyn_buf *db);
+void as_proto_swap(as_proto *m);
+void as_msg_swap_header(as_msg *m);
+void as_msg_swap_field(as_msg_field *mf);
+void as_msg_swap_op(as_msg_op *op);
 
-extern cl_msg *as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
+uint8_t *as_msg_write_header(uint8_t *buf, size_t msg_sz, uint8_t info1,
+		uint8_t info2, uint8_t info3, uint32_t generation, uint32_t record_ttl,
+		uint32_t transaction_ttl, uint32_t n_fields, uint32_t n_ops);
+uint8_t *as_msg_write_fields(uint8_t *buf, const char *ns_name,
+		size_t ns_name_len, const char *set_name, size_t set_name_len,
+		const cf_digest *d, uint64_t trid);
+
+cl_msg *as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		uint32_t void_time, as_msg_op **ops, struct as_bin_s **bins,
 		uint16_t bin_count, struct as_namespace_s *ns, cl_msg *msgp_in,
 		size_t *msg_sz_in, uint64_t trid, const char *setname);
-extern int as_msg_make_response_bufbuilder(struct as_index_s *r, struct as_storage_rd_s *rd,
-		cf_buf_builder **bb_r, bool nobindata, char *nsname, bool include_key, bool skip_empty_records, cf_vector *);
-extern int as_msg_make_error_response_bufbuilder(cf_digest *keyd, int result_code,
-		cf_buf_builder **bb_r, char *nsname);
-extern size_t as_msg_get_bufbuilder_newsize(struct as_index_s *r, struct as_storage_rd_s *rd,
-		cf_buf_builder **bb_r, bool nobindata, char *nsname, bool use_sets, cf_vector *);
-extern size_t as_msg_response_msgsize(struct as_index_s *r, struct as_storage_rd_s *rd,
-		bool nobindata, char *nsname, bool use_sets, cf_vector *binlist);
-extern int as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r, int val_sz, bool);
+int32_t as_msg_make_response_bufbuilder(cf_buf_builder **bb_r,
+		struct as_storage_rd_s *rd, bool no_bin_data, bool include_key,
+		bool skip_empty_records, cf_vector *select_bins);
+void as_msg_make_val_response_bufbuilder(const as_val *val,
+		cf_buf_builder **bb_r, uint32_t val_sz, bool);
 
-extern int as_msg_send_response(cf_socket *sock, uint8_t* buf, size_t len, int flags);
-extern int as_msg_send_fin(cf_socket *sock, uint32_t result_code);
-
-extern bool as_msg_peek_data_in_memory(const as_msg *m);
-
-extern uint8_t * as_msg_write_fields(uint8_t *buf, const char *ns, int ns_len,
-		const char *set, int set_len, const cf_digest *d, uint64_t trid);
-
-extern uint8_t * as_msg_write_header(uint8_t *buf, size_t msg_sz, uint8_t info1,
-		uint8_t info2, uint8_t info3, uint32_t generation, uint32_t record_ttl,
-		uint32_t transaction_ttl, uint32_t n_fields, uint32_t n_ops);
+int as_msg_send_reply(struct as_file_handle_s *fd_h, uint32_t result_code,
+		uint32_t generation, uint32_t void_time, as_msg_op **ops,
+		struct as_bin_s **bins, uint16_t bin_count, struct as_namespace_s *ns,
+		uint64_t trid, const char *setname);
+int as_msg_send_ops_reply(struct as_file_handle_s *fd_h, cf_dyn_buf *db);
+bool as_msg_send_fin(cf_socket *sock, uint32_t result_code);
+size_t as_msg_send_fin_timeout(cf_socket *sock, uint32_t result_code,
+		int32_t timeout);
 
 // Async IO
 typedef int (* as_netio_finish_cb) (void *udata, int retcode);
@@ -544,7 +521,7 @@ typedef struct as_netio_s {
 } as_netio;
 
 void as_netio_init();
-int as_netio_send(as_netio *io, void *q, bool);
+int as_netio_send(as_netio *io, bool slow, bool blocking);
 
 #define AS_NETIO_OK        0
 #define AS_NETIO_CONTINUE  1

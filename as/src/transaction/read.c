@@ -438,13 +438,6 @@ read_local(as_transaction* tr)
 				(cl_msg*)dyn_bufdb, &db.used_sz, as_transaction_trid(tr),
 				set_name);
 
-		if (! db.buf)	{
-			cf_warning_digest(AS_RW, &tr->keyd, "{%s} read_local: failed make response msg ", ns->name);
-			destroy_stack_bins(result_bins, n_result_bins);
-			read_local_done(tr, &r_ref, &rd, AS_PROTO_RESULT_FAIL_UNKNOWN);
-			return TRANS_DONE_ERROR;
-		}
-
 		db.is_stack = db.buf == dyn_bufdb;
 		// Note - not bothering to correct alloc_sz if buf was allocated.
 	}

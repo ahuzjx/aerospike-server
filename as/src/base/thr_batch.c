@@ -75,6 +75,50 @@ typedef struct {
 
 static as_thread_pool batch_direct_thread_pool;
 
+static void
+as_msg_make_error_response_bufbuilder(cf_digest *keyd, int result_code,
+		cf_buf_builder **bb_r, const char *ns_name)
+{
+	size_t ns_len = strlen(ns_name);
+	size_t msg_sz = sizeof(as_msg) +
+			sizeof(as_msg_field) + sizeof(cf_digest) +
+			sizeof(as_msg_field) + ns_len;
+
+	uint8_t *buf;
+	cf_buf_builder_reserve(bb_r, (int)msg_sz, &buf);
+
+	as_msg *msgp = (as_msg *)buf;
+
+	msgp->header_sz = (uint8_t)sizeof(as_msg);
+	msgp->info1 = 0;
+	msgp->info2 = 0;
+	msgp->info3 = 0;
+	msgp->unused = 0;
+	msgp->result_code = (uint8_t)result_code;
+	msgp->generation = 0;
+	msgp->record_ttl = 0;
+	msgp->transaction_ttl = 0;
+	msgp->n_fields = 2;
+	msgp->n_ops = 0;
+	as_msg_swap_header(msgp);
+
+	buf += sizeof(as_msg);
+
+	as_msg_field *mf = (as_msg_field *)buf;
+
+	mf->field_sz = sizeof(cf_digest) + 1;
+	mf->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
+	memcpy(mf->data, keyd, sizeof(cf_digest));
+	as_msg_swap_field(mf);
+	buf += sizeof(as_msg_field) + sizeof(cf_digest);
+
+	mf = (as_msg_field *)buf;
+	mf->field_sz = (uint32_t)ns_len + 1;
+	mf->type = AS_MSG_FIELD_TYPE_NAMESPACE;
+	memcpy(mf->data, ns_name, ns_len);
+	as_msg_swap_field(mf);
+}
+
 // Build response to batch request.
 static void
 batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
@@ -116,8 +160,9 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 					else {
 						// Make sure it's brought in from storage if necessary.
 						as_storage_rd rd;
+						as_storage_record_open(ns, r, &rd);
+
 						if (get_data) {
-							as_storage_record_open(ns, r, &rd);
 							as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
 						}
 
@@ -133,17 +178,15 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 							rd.n_bins = as_bin_inuse_count(&rd);
 						}
 
-						as_msg_make_response_bufbuilder(r, (get_data ? &rd : NULL), bb_r, !get_data, (get_data ? NULL : ns->name), false, false, btr->binlist);
+						as_msg_make_response_bufbuilder(bb_r, &rd, !get_data, false, false, btr->binlist);
 
-						if (get_data) {
-							as_storage_record_close(&rd);
-						}
+						as_storage_record_close(&rd);
 					}
 					as_record_done(&r_ref, ns);
 				}
 				else {
 					// TODO - what about empty records?
-					cf_debug(AS_BATCH, "batch_build_response: as_record_get returned %d : key %"PRIx64, rec_rv, *(uint64_t *)&bmd->keyd);
+					cf_debug(AS_BATCH, "batch_build_response: as_record_get returned %d : key %lx", rec_rv, *(uint64_t *)&bmd->keyd);
 					as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOTFOUND, bb_r, ns->name);
 				}
 
@@ -158,7 +201,7 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 
 				if (other_node != 0) {
 					bmd->node = other_node;
-					cf_debug(AS_BATCH, "other_node is:  %"PRIu64".", other_node);
+					cf_debug(AS_BATCH, "other_node is:  %lx", other_node);
 				} else {
 					cf_debug(AS_BATCH, "other_node is NULL.");
 				}

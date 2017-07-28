@@ -992,7 +992,7 @@ query_netio(as_query_transaction *qtr)
 	io.seq         = cf_atomic32_incr(&qtr->netio_push_seq);
 	io.start_time  = cf_getns();
 
-	int ret        = as_netio_send(&io, NULL, qtr->blocking);
+	int ret        = as_netio_send(&io, false, qtr->blocking);
 	qtr->bb_r      = bb_poolrequest();
    	cf_buf_builder_reserve(&qtr->bb_r, 8, NULL);
 
@@ -1159,11 +1159,10 @@ hash_track_qtr(as_query_transaction *qtr)
  * 		Takes a lock over qtr->buf
  */
 static int
-query_add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
+query_add_response(void *void_qtr, as_storage_rd *rd)
 {
-	as_record *r = r_ref->r;
 	as_query_transaction *qtr = (as_query_transaction *)void_qtr;
-	size_t msg_sz = as_msg_response_msgsize(r, rd, false, NULL, false,
+	size_t msg_sz = as_msg_make_response_bufbuilder(NULL, rd, false, true, true,
 			qtr->binlist);
 	int ret = 0;
 
@@ -1179,9 +1178,11 @@ query_add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 		query_netio(qtr);
 	}
 
-	ret = as_msg_make_response_bufbuilder(r, rd, &qtr->bb_r, false,
-			NULL, true, true, qtr->binlist);
-	if (ret != 0) {
+	int32_t result = as_msg_make_response_bufbuilder(&qtr->bb_r, rd, false,
+			true, true, qtr->binlist);
+
+	if (result < 0) {
+		ret = result;
 		cf_warning(AS_QUERY, "Weird there is space but still the packing failed "
 				"available = %zd msg size = %zu",
 				bb_r->alloc_sz - bb_r->used_sz, msg_sz);
@@ -1241,7 +1242,7 @@ static void
 query_send_bg_udf_response(as_transaction *tr)
 {
 	cf_detail(AS_QUERY, "Send Fin for Background UDF");
-	bool force_close = as_msg_send_fin(&tr->from.proto_fd_h->sock, AS_PROTO_RESULT_OK) != 0;
+	bool force_close = ! as_msg_send_fin(&tr->from.proto_fd_h->sock, AS_PROTO_RESULT_OK);
 	query_release_fd(tr->from.proto_fd_h, force_close);
 	tr->from.proto_fd_h = NULL;
 }
@@ -1646,7 +1647,7 @@ query_io(as_query_transaction *qtr, cf_digest *dig, as_sindex_key * skey)
 			return AS_QUERY_OK;
 		}
 
-		int ret = query_add_response(qtr, &r_ref, &rd);
+		int ret = query_add_response(qtr, &rd);
 		if (ret != 0) {
 			as_storage_record_close(&rd);
 			as_record_done(&r_ref, ns);
@@ -1691,8 +1692,6 @@ query_add_val_response(void *void_qtr, const as_val *val, bool success)
 		cf_warning(AS_PROTO, "particle to buf: could not copy data!");
 	}
 
-	int ret = 0;
-
 	pthread_mutex_lock(&qtr->buf_mutex);
 	cf_buf_builder *bb_r = qtr->bb_r;
 	if (bb_r == NULL) {
@@ -1705,17 +1704,12 @@ query_add_val_response(void *void_qtr, const as_val *val, bool success)
 		query_netio(qtr);
 	}
 
-	ret = as_msg_make_val_response_bufbuilder(val, &qtr->bb_r, msg_sz, success);
-	if (ret != 0) {
-		cf_warning(AS_QUERY, "Weird there is space but still the packing failed "
-				"available = %zd msg size = %d",
-				bb_r->alloc_sz - bb_r->used_sz, msg_sz);
-	}
+	as_msg_make_val_response_bufbuilder(val, &qtr->bb_r, msg_sz, success);
 	cf_atomic64_incr(&qtr->n_result_records);
-	pthread_mutex_unlock(&qtr->buf_mutex);
-	return ret;
-}
 
+	pthread_mutex_unlock(&qtr->buf_mutex);
+	return 0;
+}
 
 
 static void
@@ -2954,7 +2948,7 @@ as_query(as_transaction *tr, as_namespace *ns)
 
 	if (rv == AS_QUERY_DONE) {
 		// Send FIN packet to client to ignore this.
-		bool force_close = as_msg_send_fin(&tr->from.proto_fd_h->sock, AS_PROTO_RESULT_OK) != 0;
+		bool force_close = ! as_msg_send_fin(&tr->from.proto_fd_h->sock, AS_PROTO_RESULT_OK);
 		query_release_fd(tr->from.proto_fd_h, force_close);
 		tr->from.proto_fd_h = NULL; // Paranoid
 		return AS_QUERY_OK;

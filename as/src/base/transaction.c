@@ -309,7 +309,7 @@ as_transaction_init_iudf(as_transaction *tr, as_namespace *ns, cf_digest *keyd,
 		iudf_origin* iudf_orig, bool is_durable_delete)
 {
 	size_t msg_sz = sizeof(cl_msg);
-	int ns_len = strlen(ns->name);
+	size_t ns_len = strlen(ns->name);
 
 	msg_sz += sizeof(as_msg_field) + ns_len;
 	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);

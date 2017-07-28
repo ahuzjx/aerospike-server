@@ -1562,11 +1562,6 @@ write_master_bin_ops(as_transaction* tr, as_storage_rd* rd,
 
 	destroy_stack_bins(result_bins, n_result_bins);
 
-	if (! msgp)	{
-		cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: failed make response msg ", ns->name);
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
-
 	// Stash the message, to be sent later.
 	db->buf = msgp;
 	db->is_stack = false;

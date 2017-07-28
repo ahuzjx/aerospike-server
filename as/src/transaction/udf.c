@@ -1162,22 +1162,11 @@ process_response(udf_call* call, const char* bin_name, const as_val* val,
 	as_bin_particle_stack_from_asval(bin, particle_buf, val);
 
 	size_t msg_sz = 0;
-	uint8_t* msgp = (uint8_t *)as_msg_make_response_msg(tr->result_code,
+
+	db->buf = (uint8_t *)as_msg_make_response_msg(tr->result_code,
 			tr->generation, tr->void_time, NULL, &bin, 1, ns, NULL, &msg_sz,
 			as_transaction_trid(tr), NULL);
 
-	if (! msgp)	{
-		cf_warning(AS_RW, "failed to make response msg");
-
-		if (particle_buf != stack_particle) {
-			cf_free(particle_buf);
-		}
-
-		tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		return;
-	}
-
-	db->buf = msgp;
 	db->is_stack = false;
 	db->alloc_sz = msg_sz;
 	db->used_sz = msg_sz;
