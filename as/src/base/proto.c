@@ -594,13 +594,13 @@ int
 as_msg_send_reply(as_file_handle *fd_h, uint32_t result_code,
 		uint32_t generation, uint32_t void_time, as_msg_op **ops, as_bin **bins,
 		uint16_t bin_count, as_namespace *ns, uint64_t trid,
-		const char *setname)
+		const char *set_name)
 {
 	uint8_t stack_buf[MSG_STACK_BUFFER_SZ];
 	size_t msg_sz = sizeof(stack_buf);
 	uint8_t *msgp = (uint8_t *)as_msg_make_response_msg(result_code, generation,
 			void_time, ops, bins, bin_count, ns, (cl_msg *)stack_buf, &msg_sz,
-			trid, setname);
+			trid, set_name);
 
 	int rv = send_reply_buf(fd_h, msgp, msg_sz);
 

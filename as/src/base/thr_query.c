@@ -174,6 +174,7 @@ typedef struct as_query_transaction_s {
 	as_sindex              * si;
 	as_sindex_range        * srange;
 	query_type               job_type;  // Job type [LOOKUP/AGG/UDF]
+	bool                     no_bin_data;
 	predexp_eval_t         * predexp_eval;
 	cf_vector              * binlist;
 	as_file_handle         * fd_h;      // ref counted nonetheless
@@ -1162,8 +1163,10 @@ static int
 query_add_response(void *void_qtr, as_storage_rd *rd)
 {
 	as_query_transaction *qtr = (as_query_transaction *)void_qtr;
-	size_t msg_sz = as_msg_make_response_bufbuilder(NULL, rd, false, true, true,
-			qtr->binlist);
+
+	// TODO - check and handle error result (< 0 - drive IO) explicitly?
+	size_t msg_sz = (size_t)as_msg_make_response_bufbuilder(NULL, rd,
+			qtr->no_bin_data, true, true, qtr->binlist);
 	int ret = 0;
 
 	pthread_mutex_lock(&qtr->buf_mutex);
@@ -1178,8 +1181,8 @@ query_add_response(void *void_qtr, as_storage_rd *rd)
 		query_netio(qtr);
 	}
 
-	int32_t result = as_msg_make_response_bufbuilder(&qtr->bb_r, rd, false,
-			true, true, qtr->binlist);
+	int32_t result = as_msg_make_response_bufbuilder(&qtr->bb_r, rd,
+			qtr->no_bin_data, true, true, qtr->binlist);
 
 	if (result < 0) {
 		ret = result;
@@ -1615,6 +1618,11 @@ query_io(as_query_transaction *qtr, cf_digest *dig, as_sindex_key * skey)
 		as_storage_rd rd;
 		as_storage_record_open(ns, r, &rd);
 		qtr->n_read_success += 1;
+
+		// TODO - even if qtr->no_bin_data is true, we still read bins in order
+		// to check via query_record_matches() below. If sindex evolves to not
+		// have to do that, optimize this case and bypass reading bins.
+
 		as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
 
 		// Note: This array must stay in scope until the response
@@ -2761,13 +2769,15 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 		goto Cleanup;
 	}
 
+	as_msg *m = &tr->msgp->msg;
+
 	// TODO - still lots of redundant msg field parsing (e.g. for set) - fix.
-	if ((si = as_sindex_from_msg(ns, &tr->msgp->msg)) == NULL) {
+	if ((si = as_sindex_from_msg(ns, m)) == NULL) {
 		cf_debug(AS_QUERY, "No Index Defined in the Query");
 	}
 
     ASD_SINDEX_MSGRANGE_STARTING(nodeid, trid);
-	int ret = as_sindex_rangep_from_msg(ns, &tr->msgp->msg, &srange);
+	int ret = as_sindex_rangep_from_msg(ns, m, &srange);
 	if (AS_QUERY_OK != ret) {
 		cf_debug(AS_QUERY, "Could not instantiate index range metadata... "
 				"Err, %s", as_sindex_err_str(ret));
@@ -2778,7 +2788,7 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 	ASD_SINDEX_MSGRANGE_FINISHED(nodeid, trid);
 	// get optional set
 	as_msg_field *sfp = as_transaction_has_set(tr) ?
-			as_msg_field_get(&tr->msgp->msg, AS_MSG_FIELD_TYPE_SET) : NULL;
+			as_msg_field_get(m, AS_MSG_FIELD_TYPE_SET) : NULL;
 
 	if (sfp) {
 		uint32_t setname_len = as_msg_field_get_value_sz(sfp);
@@ -2808,8 +2818,7 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 	}
 
 	if (as_transaction_has_predexp(tr)) {
-		as_msg_field * pfp =
-			as_msg_field_get(&tr->msgp->msg, AS_MSG_FIELD_TYPE_PREDEXP);
+		as_msg_field * pfp = as_msg_field_get(m, AS_MSG_FIELD_TYPE_PREDEXP);
 		predexp_eval = predexp_build(pfp);
 		if (! predexp_eval) {
 			cf_warning(AS_QUERY, "Failed to build predicate expression");
@@ -2820,7 +2829,7 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 	
 	int numbins = 0;
 	// Populate binlist to be Projected by the Query
-	binlist = as_sindex_binlist_from_msg(ns, &tr->msgp->msg, &numbins);
+	binlist = as_sindex_binlist_from_msg(ns, m, &numbins);
 
 	// If anyone of the bin in the bin is bad, fail the query
 	if (numbins != 0 && !binlist) {
@@ -2883,6 +2892,7 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 
 	if (qtr->job_type == QUERY_TYPE_LOOKUP) {
 		qtr->predexp_eval = predexp_eval;
+		qtr->no_bin_data = (m->info1 & AS_MSG_INFO1_GET_NOBINDATA) != 0;
 	}
 	else if (qtr->job_type == QUERY_TYPE_UDF_BG) {
 		qtr->origin.predexp = predexp_eval;
