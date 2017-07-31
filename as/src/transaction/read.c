@@ -338,11 +338,21 @@ read_local(as_transaction* tr)
 		return TRANS_DONE_SUCCESS;
 	}
 
-	as_storage_rd_load_n_bins(&rd); // TODO - handle error returned
+	int result = as_storage_rd_load_n_bins(&rd);
+
+	if (result < 0) {
+		cf_warning_digest(AS_RW, &tr->keyd, "{%s} read_local: failed as_storage_rd_load_n_bins() ", ns->name);
+		read_local_done(tr, &r_ref, &rd, -result);
+		return TRANS_DONE_ERROR;
+	}
 
 	as_bin stack_bins[ns->storage_data_in_memory ? 0 : rd.n_bins];
 
-	as_storage_rd_load_bins(&rd, stack_bins); // TODO - handle error returned
+	if ((result = as_storage_rd_load_bins(&rd, stack_bins)) < 0) {
+		cf_warning_digest(AS_RW, &tr->keyd, "{%s} read_local: failed as_storage_rd_load_bins() ", ns->name);
+		read_local_done(tr, &r_ref, &rd, -result);
+		return TRANS_DONE_ERROR;
+	}
 
 	if (! as_bin_inuse_has(&rd)) {
 		cf_warning_digest(AS_RW, &tr->keyd, "{%s} read_local: found record with no bins ", ns->name);
@@ -374,7 +384,6 @@ read_local(as_transaction* tr)
 		}
 
 		bool respond_all_ops = (m->info2 & AS_MSG_INFO2_RESPOND_ALL_OPS) != 0;
-		int result;
 
 		as_msg_op* op = 0;
 		int n = 0;
