@@ -2892,7 +2892,7 @@ query_setup(as_transaction *tr, as_namespace *ns, as_query_transaction **qtrp)
 
 	if (qtr->job_type == QUERY_TYPE_LOOKUP) {
 		qtr->predexp_eval = predexp_eval;
-		qtr->no_bin_data = (m->info1 & AS_MSG_INFO1_GET_NOBINDATA) != 0;
+		qtr->no_bin_data = (m->info1 & AS_MSG_INFO1_GET_NO_BINS) != 0;
 	}
 	else if (qtr->job_type == QUERY_TYPE_UDF_BG) {
 		qtr->origin.predexp = predexp_eval;

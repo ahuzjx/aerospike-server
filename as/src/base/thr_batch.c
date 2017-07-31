@@ -155,7 +155,7 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 
 					// Check to see this isn't a record waiting to die.
 					if (as_record_is_doomed(r, ns)) {
-						as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOTFOUND, bb_r, ns->name);
+						as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOT_FOUND, bb_r, ns->name);
 					}
 					else {
 						// Make sure it's brought in from storage if necessary.
@@ -187,7 +187,7 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 				else {
 					// TODO - what about empty records?
 					cf_debug(AS_BATCH, "batch_build_response: as_record_get returned %d : key %lx", rec_rv, *(uint64_t *)&bmd->keyd);
-					as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOTFOUND, bb_r, ns->name);
+					as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOT_FOUND, bb_r, ns->name);
 				}
 
 				bmd->done = true;
@@ -197,7 +197,7 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 			else {
 				cf_debug(AS_BATCH, "batch_build_response: partition reserve read failed: rv %d", rv);
 
-				as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOTFOUND, bb_r, ns->name);
+				as_msg_make_error_response_bufbuilder(&bmd->keyd, AS_PROTO_RESULT_FAIL_NOT_FOUND, bb_r, ns->name);
 
 				if (other_node != 0) {
 					bmd->node = other_node;
@@ -411,7 +411,7 @@ as_batch_direct_queue_task(as_transaction* tr, as_namespace *ns)
 	batch_transaction btr;
 	btr.trid = as_transaction_trid(tr);
 	btr.end_time = tr->end_time;
-	btr.get_data = !(msg->info1 & AS_MSG_INFO1_GET_NOBINDATA);
+	btr.get_data = !(msg->info1 & AS_MSG_INFO1_GET_NO_BINS);
 	btr.complete = false;
 	btr.ns = ns;
 

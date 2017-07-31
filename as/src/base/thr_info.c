@@ -6376,7 +6376,7 @@ int info_command_abort_scan(char *name, char *params, cf_dyn_buf *db) {
 
 	if (rv != 0) {
 		cf_dyn_buf_append_string(db, "ERROR:");
-		cf_dyn_buf_append_int(db, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		cf_dyn_buf_append_int(db, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 		cf_dyn_buf_append_string(db, ":Transaction Not Found");
 	}
 	else {

@@ -690,7 +690,7 @@ udf_master_apply(udf_call* call, rw_request* rw)
 	if (tr->origin == FROM_IUDF &&
 			(get_rv == -1 || ! as_record_is_live(r_ref.r))) {
 		// Internal UDFs must not create records.
-		tr->result_code = AS_PROTO_RESULT_FAIL_NOTFOUND;
+		tr->result_code = AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		process_failure(call, NULL, &rw->response_db);
 		udf_record_destroy(urec);
 		return UDF_OPTYPE_NONE;
@@ -720,7 +720,7 @@ udf_master_apply(udf_call* call, rw_request* rw)
 			if (! predexp_matches_record(tr->from.iudf_orig->predexp,
 					&predargs)) {
 				udf_record_close(&urecord);
-				tr->result_code = AS_PROTO_RESULT_FAIL_NOTFOUND; // not ideal
+				tr->result_code = AS_PROTO_RESULT_FAIL_NOT_FOUND; // not ideal
 				process_failure(call, NULL, &rw->response_db);
 				udf_record_destroy(urec);
 				return UDF_OPTYPE_NONE;

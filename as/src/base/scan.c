@@ -270,7 +270,7 @@ get_scan_set_id(as_transaction* tr, as_namespace* ns, uint16_t* p_set_id)
 
 		if (set_id == INVALID_SET_ID) {
 			cf_warning(AS_SCAN, "scan msg has unrecognized set %s", set_name);
-			return AS_PROTO_RESULT_FAIL_NOTFOUND;
+			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 	}
 
@@ -585,7 +585,7 @@ basic_scan_job_start(as_transaction* tr, as_namespace* ns, uint16_t set_id)
 
 	job->cluster_key = as_exchange_cluster_key();
 	job->fail_on_cluster_change = options.fail_on_cluster_change;
-	job->no_bin_data = (tr->msgp->msg.info1 & AS_MSG_INFO1_GET_NOBINDATA) != 0;
+	job->no_bin_data = (tr->msgp->msg.info1 & AS_MSG_INFO1_GET_NO_BINS) != 0;
 	job->sample_pct = options.sample_pct;
 	job->predexp = predexp;
 

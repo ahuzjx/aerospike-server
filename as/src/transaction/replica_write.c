@@ -521,7 +521,7 @@ drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 	r_ref.skip_lock = false;
 
 	if (as_record_get(tree, keyd, &r_ref) != 0) {
-		return AS_PROTO_RESULT_FAIL_NOTFOUND;
+		return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 	}
 
 	as_record* r = r_ref.r;

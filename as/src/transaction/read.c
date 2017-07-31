@@ -87,7 +87,7 @@ client_read_update_stats(as_namespace* ns, uint8_t result_code)
 	default:
 		cf_atomic64_incr(&ns->n_client_read_error);
 		break;
-	case AS_PROTO_RESULT_FAIL_NOTFOUND:
+	case AS_PROTO_RESULT_FAIL_NOT_FOUND:
 		cf_atomic64_incr(&ns->n_client_read_not_found);
 		break;
 	}
@@ -106,7 +106,7 @@ batch_sub_read_update_stats(as_namespace* ns, uint8_t result_code)
 	default:
 		cf_atomic64_incr(&ns->n_batch_sub_read_error);
 		break;
-	case AS_PROTO_RESULT_FAIL_NOTFOUND:
+	case AS_PROTO_RESULT_FAIL_NOT_FOUND:
 		cf_atomic64_incr(&ns->n_batch_sub_read_not_found);
 		break;
 	}
@@ -305,7 +305,7 @@ read_local(as_transaction* tr)
 	r_ref.skip_lock = false;
 
 	if (as_record_get_live(tr->rsv.tree, &tr->keyd, &r_ref, ns) != 0) {
-		read_local_done(tr, NULL, NULL, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		read_local_done(tr, NULL, NULL, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 		return TRANS_DONE_ERROR;
 	}
 
@@ -313,7 +313,7 @@ read_local(as_transaction* tr)
 
 	// Check if it's an expired or truncated record.
 	if (as_record_is_doomed(r, ns)) {
-		read_local_done(tr, &r_ref, NULL, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		read_local_done(tr, &r_ref, NULL, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 		return TRANS_DONE_ERROR;
 	}
 
@@ -329,7 +329,7 @@ read_local(as_transaction* tr)
 		return TRANS_DONE_ERROR;
 	}
 
-	if ((m->info1 & AS_MSG_INFO1_GET_NOBINDATA) != 0) {
+	if ((m->info1 & AS_MSG_INFO1_GET_NO_BINS) != 0) {
 		tr->generation = r->generation;
 		tr->void_time = r->void_time;
 		tr->last_update_time = r->last_update_time;

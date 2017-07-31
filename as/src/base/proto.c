@@ -425,7 +425,7 @@ as_msg_make_response_bufbuilder(cf_buf_builder **bb_r, as_storage_rd *rd,
 	as_msg *msgp = (as_msg *)buf;
 
 	msgp->header_sz = sizeof(as_msg);
-	msgp->info1 = no_bin_data ? AS_MSG_INFO1_GET_NOBINDATA : 0;
+	msgp->info1 = no_bin_data ? AS_MSG_INFO1_GET_NO_BINS : 0;
 	msgp->info2 = 0;
 	msgp->info3 = 0;
 	msgp->unused = 0;

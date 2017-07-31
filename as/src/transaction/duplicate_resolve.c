@@ -208,7 +208,7 @@ dup_res_handle_request(cf_node node, msg* m)
 
 	if (as_record_get(rsv.tree, keyd, &r_ref) != 0) {
 		done_handle_request(&rsv, NULL, NULL);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 		return;
 	}
 
@@ -524,7 +524,7 @@ bool
 dup_res_should_fail_transaction(uint32_t result_code)
 {
 	return ! (result_code == AS_PROTO_RESULT_OK ||
-			result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+			result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
 			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
 			result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
 }
@@ -543,7 +543,7 @@ parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
 	if (dup_res_should_fail_transaction(result_code) ||
 			dup_res_should_retry_transaction(result_code) ||
 			// With these result codes, msg fields below aren't sent.
-			result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+			result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
 			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
 		return result_code;
 	}
@@ -573,7 +573,7 @@ apply_winner(rw_request* rw)
 	// Already made sure this field is present.
 	msg_get_uint32(m, RW_FIELD_RESULT, &result_code);
 
-	if (result_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+	if (result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
 			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
 		// Remote record is no better than local - rw->result_code was
 		// initialized to OK.

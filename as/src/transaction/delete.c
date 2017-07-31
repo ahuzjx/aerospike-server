@@ -87,7 +87,7 @@ client_delete_update_stats(as_namespace* ns, uint8_t result_code)
 	default:
 		cf_atomic64_incr(&ns->n_client_delete_error);
 		break;
-	case AS_PROTO_RESULT_FAIL_NOTFOUND:
+	case AS_PROTO_RESULT_FAIL_NOT_FOUND:
 		cf_atomic64_incr(&ns->n_client_delete_not_found);
 		break;
 	}

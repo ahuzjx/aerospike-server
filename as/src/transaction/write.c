@@ -517,14 +517,14 @@ write_master(rw_request* rw, as_transaction* tr)
 
 	if (must_not_create) {
 		if (0 != as_record_get_live(tree, &tr->keyd, &r_ref, ns)) {
-			write_master_failed(tr, 0, record_created, tree, 0, AS_PROTO_RESULT_FAIL_NOTFOUND);
+			write_master_failed(tr, 0, record_created, tree, 0, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 			return TRANS_DONE_ERROR;
 		}
 
 		r = r_ref.r;
 
 		if (as_record_is_doomed(r, ns)) {
-			write_master_failed(tr, &r_ref, record_created, tree, 0, AS_PROTO_RESULT_FAIL_NOTFOUND);
+			write_master_failed(tr, &r_ref, record_created, tree, 0, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 			return TRANS_DONE_ERROR;
 		}
 	}
@@ -1034,7 +1034,7 @@ write_master_dim_single_bin(as_transaction* tr, as_storage_rd* rd,
 		if (n_old_bins == 0) {
 			write_master_index_metadata_unwind(&old_metadata, r);
 			write_master_dim_single_bin_unwind(&old_bin, rd->bins, cleanup_bins, n_cleanup_bins);
-			return AS_PROTO_RESULT_FAIL_NOTFOUND;
+			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 
 		*is_delete = true;
@@ -1167,7 +1167,7 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 		if (n_old_bins == 0) {
 			write_master_index_metadata_unwind(&old_metadata, r);
 			write_master_dim_unwind(old_bins, n_old_bins, new_bins, n_new_bins, cleanup_bins, n_cleanup_bins);
-			return AS_PROTO_RESULT_FAIL_NOTFOUND;
+			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 
 		*is_delete = true;
@@ -1306,7 +1306,7 @@ write_master_ssd_single_bin(as_transaction* tr, as_storage_rd* rd,
 		if (n_old_bins == 0) {
 			cf_ll_buf_free(&particles_llb);
 			write_master_index_metadata_unwind(&old_metadata, r);
-			return AS_PROTO_RESULT_FAIL_NOTFOUND;
+			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 
 		*is_delete = true;
@@ -1440,7 +1440,7 @@ write_master_ssd(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 		if (n_old_bins == 0) {
 			cf_ll_buf_free(&particles_llb);
 			write_master_index_metadata_unwind(&old_metadata, r);
-			return AS_PROTO_RESULT_FAIL_NOTFOUND;
+			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 
 		*is_delete = true;

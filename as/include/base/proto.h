@@ -51,7 +51,7 @@ struct as_transaction_s;
 
 #define AS_PROTO_RESULT_OK							0
 #define AS_PROTO_RESULT_FAIL_UNKNOWN				1	// unknown failure - consider retry
-#define AS_PROTO_RESULT_FAIL_NOTFOUND				2
+#define AS_PROTO_RESULT_FAIL_NOT_FOUND				2
 #define AS_PROTO_RESULT_FAIL_GENERATION				3
 #define AS_PROTO_RESULT_FAIL_PARAMETER				4
 #define AS_PROTO_RESULT_FAIL_RECORD_EXISTS			5	// if 'WRITE_ADD', could fail because already exists
@@ -337,7 +337,7 @@ typedef struct cl_msg_s {
 // (Note:  Bit 2 is unused.)
 #define AS_MSG_INFO1_BATCH				(1 << 3) // new batch protocol
 #define AS_MSG_INFO1_XDR				(1 << 4) // operation is being performed by XDR
-#define AS_MSG_INFO1_GET_NOBINDATA		(1 << 5) // Do not get information about bins and its data
+#define AS_MSG_INFO1_GET_NO_BINS		(1 << 5) // get record metadata only - no bin metadata or data
 #define AS_MSG_INFO1_CONSISTENCY_LEVEL_B0	(1 << 6) // read consistency level - bit 0
 #define AS_MSG_INFO1_CONSISTENCY_LEVEL_B1	(1 << 7) // read consistency level - bit 1
 

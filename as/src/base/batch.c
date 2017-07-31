@@ -528,7 +528,7 @@ as_batch_reserve(as_batch_shared* shared, uint32_t size, int result_code, as_bat
 		as_batch_buffer_complete(shared, prev_buffer);
 	}
 
-	if (! (result_code == AS_PROTO_RESULT_OK || result_code == AS_PROTO_RESULT_FAIL_NOTFOUND)) {
+	if (! (result_code == AS_PROTO_RESULT_OK || result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND)) {
 		// Result code can be set outside of lock because it doesn't matter which transaction's
 		// result code is used as long as it's an error.
 		shared->result_code = result_code;
