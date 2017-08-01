@@ -458,7 +458,7 @@ as_bin_get_or_create(as_storage_rd *rd, const char *name)
 }
 
 // Does not check bin name length.
-// Checks bin name quota and bin-level policy - use appropriately.
+// Checks bin name quota - use appropriately.
 as_bin *
 as_bin_get_or_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz,
 		int *p_result)
@@ -468,7 +468,6 @@ as_bin_get_or_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz,
 			as_bin_init_nameless(rd->bins);
 		}
 
-		// Ignored bin-level policy - single-bin needs only record-level policy.
 		return rd->bins;
 	}
 

@@ -1446,8 +1446,9 @@ immigration_handle_insert_request(cf_node src, msg *m)
 		return;
 	}
 
-	if (msg_get_uint32(m, MIG_FIELD_GENERATION, &rr.generation) != 0) {
-		cf_warning(AS_MIGRATE, "handle insert: got no generation");
+	if (msg_get_uint32(m, MIG_FIELD_GENERATION, &rr.generation) != 0 ||
+			rr.generation == 0) {
+		cf_warning(AS_MIGRATE, "handle insert: got no or bad generation");
 		immigration_release(immig);
 		as_fabric_msg_put(m);
 		return;
@@ -1474,7 +1475,7 @@ immigration_handle_insert_request(cf_node src, msg *m)
 	}
 	else {
 		int rv = as_record_replace_if_better(&rr,
-				immig->rsv.ns->conflict_resolution_policy, false);
+				immig->rsv.ns->conflict_resolution_policy, false, false);
 
 		// If replace failed, don't ack - it will be retransmitted.
 		if (rv != 0) {

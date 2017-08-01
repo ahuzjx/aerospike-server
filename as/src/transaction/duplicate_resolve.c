@@ -548,8 +548,9 @@ parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
 		return result_code;
 	}
 
-	if (msg_get_uint32(m, RW_FIELD_GENERATION, p_generation) != 0) {
-		cf_warning(AS_RW, "dup-res ack: no generation");
+	if (msg_get_uint32(m, RW_FIELD_GENERATION, p_generation) != 0 ||
+			*p_generation == 0) {
+		cf_warning(AS_RW, "dup-res ack: no or bad generation");
 		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
@@ -613,5 +614,5 @@ apply_winner(rw_request* rw)
 			MSG_GET_DIRECT);
 
 	rw->result_code = (uint8_t)as_record_replace_if_better(&rr,
-			rw->rsv.ns->conflict_resolution_policy, false);
+			rw->rsv.ns->conflict_resolution_policy, false, false);
 }

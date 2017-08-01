@@ -94,17 +94,11 @@ repl_write_make_message(rw_request* rw, as_transaction* tr)
 	msg_set_buf(m, RW_FIELD_DIGEST, (void*)&tr->keyd, sizeof(cf_digest),
 			MSG_SET_COPY);
 	msg_set_uint32(m, RW_FIELD_TID, rw->tid);
-
-	if (tr->generation != 0) {
-		msg_set_uint32(m, RW_FIELD_GENERATION, tr->generation);
-	}
+	msg_set_uint32(m, RW_FIELD_GENERATION, tr->generation);
+	msg_set_uint64(m, RW_FIELD_LAST_UPDATE_TIME, tr->last_update_time);
 
 	if (tr->void_time != 0) {
 		msg_set_uint32(m, RW_FIELD_VOID_TIME, tr->void_time);
-	}
-
-	if (tr->last_update_time != 0) {
-		msg_set_uint64(m, RW_FIELD_LAST_UPDATE_TIME, tr->last_update_time);
 	}
 
 	// TODO - deal with this on the write-becomes-drop & udf-drop paths?
@@ -255,7 +249,6 @@ repl_write_handle_op(cf_node node, msg* m)
 	uint32_t info = 0;
 
 	msg_get_uint32(m, RW_FIELD_INFO, &info);
-	// FIXME - deal with sindex touched flag.
 
 	as_remote_record rr = { .src = node, .rsv = &rsv, .keyd = keyd };
 
@@ -281,8 +274,9 @@ repl_write_handle_op(cf_node node, msg* m)
 		return;
 	}
 
-	if (msg_get_uint32(m, RW_FIELD_GENERATION, &rr.generation) != 0) {
-		cf_warning(AS_RW, "repl_write_handle_op: no generation");
+	if (msg_get_uint32(m, RW_FIELD_GENERATION, &rr.generation) != 0 ||
+			rr.generation == 0) {
+		cf_warning(AS_RW, "repl_write_handle_op: no or bad generation");
 		as_partition_release(&rsv);
 		send_repl_write_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
 		return;
@@ -308,7 +302,10 @@ repl_write_handle_op(cf_node node, msg* m)
 	bool do_xdr_write = (info & RW_INFO_XDR) == 0 ||
 			is_xdr_forwarding_enabled() || ns->ns_forward_xdr_writes;
 
-	result = as_record_replace_if_better(&rr, 0, do_xdr_write);
+	// If source didn't touch sindex, may not need to touch it locally.
+	bool skip_sindex = (info & RW_INFO_SINDEX_TOUCHED) == 0;
+
+	result = as_record_replace_if_better(&rr, 0, skip_sindex, do_xdr_write);
 	// FIXME - properly deal with policy.
 
 	as_partition_release(&rsv);

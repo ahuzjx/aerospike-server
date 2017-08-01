@@ -66,9 +66,9 @@
 void record_replace_failed(as_remote_record *rr, as_index_ref* r_ref, as_storage_rd* rd, bool is_create);
 
 int record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd, bool *is_delete);
-int record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete);
+int record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex, bool *is_delete);
 int record_apply_ssd_single_bin(as_remote_record *rr, as_storage_rd *rd, bool *is_delete);
-int record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete);
+int record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex, bool *is_delete);
 
 void update_index_metadata(as_remote_record *rr, index_metadata *old, as_record *r);
 void unwind_index_metadata(const index_metadata *old, as_record *r);
@@ -99,6 +99,14 @@ static inline int
 resolve_last_update_time(uint64_t left, uint64_t right)
 {
 	return left == right ? 0 : (right > left ? 1 : -1);
+}
+
+// FIXME - assumes filter for remote == local will be done upstream later.
+// Assumes remote generation is not 0. (Local may be 0 if creating record.)
+static inline bool
+next_generation(uint16_t local, uint16_t remote)
+{
+	return local == 0xFFFF ? remote == 1 : remote - local == 1;
 }
 
 
@@ -360,7 +368,7 @@ as_record_pickle(as_storage_rd *rd, size_t *len_r)
 // If remote record is better than local record, replace local with remote.
 int
 as_record_replace_if_better(as_remote_record *rr,
-		conflict_resolution_pol policy, bool do_xdr_write)
+		conflict_resolution_pol policy, bool skip_sindex, bool do_xdr_write)
 {
 	as_namespace *ns = rr->rsv->ns;
 
@@ -440,7 +448,7 @@ as_record_replace_if_better(as_remote_record *rr,
 			result = record_apply_dim_single_bin(rr, &rd, &is_delete);
 		}
 		else {
-			result = record_apply_dim(rr, &rd, &is_delete);
+			result = record_apply_dim(rr, &rd, skip_sindex, &is_delete);
 		}
 	}
 	else {
@@ -448,7 +456,7 @@ as_record_replace_if_better(as_remote_record *rr,
 			result = record_apply_ssd_single_bin(rr, &rd, &is_delete);
 		}
 		else {
-			result = record_apply_ssd(rr, &rd, &is_delete);
+			result = record_apply_ssd(rr, &rd, skip_sindex, &is_delete);
 		}
 	}
 
@@ -593,7 +601,8 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 
 
 int
-record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
+record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex,
+		bool *is_delete)
 {
 	as_namespace* ns = rr->rsv->ns;
 	as_record* r = rd->r;
@@ -641,7 +650,9 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
 	}
 
 	// Success - adjust sindex, looking at old and new bins.
-	if (record_has_sindex(r, ns)) {
+	if (! (skip_sindex &&
+			next_generation(r->generation, (uint16_t)rr->generation)) &&
+					record_has_sindex(r, ns)) {
 		write_sindex_update(ns, as_index_get_set_name(r, ns), rr->keyd,
 				old_bins, n_old_bins, new_bins, n_new_bins);
 	}
@@ -740,11 +751,14 @@ record_apply_ssd_single_bin(as_remote_record *rr, as_storage_rd *rd,
 
 
 int
-record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool *is_delete)
+record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex,
+		bool *is_delete)
 {
 	as_namespace* ns = rr->rsv->ns;
 	as_record* r = rd->r;
-	bool has_sindex = record_has_sindex(r, ns);
+	bool has_sindex = ! (skip_sindex &&
+			next_generation(r->generation, (uint16_t)rr->generation)) &&
+					record_has_sindex(r, ns);
 
 	uint16_t n_old_bins = 0;
 	int result;

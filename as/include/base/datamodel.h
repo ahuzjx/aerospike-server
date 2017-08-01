@@ -498,7 +498,7 @@ typedef struct as_remote_record_s {
 	size_t key_size;
 } as_remote_record;
 
-int as_record_replace_if_better(as_remote_record *rr, conflict_resolution_pol policy, bool do_xdr_write);
+int as_record_replace_if_better(as_remote_record *rr, conflict_resolution_pol policy, bool skip_sindex, bool do_xdr_write);
 
 // a simpler call that gives seconds in the right epoch
 #define as_record_void_time_get() cf_clepoch_seconds()
