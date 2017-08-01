@@ -422,25 +422,24 @@ extern uint16_t as_bin_get_or_assign_id(as_namespace *ns, const char *name);
 extern uint16_t as_bin_get_or_assign_id_w_len(as_namespace *ns, const char *name, size_t len);
 extern const char* as_bin_get_name_from_id(as_namespace *ns, uint16_t id);
 extern bool as_bin_name_within_quota(as_namespace *ns, const char *name);
-extern int as_storage_rd_load_n_bins(as_storage_rd *rd);
-extern int as_storage_rd_load_bins(as_storage_rd *rd, as_bin *stack_bins);
-extern void as_bin_get_all_p(as_storage_rd *rd, as_bin **bin_ptrs);
-extern as_bin *as_bin_create(as_storage_rd *rd, const char *name);
-extern as_bin *as_bin_create_from_buf(as_storage_rd *rd, const uint8_t *name, size_t namesz);
-extern as_bin *as_bin_get(as_storage_rd *rd, const char *name);
-extern as_bin *as_bin_get_by_id(as_storage_rd *rd, uint32_t id);
-extern as_bin *as_bin_get_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz);
-extern as_bin *as_bin_get_or_create(as_storage_rd *rd, const char *name);
-extern as_bin *as_bin_get_or_create_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz, int *p_result);
-extern int32_t as_bin_get_index(as_storage_rd *rd, const char *name);
-extern int32_t as_bin_get_index_from_buf(as_storage_rd *rd, uint8_t *name, size_t namesz);
-extern void as_bin_allocate_bin_space(as_storage_rd *rd, int32_t delta);
-extern void as_bin_destroy(as_storage_rd *rd, uint16_t i);
-extern uint16_t as_bin_inuse_count(as_storage_rd *rd);
-extern void as_bin_all_dump(as_storage_rd *rd, char *msg);
-
 extern void as_bin_init(as_namespace *ns, as_bin *b, const char *name);
 extern void as_bin_copy(as_namespace *ns, as_bin *to, const as_bin *from);
+extern int as_storage_rd_load_n_bins(as_storage_rd *rd);
+extern int as_storage_rd_load_bins(as_storage_rd *rd, as_bin *stack_bins);
+extern uint16_t as_bin_inuse_count(as_storage_rd *rd);
+extern void as_bin_get_all_p(as_storage_rd *rd, as_bin **bin_ptrs);
+extern as_bin *as_bin_get_by_id(as_storage_rd *rd, uint32_t id);
+extern as_bin *as_bin_get(as_storage_rd *rd, const char *name);
+extern as_bin *as_bin_get_from_buf(as_storage_rd *rd, const uint8_t *name, size_t len);
+extern as_bin *as_bin_create(as_storage_rd *rd, const char *name);
+extern as_bin *as_bin_create_from_buf(as_storage_rd *rd, const uint8_t *name, size_t len, int *result);
+extern as_bin *as_bin_get_or_create(as_storage_rd *rd, const char *name);
+extern as_bin *as_bin_get_or_create_from_buf(as_storage_rd *rd, const uint8_t *name, size_t len, int *result);
+extern int32_t as_bin_get_index(as_storage_rd *rd, const char *name);
+extern int32_t as_bin_get_index_from_buf(as_storage_rd *rd, const uint8_t *name, size_t len);
+extern void as_bin_destroy(as_storage_rd *rd, uint16_t i);
+extern void as_bin_allocate_bin_space(as_storage_rd *rd, int32_t delta);
+
 
 typedef enum {
 	AS_NAMESPACE_CONFLICT_RESOLUTION_POLICY_UNDEF = 0,

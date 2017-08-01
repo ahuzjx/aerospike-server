@@ -403,11 +403,14 @@ as_record_replace_if_better(as_remote_record *rr,
 	}
 	// else - remote winner - apply it.
 
+	int result;
+
 	// If creating record, write set-ID into index.
 	if (is_create) {
-		if (rr->set_name) {
-			as_index_set_set_w_len(r, ns, rr->set_name, rr->set_name_len,
-					false);
+		if (rr->set_name && (result = as_index_set_set_w_len(r, ns,
+				rr->set_name, rr->set_name_len, false)) < 0) {
+			record_replace_failed(rr, &r_ref, NULL, is_create);
+			return -result;
 		}
 
 		r->last_update_time = rr->last_update_time;
@@ -440,7 +443,6 @@ as_record_replace_if_better(as_remote_record *rr,
 			rr->key_size);
 
 	// Split according to configuration to replace local record.
-	int result;
 	bool is_delete = false;
 
 	if (ns->storage_data_in_memory) {
@@ -571,10 +573,10 @@ record_apply_dim_single_bin(as_remote_record *rr, as_storage_rd *rd,
 
 	// Fill the new bins and particles.
 	if (n_new_bins == 1 &&
-			(result = unpickle_bins(rr, rd, NULL)) < 0) {
+			(result = unpickle_bins(rr, rd, NULL)) != 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bin ", ns->name);
 		unwind_dim_single_bin(&old_bin, rd->bins);
-		return -result;
+		return result;
 	}
 
 	// Apply changes to metadata in as_index needed for and writing.
@@ -630,10 +632,10 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex,
 	// Fill the new bins and particles.
 	int result = unpickle_bins(rr, rd, NULL);
 
-	if (result < 0) {
+	if (result != 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bins ", ns->name);
 		destroy_stack_bins(new_bins, n_new_bins);
-		return -result;
+		return result;
 	}
 
 	// Apply changes to metadata in as_index needed for and writing.
@@ -720,10 +722,10 @@ record_apply_ssd_single_bin(as_remote_record *rr, as_storage_rd *rd,
 	int result;
 
 	if (n_new_bins == 1 &&
-			(result = unpickle_bins(rr, rd, &particles_llb)) < 0) {
+			(result = unpickle_bins(rr, rd, &particles_llb)) != 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bin ", ns->name);
 		cf_ll_buf_free(&particles_llb);
-		return -result;
+		return result;
 	}
 
 	// Apply changes to metadata in as_index needed for and writing.
@@ -794,10 +796,10 @@ record_apply_ssd(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex,
 	// Fill the new bins and particles.
 	cf_ll_buf_define(particles_llb, STACK_PARTICLES_SIZE);
 
-	if ((result = unpickle_bins(rr, rd, &particles_llb)) < 0) {
+	if ((result = unpickle_bins(rr, rd, &particles_llb)) != 0) {
 		cf_warning_digest(AS_RECORD, rr->keyd, "{%s} record replace: failed unpickle bins ", ns->name);
 		cf_ll_buf_free(&particles_llb);
-		return -result;
+		return result;
 	}
 
 	// Apply changes to metadata in as_index needed for and writing.
@@ -874,7 +876,7 @@ unpickle_bins(as_remote_record *rr, as_storage_rd *rd, cf_ll_buf *particles_llb)
 	for (uint16_t i = 0; i < rd->n_bins; i++) {
 		if (buf >= end) {
 			cf_warning(AS_RECORD, "incomplete pickled record");
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return AS_PROTO_RESULT_FAIL_UNKNOWN;
 		}
 
 		uint8_t name_sz = *buf++;
@@ -885,34 +887,33 @@ unpickle_bins(as_remote_record *rr, as_storage_rd *rd, cf_ll_buf *particles_llb)
 
 		if (buf > end) {
 			cf_warning(AS_RECORD, "incomplete pickled record");
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
-
-		as_bin *b = as_bin_create_from_buf(rd, name, name_sz);
-
-		if (! b) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
+			return AS_PROTO_RESULT_FAIL_UNKNOWN;
 		}
 
 		int result;
+		as_bin *b = as_bin_create_from_buf(rd, name, name_sz, &result);
+
+		if (! b) {
+			return result;
+		}
 
 		if (ns->storage_data_in_memory) {
 			if ((result = as_bin_particle_alloc_from_pickled(b,
 					&buf, end)) < 0) {
-				return result;
+				return -result;
 			}
 		}
 		else {
 			if ((result = as_bin_particle_stack_from_pickled(b, particles_llb,
 					&buf, end)) < 0) {
-				return result;
+				return -result;
 			}
 		}
 	}
 
 	if (buf != end) {
 		cf_warning(AS_RECORD, "extra bytes on pickled record");
-		return -AS_PROTO_RESULT_FAIL_UNKNOWN;
+		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
 	return AS_PROTO_RESULT_OK;
