@@ -3345,7 +3345,7 @@ static void
 packed_val_init_unpacker(const cdt_payload *val, as_unpacker *pk)
 {
 	pk->buffer = val->ptr;
-	pk->length = val->size;
+	pk->length = val->sz;
 	pk->offset = 0;
 }
 
@@ -3492,45 +3492,62 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 	packed_val_init_unpacker(&old_val, &pk_old);
 	packed_val_init_unpacker(&new_val, &pk_new);
 
-	int old_list_size = as_unpack_list_header_element_count(&pk_old);
-	int new_list_size = as_unpack_list_header_element_count(&pk_new);
+	int64_t old_list_count = as_unpack_list_header_element_count(&pk_old);
+	int64_t new_list_count = as_unpack_list_header_element_count(&pk_new);
 
-	if (old_list_size < 0 || new_list_size < 0) {
+	if (old_list_count < 0 || new_list_count < 0) {
 		return -1;
 	}
 
-	bool old_list_is_short = old_list_size < new_list_size;
+	// Skip msgpack ext if it exist as the first element.
+	if (old_list_count != 0 && as_unpack_peek_is_ext(&pk_old)) {
+		if (as_unpack_size(&pk_old) < 0) {
+			return -1;
+		}
 
-	uint32_t short_list_size;
-	uint32_t long_list_size;
+		old_list_count--;
+	}
+
+	if (new_list_count != 0 && as_unpack_peek_is_ext(&pk_new)) {
+		if (as_unpack_size(&pk_new) < 0) {
+			return -1;
+		}
+
+		new_list_count--;
+	}
+
+	bool old_list_is_short = old_list_count < new_list_count;
+
+	uint32_t short_list_count;
+	uint32_t long_list_count;
 	as_unpacker *pk_short;
 	as_unpacker *pk_long;
 
 	if (old_list_is_short) {
-		short_list_size		= old_list_size;
-		long_list_size		= new_list_size;
+		short_list_count	= (uint32_t)old_list_count;
+		long_list_count		= (uint32_t)new_list_count;
 		pk_short			= &pk_old;
 		pk_long				= &pk_new;
 	}
 	else {
-		short_list_size		= new_list_size;
-		long_list_size		= old_list_size;
+		short_list_count	= (uint32_t)new_list_count;
+		long_list_count		= (uint32_t)old_list_count;
 		pk_short			= &pk_new;
 		pk_long				= &pk_old;
 	}
 
-	if (short_list_size == 0) {
-		if (long_list_size == 0) {
+	if (short_list_count == 0) {
+		if (long_list_count == 0) {
 			return 0;
 		}
 
 		as_sindex_init_sbin(sbins, old_list_is_short ? AS_SINDEX_OP_INSERT : AS_SINDEX_OP_DELETE, type, si);
 
-		for (uint32_t i = 0; i < long_list_size; i++) {
+		for (uint32_t i = 0; i < long_list_count; i++) {
 			cdt_payload ele;
 
 			ele.ptr = pk_long->buffer + pk_long->offset;
-			ele.size = as_unpack_size(pk_long);
+			ele.sz = as_unpack_size(pk_long);
 
 			// sizeof(cf_digest) is big enough for all key types we support so far.
 			uint8_t skey[sizeof(cf_digest)];
@@ -3550,10 +3567,10 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 		return sbins->num_values == 0 ? 0 : 1;
 	}
 
-	cf_shash *hash = cf_shash_create(cf_shash_fn_u32, data_size, 1, short_list_size, 0);
+	cf_shash *hash = cf_shash_create(cf_shash_fn_u32, data_size, 1, short_list_count, 0);
 
 	// Add elements of shorter list into hash with value = false.
-	for (uint32_t i = 0; i < short_list_size; i++) {
+	for (uint32_t i = 0; i < short_list_count; i++) {
 		cdt_payload ele = {
 				.ptr = pk_short->buffer + pk_short->offset
 		};
@@ -3566,17 +3583,17 @@ as_sindex_sbins_sindex_list_diff_populate(as_sindex_bin *sbins, as_sindex *si, c
 			return -1;
 		}
 
-		ele.size = size;
+		ele.sz = size;
 		shash_add_packed_val(hash, &ele, expected_type, false);
 	}
 
 	as_sindex_init_sbin(sbins, old_list_is_short ? AS_SINDEX_OP_INSERT : AS_SINDEX_OP_DELETE, type, si);
 
-	for (uint32_t i = 0; i < long_list_size; i++) {
+	for (uint32_t i = 0; i < long_list_count; i++) {
 		cdt_payload ele;
 
 		ele.ptr = pk_long->buffer + pk_long->offset;
-		ele.size = as_unpack_size(pk_long);
+		ele.sz = as_unpack_size(pk_long);
 
 		if (! packed_val_add_sbin_or_update_shash(&ele, sbins, hash, expected_type)) {
 			cf_warning(AS_SINDEX, "as_sindex_sbins_sindex_list_diff_populate() hash update failed");

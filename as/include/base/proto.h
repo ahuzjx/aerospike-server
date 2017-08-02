@@ -583,7 +583,7 @@ typedef enum as_cdt_optype_e {
 	AS_CDT_OP_LIST_SET           = 9,
 	AS_CDT_OP_LIST_TRIM          = 10,
 	AS_CDT_OP_LIST_CLEAR         = 11,
-	AS_CDT_OP_LIST_INCREMENT_BY  = 12,
+	AS_CDT_OP_LIST_INCREMENT     = 12,
 
 	// Read from list
 	AS_CDT_OP_LIST_SIZE          = 16,
