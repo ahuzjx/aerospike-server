@@ -1435,7 +1435,7 @@ packed_list_setup_bin(as_bin *b, rollback_alloc *alloc_buf, uint32_t content_sz,
 	list_offset_index_init(&offidx, ptr, ele_count, content_sz);
 	idx_trunc /= PACKED_LIST_INDEX_STEP;
 
-	if (idx_trunc == 0) {
+	if (idx_trunc == 0 || offset_index_is_null(old_offidx)) {
 		offset_index_set_filled(&offidx, 1);
 	}
 	else {
