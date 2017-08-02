@@ -809,7 +809,8 @@ msgpacked_index_get(const msgpacked_index *idxs, uint32_t index)
 }
 
 // Find find_index in a list of sorted_indexes.
-// *where will be the location where find_index is (if exist) or is suppose to be (if not exist).
+// *where will be the location where find_index is (if exist) or is suppose to
+// be (if not exist).
 // Return true if find_index is in sorted_indexes.
 bool
 msgpacked_index_find_index_sorted(const msgpacked_index *sorted_indexes,
