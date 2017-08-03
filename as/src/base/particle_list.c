@@ -1349,7 +1349,6 @@ static int
 packed_list_trim(as_bin *b, rollback_alloc *alloc_buf, int64_t index,
 		uint64_t count, as_bin *result)
 {
-	// Remove head section.
 	packed_list_op op;
 
 	if (! packed_list_op_init_from_bin(&op, b)) {
@@ -1376,17 +1375,29 @@ packed_list_trim(as_bin *b, rollback_alloc *alloc_buf, int64_t index,
 
 	count = calc_count((uint64_t)index, count, ele_count);
 
+	if (uindex == 0) {
+		if ((uint32_t)count == ele_count) {
+			as_bin_set_int(result, 0);
+			return AS_PROTO_RESULT_OK;
+		}
+
+		// Remove tail section.
+		return packed_list_remove(b, alloc_buf, (int64_t)count,
+				(uint64_t)ele_count - count, result, true, false, NULL);
+	}
+
 	if (uindex + (uint32_t)count == ele_count) {
-		return packed_list_remove(b, alloc_buf, index, count, result, true,
-				false, NULL);
+		// Remove head section.
+		return packed_list_remove(b, alloc_buf, 0, uindex, result, true, false,
+				NULL);
 	}
 
 	uint32_t new_count = (uint32_t)count;
 	uint32_t offset0 = packed_list_op_find_idx_offset(&op, uindex);
 	uint32_t offset1 = packed_list_op_find_idx_offset(&op, uindex + new_count);
 	uint32_t content_sz = offset1 - offset0;
-	uint8_t *ptr = packed_list_setup_bin(b, alloc_buf, content_sz, new_count,
-			uindex, &op.offidx);
+	uint8_t *ptr = packed_list_setup_bin(b, alloc_buf, content_sz, new_count, 0,
+			&op.offidx);
 
 	if (! ptr) {
 		cf_warning(AS_PARTICLE, "packed_list_trim() failed to alloc list particle");
