@@ -61,8 +61,7 @@
 
 uint32_t pack_info_bits(as_transaction* tr, bool has_udf);
 void send_repl_write_ack(cf_node node, msg* m, uint32_t result);
-bool repl_write_should_retransmit_replicas(uint32_t result_code);
-bool repl_write_should_fail_transaction(uint32_t result_code);
+uint32_t parse_result_code(msg* m);
 int drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 		bool is_nsup_delete, bool is_xdr_op, cf_node master);
 
@@ -389,32 +388,11 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	uint32_t result_code;
-	bool no_result = msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0;
-
-	// If proceeding further is pointless, report failure to sender.
-	if (no_result || repl_write_should_fail_transaction(result_code)) {
-		if (no_result) {
-			cf_warning(AS_RW, "repl-write ack: no result_code");
-		}
-
-		if (! rw->respond_client_on_master_completion) {
-			rw->result_code = (uint8_t)result_code;
-			rw->repl_write_cb(rw);
-		}
-
-		rw->repl_write_complete = true;
-
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_hash_delete(&hkey, rw);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
+	uint32_t result_code = parse_result_code(m);
 
 	// If it makes sense, retransmit replicas. Note - rw->dest_complete[i] not
 	// yet set true, so that retransmit will go to this remote node.
-	if (repl_write_should_retransmit_replicas(result_code)) {
+	if (repl_write_should_retransmit_replicas(rw, result_code)) {
 		rw->xmit_ms = 0; // force retransmit on next cycle
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
@@ -435,7 +413,7 @@ repl_write_handle_ack(cf_node node, msg* m)
 	}
 
 	if (! rw->respond_client_on_master_completion) {
-		// Success for all replicas - rw->result_code was initialized to OK.
+		// Success for all replicas.
 		rw->repl_write_cb(rw);
 	}
 
@@ -491,18 +469,17 @@ send_repl_write_ack(cf_node node, msg* m, uint32_t result)
 }
 
 
-bool
-repl_write_should_retransmit_replicas(uint32_t result_code)
+uint32_t
+parse_result_code(msg* m)
 {
-	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
-}
+	uint32_t result_code;
 
+	if (msg_get_uint32(m, RW_FIELD_RESULT, &result_code) != 0) {
+		cf_warning(AS_RW, "repl-write ack: no result_code");
+		return AS_PROTO_RESULT_FAIL_UNKNOWN;
+	}
 
-bool
-repl_write_should_fail_transaction(uint32_t result_code)
-{
-	return ! (result_code == AS_PROTO_RESULT_OK ||
-			result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
+	return result_code;
 }
 
 

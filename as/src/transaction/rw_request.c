@@ -116,6 +116,7 @@ rw_request_create(cf_digest* keyd)
 	rw->n_dest_nodes = 0;
 
 	rw->best_dup_msg = NULL;
+	rw->best_dup_result_code = AS_PROTO_RESULT_OK;
 	rw->best_dup_gen = 0;
 	rw->best_dup_lut = 0;
 

@@ -84,19 +84,10 @@ send_rw_messages(rw_request* rw)
 
 		msg_incr_ref(rw->dest_msg);
 
-		int rv = as_fabric_send(rw->dest_nodes[i], rw->dest_msg,
-				AS_FABRIC_CHANNEL_RW);
-
-		if (rv != AS_FABRIC_SUCCESS) {
-			if (rv != AS_FABRIC_ERR_NO_NODE) {
-				// Can't get AS_FABRIC_ERR_QUEUE_FULL for MEDIUM priority.
-				cf_crash(AS_RW, "unexpected fabric send result %d", rv);
-			}
-
+		if (as_fabric_send(rw->dest_nodes[i], rw->dest_msg,
+				AS_FABRIC_CHANNEL_RW) != AS_FABRIC_SUCCESS) {
 			as_fabric_msg_put(rw->dest_msg);
-
-			// Mark as complete although we won't have a response msg.
-			rw->dest_complete[i] = true;
+			rw->xmit_ms = 0; // force a retransmit on next cycle
 		}
 	}
 }

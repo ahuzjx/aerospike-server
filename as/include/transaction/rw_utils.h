@@ -175,6 +175,10 @@ udf_optype udf_finish_delete(struct udf_record_s* urecord);
 
 void dup_res_flag_pickle(const uint8_t* buf, uint32_t* info);
 bool dup_res_ignore_pickle(const uint8_t* buf, const msg* m);
+bool dup_res_should_retry_transaction(struct rw_request_s* rw, uint32_t result_code);
+bool dup_res_should_fail_transaction(struct rw_request_s* rw, uint32_t result_code);
+void dup_res_translate_result_code(struct rw_request_s* rw);
 
 void repl_write_flag_pickle(const struct as_transaction_s* tr, const uint8_t* buf, uint32_t* info);
 bool repl_write_pickle_is_drop(const uint8_t* buf, uint32_t info);
+bool repl_write_should_retransmit_replicas(struct rw_request_s* rw, uint32_t result_code);

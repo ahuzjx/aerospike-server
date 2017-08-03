@@ -58,8 +58,6 @@
 void done_handle_request(as_partition_reservation* rsv, as_index_ref* r_ref, as_storage_rd* rd);
 void send_dup_res_ack(cf_node node, msg* m, uint32_t result);
 void send_ack_for_bad_request(cf_node node, msg* m);
-bool dup_res_should_retry_transaction(uint32_t result_code);
-bool dup_res_should_fail_transaction(uint32_t result_code);
 uint32_t parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time);
 void apply_winner(rw_request* rw);
 
@@ -356,7 +354,7 @@ dup_res_handle_ack(cf_node node, msg* m)
 	uint32_t result_code = parse_dup_meta(m, &generation, &last_update_time);
 
 	// If proceeding further is pointless, report failure to sender.
-	if (dup_res_should_fail_transaction(result_code)) {
+	if (dup_res_should_fail_transaction(rw, result_code)) {
 		if (! rw->from.any) {
 			// Lost race against timeout in retransmit thread.
 			pthread_mutex_unlock(&rw->lock);
@@ -379,7 +377,7 @@ dup_res_handle_ack(cf_node node, msg* m)
 
 	// If it makes sense, retry transaction from the beginning.
 	// TODO - is this retry too fast? Should there be a throttle? If so, how?
-	if (dup_res_should_retry_transaction(result_code)) {
+	if (dup_res_should_retry_transaction(rw, result_code)) {
 		if (! rw->from.any) {
 			// Lost race against timeout in retransmit thread.
 			pthread_mutex_unlock(&rw->lock);
@@ -425,6 +423,7 @@ dup_res_handle_ack(cf_node node, msg* m)
 
 		msg_preserve_all_fields(m);
 		rw->best_dup_msg = m;
+		rw->best_dup_result_code = (uint8_t)result_code;
 		rw->best_dup_gen = generation;
 		rw->best_dup_lut = last_update_time;
 	}
@@ -440,7 +439,9 @@ dup_res_handle_ack(cf_node node, msg* m)
 		}
 	}
 
-	apply_winner(rw); // sets rw->result_code to pass along to callback
+	if (rw->best_dup_result_code == AS_PROTO_RESULT_OK) {
+		apply_winner(rw); // sets rw->result_code to pass along to callback
+	}
 
 	// Check for lost race against timeout in retransmit thread *after* applying
 	// winner - may save a future transaction from re-fetching the duplicates.
@@ -450,6 +451,8 @@ dup_res_handle_ack(cf_node node, msg* m)
 		rw_request_release(rw);
 		return;
 	}
+
+	dup_res_translate_result_code(rw);
 
 	bool delete_from_hash = rw->dup_res_cb(rw);
 
@@ -513,23 +516,6 @@ send_ack_for_bad_request(cf_node node, msg* m)
 }
 
 
-bool
-dup_res_should_retry_transaction(uint32_t result_code)
-{
-	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
-}
-
-
-bool
-dup_res_should_fail_transaction(uint32_t result_code)
-{
-	return ! (result_code == AS_PROTO_RESULT_OK ||
-			result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
-			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
-			result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
-}
-
-
 uint32_t
 parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
 {
@@ -540,11 +526,7 @@ parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
 		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
-	if (dup_res_should_fail_transaction(result_code) ||
-			dup_res_should_retry_transaction(result_code) ||
-			// With these result codes, msg fields below aren't sent.
-			result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
-			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
+	if (result_code != AS_PROTO_RESULT_OK) {
 		return result_code;
 	}
 
@@ -559,7 +541,7 @@ parse_dup_meta(msg* m, uint32_t* p_generation, uint64_t* p_last_update_time)
 		return AS_PROTO_RESULT_FAIL_UNKNOWN;
 	}
 
-	return result_code;
+	return AS_PROTO_RESULT_OK;
 }
 
 
@@ -568,21 +550,8 @@ apply_winner(rw_request* rw)
 {
 	msg* m = rw->best_dup_msg;
 
-	uint32_t result_code;
-
-	// FIXME - best node index could fetch best dup result.
-	// Already made sure this field is present.
-	msg_get_uint32(m, RW_FIELD_RESULT, &result_code);
-
-	if (result_code == AS_PROTO_RESULT_FAIL_NOT_FOUND ||
-			result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS) {
-		// Remote record is no better than local - rw->result_code was
-		// initialized to OK.
-		return;
-	}
-	// else - result_code OK - remote record thinks it's better than local.
-
 	as_remote_record rr = {
+			// Skipping .src for now.
 			.rsv = &rw->rsv,
 			.keyd = &rw->keyd,
 			.generation = rw->best_dup_gen,
@@ -601,9 +570,6 @@ apply_winner(rw_request* rw)
 		rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
 		return;
 	}
-
-	// FIXME - could store best node index - worth it?
-//	rr.src = rw->dest_nodes[i];
 
 	msg_get_uint32(m, RW_FIELD_VOID_TIME, &rr.void_time);
 

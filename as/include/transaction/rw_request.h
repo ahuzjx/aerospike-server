@@ -156,6 +156,8 @@ typedef struct rw_request_s {
 
 	// Duplicate resolution response messages from nodes with duplicates.
 	msg*				best_dup_msg;
+	// TODO - could store best dup node-id - worth it?
+	uint8_t				best_dup_result_code;
 	uint16_t			best_dup_gen;
 	uint64_t			best_dup_lut;
 

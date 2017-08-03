@@ -192,6 +192,11 @@ read_dup_res_cb(rw_request* rw)
 	as_transaction tr;
 	as_transaction_init_from_rw(&tr, rw);
 
+	if (tr.result_code != AS_PROTO_RESULT_OK) {
+		send_read_response(&tr, NULL, NULL, 0, NULL, NULL);
+		return true;
+	}
+
 	// Read the local copy and respond to origin.
 	read_local(&tr);
 

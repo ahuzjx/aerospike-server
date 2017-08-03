@@ -244,6 +244,11 @@ delete_dup_res_cb(rw_request* rw)
 	as_transaction tr;
 	as_transaction_init_from_rw(&tr, rw);
 
+	if (tr.result_code != AS_PROTO_RESULT_OK) {
+		send_delete_response(&tr);
+		return true;
+	}
+
 	transaction_status status = delete_master(&tr, rw);
 
 	if (status == TRANS_DONE_ERROR) {

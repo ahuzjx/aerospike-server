@@ -317,6 +317,11 @@ write_dup_res_cb(rw_request* rw)
 	as_transaction tr;
 	as_transaction_init_from_rw(&tr, rw);
 
+	if (tr.result_code != AS_PROTO_RESULT_OK) {
+		send_write_response(&tr, NULL);
+		return true;
+	}
+
 	transaction_status status = write_master(rw, &tr);
 
 	BENCHMARK_NEXT_DATA_POINT((&tr), write, master);

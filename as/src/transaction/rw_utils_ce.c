@@ -38,6 +38,7 @@
 #include "base/transaction.h"
 #include "base/udf_record.h"
 #include "storage/storage.h"
+#include "transaction/rw_request.h"
 #include "transaction/udf.h"
 
 
@@ -113,6 +114,27 @@ dup_res_ignore_pickle(const uint8_t* buf, const msg* m)
 }
 
 
+bool
+dup_res_should_retry_transaction(rw_request* rw, uint32_t result_code)
+{
+	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
+}
+
+
+bool
+dup_res_should_fail_transaction(rw_request* rw, uint32_t result_code)
+{
+	return false;
+}
+
+
+void
+dup_res_translate_result_code(rw_request* rw)
+{
+	rw->result_code = AS_PROTO_RESULT_OK;
+}
+
+
 void
 repl_write_flag_pickle(const as_transaction* tr, const uint8_t* buf,
 		uint32_t* info)
@@ -125,4 +147,11 @@ bool
 repl_write_pickle_is_drop(const uint8_t* buf, uint32_t info)
 {
 	return as_record_pickle_is_binless(buf);
+}
+
+
+bool
+repl_write_should_retransmit_replicas(rw_request* rw, uint32_t result_code)
+{
+	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
 }

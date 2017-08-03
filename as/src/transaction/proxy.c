@@ -695,19 +695,12 @@ proxy_retransmit_send(proxy_request* pr)
 
 		msg_incr_ref(pr->fab_msg);
 
-		int rv = as_fabric_send(pr->dest, pr->fab_msg, AS_FABRIC_CHANNEL_RW);
-
-		if (rv == AS_FABRIC_SUCCESS) {
+		if (as_fabric_send(pr->dest, pr->fab_msg, AS_FABRIC_CHANNEL_RW) ==
+				AS_FABRIC_SUCCESS) {
 			return CF_SHASH_OK;
 		}
 
 		as_fabric_msg_put(pr->fab_msg);
-
-		if (rv != AS_FABRIC_ERR_NO_NODE) {
-			// Should never get here - 'queue full' error is impossible for
-			// medium priority...
-			return CF_SHASH_ERR;
-		}
 
 		// The node I'm proxying to is no longer up. Find another node. (Easier
 		// to just send to the master and not pay attention to whether it's read
