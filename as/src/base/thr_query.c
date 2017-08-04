@@ -1027,7 +1027,7 @@ query_reserve_partition(as_namespace * ns, as_query_transaction * qtr, uint32_t 
 		cf_warning(AS_QUERY, "rsv is null while reserving partition.");
 		return NULL;
 	}
-	AS_PARTITION_RESERVATION_INITP(rsv);
+
 	if (0 != as_partition_reserve_query(ns, pid, rsv)) {
 		return NULL;
 	}

@@ -628,7 +628,7 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 	as_partition_reservation rsv;
 	uint32_t pid = as_partition_getid(&block->keyd);
 
-	as_partition_reserve_migrate(ns, pid, &rsv, 0);
+	as_partition_reserve(ns, pid, &rsv);
 
 	int rv;
 	as_index_ref r_ref;
@@ -1988,7 +1988,7 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 		uint32_t pid = as_partition_getid(&p_block->keyd);
 		as_partition_reservation rsv;
 
-		as_partition_reserve_migrate(ns, pid, &rsv, 0);
+		as_partition_reserve(ns, pid, &rsv);
 
 		as_index_ref r_ref;
 		r_ref.skip_lock = false;

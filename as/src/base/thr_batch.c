@@ -135,7 +135,6 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 		if (bmd->done == false) {
 			// try to get the key
 			as_partition_reservation rsv;
-			AS_PARTITION_RESERVATION_INIT(rsv);
 			cf_node other_node = 0;
 			uint64_t cluster_key;
 

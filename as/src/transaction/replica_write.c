@@ -237,7 +237,7 @@ repl_write_handle_op(cf_node node, msg* m)
 
 	as_partition_reservation rsv;
 
-	as_partition_reserve_migrate(ns, as_partition_getid(keyd), &rsv, NULL);
+	as_partition_reserve(ns, as_partition_getid(keyd), &rsv);
 
 	if (rsv.reject_repl_write) {
 		as_partition_release(&rsv);
@@ -394,7 +394,6 @@ repl_write_handle_ack(cf_node node, msg* m)
 	// If it makes sense, retransmit replicas. Note - rw->dest_complete[i] not
 	// yet set true, so that retransmit will go to this remote node.
 	if (repl_write_should_retransmit_replicas(rw, result_code)) {
-		rw->xmit_ms = 0; // force retransmit on next cycle
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
 		as_fabric_msg_put(m);

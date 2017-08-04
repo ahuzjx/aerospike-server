@@ -193,7 +193,8 @@ dup_res_handle_request(cf_node node, msg* m)
 	msg_preserve_fields(m, 3, RW_FIELD_NS_ID, RW_FIELD_DIGEST, RW_FIELD_TID);
 
 	as_partition_reservation rsv;
-	as_partition_reserve_migrate(ns, as_partition_getid(keyd), &rsv, NULL);
+
+	as_partition_reserve(ns, as_partition_getid(keyd), &rsv);
 
 	if (rsv.cluster_key != cluster_key) {
 		done_handle_request(&rsv, NULL, NULL);

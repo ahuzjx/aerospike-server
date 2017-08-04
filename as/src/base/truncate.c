@@ -541,7 +541,7 @@ run_truncate(void* arg)
 	while ((pid = (uint32_t)cf_atomic32_incr(&ns->truncate.pid)) <
 			AS_PARTITIONS) {
 		as_partition_reservation rsv;
-		as_partition_reserve_migrate(ns, pid, &rsv, NULL);
+		as_partition_reserve(ns, pid, &rsv);
 
 		truncate_reduce_cb_info cb_info = { .ns = ns, .tree = rsv.tree };
 

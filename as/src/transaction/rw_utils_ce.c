@@ -153,5 +153,11 @@ repl_write_pickle_is_drop(const uint8_t* buf, uint32_t info)
 bool
 repl_write_should_retransmit_replicas(rw_request* rw, uint32_t result_code)
 {
-	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
+	switch (result_code) {
+	case AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH:
+		rw->xmit_ms = 0; // force retransmit on next cycle
+		return true;
+	default:
+		return false;
+	}
 }

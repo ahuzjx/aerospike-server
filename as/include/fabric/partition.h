@@ -163,10 +163,10 @@ void as_partition_get_replicas_all_str(cf_dyn_buf* db);
 
 void as_partition_get_replica_stats(struct as_namespace_s* ns, repl_stats* p_stats);
 
+void as_partition_reserve(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);
+int as_partition_reserve_timeout(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, int timeout_ms);
 int as_partition_reserve_write(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key);
 int as_partition_reserve_read(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key);
-void as_partition_reserve_migrate(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node);
-int as_partition_reserve_migrate_timeout(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, int timeout_ms );
 int as_partition_prereserve_query(struct as_namespace_s* ns, bool can_partition_query[], as_partition_reservation rsv[]);
 int as_partition_reserve_query(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);
 int as_partition_reserve_xdr_read(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);
@@ -248,14 +248,6 @@ contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
 	__rsv.cluster_key = 0; \
 	__rsv.reject_repl_write = false; \
 	__rsv.n_dupl = 0;
-
-#define AS_PARTITION_RESERVATION_INITP(__rsv) \
-	__rsv->ns = NULL; \
-	__rsv->p = NULL; \
-	__rsv->tree = NULL; \
-	__rsv->cluster_key = 0; \
-	__rsv->reject_repl_write = false; \
-	__rsv->n_dupl = 0;
 
 #define VERSION_AS_STRING(v_ptr) (as_partition_version_as_string(v_ptr).s)
 

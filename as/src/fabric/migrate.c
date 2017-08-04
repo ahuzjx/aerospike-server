@@ -288,8 +288,7 @@ as_migrate_emigrate(const partition_migrate_record *pmr)
 	emig->ctrl_q = NULL;
 	emig->meta_q = NULL;
 
-	AS_PARTITION_RESERVATION_INIT(emig->rsv);
-	as_partition_reserve_migrate(pmr->ns, pmr->pid, &emig->rsv, NULL);
+	as_partition_reserve(pmr->ns, pmr->pid, &emig->rsv);
 
 	cf_atomic_int_incr(&emig->rsv.ns->migrate_tx_instance_count);
 
@@ -1357,7 +1356,7 @@ immigration_handle_start_request(cf_node src, msg *m)
 	}
 
 	if (immig->start_recv_ms == 0) {
-		as_partition_reserve_migrate(ns, pid, &immig->rsv, NULL);
+		as_partition_reserve(ns, pid, &immig->rsv);
 		cf_atomic_int_incr(&immig->rsv.ns->migrate_rx_partitions_active);
 
 		if (! immigration_start_meta_sender(immig, emig_features,

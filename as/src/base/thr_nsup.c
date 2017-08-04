@@ -461,7 +461,6 @@ static int
 garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 {
 	as_partition_reservation rsv;
-	AS_PARTITION_RESERVATION_INIT(rsv);
 
 	// Look for the next prole partition past pid, but loop only once over all
 	// partitions.
@@ -476,7 +475,6 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 		if (0 == as_partition_reserve_write(ns, pid, &rsv, 0, 0)) {
 			// This is a master partition - continue.
 			as_partition_release(&rsv);
-			AS_PARTITION_RESERVATION_INIT(rsv);
 		}
 		else if (0 == as_partition_reserve_read(ns, pid, &rsv, 0, 0)) {
 			// This is a prole partition - garbage collect and break.

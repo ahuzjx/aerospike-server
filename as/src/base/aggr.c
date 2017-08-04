@@ -118,7 +118,6 @@ aopen(aggr_state *astate, const cf_digest *digest)
 	int pid                = as_partition_getid(digest);
 	urecord->keyd = *digest;
 
-	AS_PARTITION_RESERVATION_INIT(tr->rsv);
 	astate->rsv        = ptn_reserve(astate, pid, &tr->rsv);
 	if (!astate->rsv) {
 		cf_debug(AS_AGGR, "Reservation not done for partition %d", pid);

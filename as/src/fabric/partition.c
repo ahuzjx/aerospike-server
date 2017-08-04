@@ -314,6 +314,43 @@ as_partition_get_replica_stats(as_namespace* ns, repl_stats* p_stats)
 }
 
 
+// TODO - what if partition is frozen?
+void
+as_partition_reserve(as_namespace* ns, uint32_t pid,
+		as_partition_reservation* rsv)
+{
+	as_partition* p = &ns->partitions[pid];
+
+	pthread_mutex_lock(&p->lock);
+
+	partition_reserve_lockfree(p, ns, rsv);
+
+	pthread_mutex_unlock(&p->lock);
+}
+
+
+// TODO - what if partition is frozen?
+int
+as_partition_reserve_timeout(as_namespace* ns, uint32_t pid,
+		as_partition_reservation* rsv, int timeout_ms)
+{
+	as_partition* p = &ns->partitions[pid];
+
+	struct timespec tp;
+	cf_set_wait_timespec(timeout_ms, &tp);
+
+	if (pthread_mutex_timedlock(&p->lock, &tp) != 0) {
+		return -1;
+	}
+
+	partition_reserve_lockfree(p, ns, rsv);
+
+	pthread_mutex_unlock(&p->lock);
+
+	return 0;
+}
+
+
 int
 as_partition_reserve_write(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key)
@@ -327,51 +364,6 @@ as_partition_reserve_read(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key)
 {
 	return partition_reserve_read_write(ns, pid, rsv, node, true, cluster_key);
-}
-
-
-// TODO - what if partition is frozen?
-void
-as_partition_reserve_migrate(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node)
-{
-	as_partition* p = &ns->partitions[pid];
-
-	pthread_mutex_lock(&p->lock);
-
-	partition_reserve_lockfree(p, ns, rsv);
-
-	pthread_mutex_unlock(&p->lock);
-
-	if (node) {
-		*node = g_config.self_node;
-	}
-}
-
-
-// TODO - what if partition is frozen?
-int
-as_partition_reserve_migrate_timeout(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node, int timeout_ms)
-{
-	as_partition* p = &ns->partitions[pid];
-
-	struct timespec tp;
-	cf_set_wait_timespec(timeout_ms, &tp);
-
-	if (0 != pthread_mutex_timedlock(&p->lock, &tp)) {
-		return -1;
-	}
-
-	partition_reserve_lockfree(p, ns, rsv);
-
-	pthread_mutex_unlock(&p->lock);
-
-	if (node) {
-		*node = g_config.self_node;
-	}
-
-	return 0;
 }
 
 
