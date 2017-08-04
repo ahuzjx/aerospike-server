@@ -213,9 +213,9 @@ dup_res_handle_request(cf_node node, msg* m)
 	as_record* r = r_ref.r;
 
 	if (local_conflict_check &&
-			0 >= as_record_resolve_conflict(ns->conflict_resolution_policy,
+			as_record_resolve_conflict(ns->conflict_resolution_policy,
 					generation, last_update_time, r->generation,
-					r->last_update_time)) {
+					r->last_update_time) <= 0) {
 		done_handle_request(&rsv, &r_ref, NULL);
 		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_RECORD_EXISTS);
 		return;

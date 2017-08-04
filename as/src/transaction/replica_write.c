@@ -304,8 +304,9 @@ repl_write_handle_op(cf_node node, msg* m)
 	// If source didn't touch sindex, may not need to touch it locally.
 	bool skip_sindex = (info & RW_INFO_SINDEX_TOUCHED) == 0;
 
-	result = as_record_replace_if_better(&rr, 0, skip_sindex, do_xdr_write);
-	// FIXME - properly deal with policy.
+	result = as_record_replace_if_better(&rr,
+			AS_NAMESPACE_CONFLICT_RESOLUTION_POLICY_LAST_UPDATE_TIME,
+			skip_sindex, do_xdr_write);
 
 	as_partition_release(&rsv);
 	send_repl_write_ack(node, m, result);

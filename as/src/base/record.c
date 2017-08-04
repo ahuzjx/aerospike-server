@@ -101,7 +101,6 @@ resolve_last_update_time(uint64_t left, uint64_t right)
 	return left == right ? 0 : (right > left ? 1 : -1);
 }
 
-// FIXME - assumes filter for remote == local will be done upstream later.
 // Assumes remote generation is not 0. (Local may be 0 if creating record.)
 static inline bool
 next_generation(uint16_t local, uint16_t remote)
@@ -394,10 +393,9 @@ as_record_replace_if_better(as_remote_record *rr,
 	as_index *r = r_ref.r;
 
 	// If local record is better, no-op.
-	// FIXME - properly deal with policy (repl-write policy is 0).
-	if (! is_create && policy != 0 && as_record_resolve_conflict(policy,
-			r->generation, r->last_update_time,
-			(uint16_t)rr->generation, rr->last_update_time) <= 0) {
+	if (! is_create && as_record_resolve_conflict(policy, r->generation,
+			r->last_update_time, (uint16_t)rr->generation,
+			rr->last_update_time) <= 0) {
 		record_replace_failed(rr, &r_ref, NULL, is_create);
 		return AS_PROTO_RESULT_OK; // TODO - will CP repl-writes care?
 	}
