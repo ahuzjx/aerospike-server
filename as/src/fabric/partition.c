@@ -351,6 +351,31 @@ as_partition_reserve_timeout(as_namespace* ns, uint32_t pid,
 }
 
 
+// Returns:
+//  0 - reserved
+// -1 - not reserved - not a replica (or partition is "frozen")
+int
+as_partition_reserve_replica(as_namespace* ns, uint32_t pid,
+		as_partition_reservation* rsv)
+{
+	as_partition* p = &ns->partitions[pid];
+
+	pthread_mutex_lock(&p->lock);
+
+	// TODO - move is_self_replica() so we can see it here.
+	if (! contains_node(p->replicas, p->n_replicas, g_config.self_node)) {
+		pthread_mutex_unlock(&p->lock);
+		return -1;
+	}
+
+	partition_reserve_lockfree(p, ns, rsv);
+
+	pthread_mutex_unlock(&p->lock);
+
+	return 0;
+}
+
+
 int
 as_partition_reserve_write(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv, cf_node* node)
@@ -431,7 +456,6 @@ as_partition_reservation_copy(as_partition_reservation* dst,
 	dst->p = src->p;
 	dst->tree = src->tree;
 	dst->cluster_key = src->cluster_key;
-	dst->reject_repl_write = src->reject_repl_write;
 	dst->n_dupl = src->n_dupl;
 
 	if (dst->n_dupl != 0) {
@@ -700,10 +724,6 @@ partition_reserve_lockfree(as_partition* p, as_namespace* ns,
 	rsv->p = p;
 	rsv->tree = p->vp;
 	rsv->cluster_key = p->cluster_key;
-
-	// FIXME - this is equivalent, but is it correct ???
-	rsv->reject_repl_write = as_partition_version_is_null(&p->version);
-
 	rsv->n_dupl = p->n_dupl;
 
 	if (rsv->n_dupl != 0) {
