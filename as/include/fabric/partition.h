@@ -89,7 +89,6 @@ typedef struct as_partition_s {
 
 	// Rebalance & migration related:
 
-	uint64_t cluster_key;
 	as_partition_version final_version;
 	as_partition_version version;
 	int pending_emigrations;
@@ -110,7 +109,6 @@ typedef struct as_partition_reservation_s {
 	struct as_namespace_s* ns;
 	as_partition* p;
 	struct as_index_tree_s* tree;
-	uint64_t cluster_key;
 	// 4 unused bytes
 	uint32_t n_dupl;
 	cf_node dupl_nodes[AS_CLUSTER_SZ];
@@ -245,7 +243,6 @@ contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
 	__rsv.ns = NULL; \
 	__rsv.p = NULL; \
 	__rsv.tree = NULL; \
-	__rsv.cluster_key = 0; \
 	__rsv.n_dupl = 0;
 
 #define VERSION_AS_STRING(v_ptr) (as_partition_version_as_string(v_ptr).s)

@@ -114,8 +114,6 @@ as_partition_freeze(as_partition* p)
 	p->n_replicas = 0;
 	memset(p->replicas, 0, sizeof(p->replicas));
 
-	p->cluster_key = 0;
-
 	p->pending_emigrations = 0;
 	p->pending_immigrations = 0;
 	memset(p->immigrators, 0, sizeof(p->immigrators));
@@ -455,7 +453,6 @@ as_partition_reservation_copy(as_partition_reservation* dst,
 	dst->ns = src->ns;
 	dst->p = src->p;
 	dst->tree = src->tree;
-	dst->cluster_key = src->cluster_key;
 	dst->n_dupl = src->n_dupl;
 
 	if (dst->n_dupl != 0) {
@@ -723,7 +720,6 @@ partition_reserve_lockfree(as_partition* p, as_namespace* ns,
 	rsv->ns = ns;
 	rsv->p = p;
 	rsv->tree = p->vp;
-	rsv->cluster_key = p->cluster_key;
 	rsv->n_dupl = p->n_dupl;
 
 	if (rsv->n_dupl != 0) {

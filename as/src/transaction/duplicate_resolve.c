@@ -43,6 +43,7 @@
 #include "base/proto.h"
 #include "base/thr_tsvc.h"
 #include "base/transaction.h"
+#include "fabric/exchange.h"
 #include "fabric/fabric.h"
 #include "fabric/partition.h"
 #include "storage/storage.h"
@@ -82,8 +83,10 @@ dup_res_make_message(rw_request* rw, as_transaction* tr)
 	msg_set_uint32(m, RW_FIELD_NS_ID, ns->id);
 	msg_set_buf(m, RW_FIELD_DIGEST, (void*)&tr->keyd, sizeof(cf_digest),
 			MSG_SET_COPY);
-	msg_set_uint64(m, RW_FIELD_CLUSTER_KEY, tr->rsv.cluster_key);
 	msg_set_uint32(m, RW_FIELD_TID, rw->tid);
+
+	// TODO - JUMP - send this only because versions up to 3.14.x require it.
+	msg_set_uint64(m, RW_FIELD_CLUSTER_KEY, as_exchange_cluster_key());
 
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;
@@ -155,14 +158,6 @@ dup_res_handle_request(cf_node node, msg* m)
 		return;
 	}
 
-	uint64_t cluster_key;
-
-	if (msg_get_uint64(m, RW_FIELD_CLUSTER_KEY, &cluster_key) != 0) {
-		cf_warning(AS_RW, "dup-res handler: no cluster key");
-		send_ack_for_bad_request(node, m);
-		return;
-	}
-
 	uint8_t* ns_name;
 	size_t ns_name_len;
 
@@ -195,12 +190,6 @@ dup_res_handle_request(cf_node node, msg* m)
 	as_partition_reservation rsv;
 
 	as_partition_reserve(ns, as_partition_getid(keyd), &rsv);
-
-	if (rsv.cluster_key != cluster_key) {
-		done_handle_request(&rsv, NULL, NULL);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
-		return;
-	}
 
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;

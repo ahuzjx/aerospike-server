@@ -129,7 +129,6 @@ aopen(aggr_state *astate, const cf_digest *digest)
 	tr->rsv.ns          = astate->rsv->ns;
 	tr->rsv.p           = astate->rsv->p;
 	tr->rsv.tree        = astate->rsv->tree;
-	tr->rsv.cluster_key = astate->rsv->cluster_key;
 	tr->keyd            = urecord->keyd;
 
 	r_ref->skip_lock    = false;

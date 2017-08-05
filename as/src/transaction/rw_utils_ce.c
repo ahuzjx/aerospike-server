@@ -117,6 +117,7 @@ dup_res_ignore_pickle(const uint8_t* buf, const msg* m)
 bool
 dup_res_should_retry_transaction(rw_request* rw, uint32_t result_code)
 {
+	// TODO - JUMP - can get this from 3.14.x nodes or older - retry if so.
 	return result_code == AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
 }
 

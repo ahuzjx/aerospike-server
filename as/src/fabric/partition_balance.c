@@ -895,8 +895,6 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		memset(p->replicas, 0, sizeof(p->replicas));
 		memcpy(p->replicas, ns_node_seq, p->n_replicas * sizeof(cf_node));
 
-		p->cluster_key = as_exchange_cluster_key();
-
 		p->pending_emigrations = 0;
 		p->pending_immigrations = 0;
 		memset(p->immigrators, 0, sizeof(p->immigrators));
@@ -912,7 +910,9 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 		uint32_t self_n = find_self(ns_node_seq, ns);
 
-		as_partition_version final_version = { .ckey = p->cluster_key };
+		as_partition_version final_version = {
+				.ckey = as_exchange_cluster_key()
+		};
 
 		p->final_version = final_version;
 		p->final_version.master = self_n == 0 ? 1 : 0;
@@ -989,7 +989,7 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		// TEMPORARY debugging.
 		if (pid < 20) {
 			cf_debug(AS_PARTITION, "ck%012lX %02u (%d %d) %s -> %s - self_n %u wm_n %d repls %u dupls %u immigrators %u",
-					p->cluster_key, pid, p->pending_emigrations,
+					as_exchange_cluster_key(), pid, p->pending_emigrations,
 					p->pending_immigrations, VERSION_AS_STRING(&debug_orig),
 					VERSION_AS_STRING(&p->version), self_n, working_master_n,
 					p->n_replicas, n_dupl, debug_n_immigrators);
@@ -1550,8 +1550,8 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 			if (p->immigrators[repl_ix]) {
 				p->pending_emigrations++;
 				partition_migrate_record_fill(&pmr, p->replicas[repl_ix],
-						ns, p->id, p->cluster_key, EMIG_TYPE_TRANSFER,
-						TX_FLAGS_NONE);
+						ns, p->id, as_exchange_cluster_key(),
+						EMIG_TYPE_TRANSFER, TX_FLAGS_NONE);
 				cf_queue_push(mq, &pmr);
 			}
 		}
@@ -1569,13 +1569,14 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 		p->target = p->replicas[0];
 		p->pending_emigrations = 1;
 		partition_migrate_record_fill(&pmr, p->target, ns, p->id,
-				p->cluster_key, EMIG_TYPE_TRANSFER, TX_FLAGS_ACTING_MASTER);
+				as_exchange_cluster_key(), EMIG_TYPE_TRANSFER,
+				TX_FLAGS_ACTING_MASTER);
 		cf_queue_push(mq, &pmr);
 	}
 	else if (contains_self(dupls, n_dupl)) {
 		p->pending_emigrations = 1;
 		partition_migrate_record_fill(&pmr, p->replicas[0], ns, p->id,
-				p->cluster_key, EMIG_TYPE_TRANSFER, TX_FLAGS_NONE);
+				as_exchange_cluster_key(), EMIG_TYPE_TRANSFER, TX_FLAGS_NONE);
 		cf_queue_push(mq, &pmr);
 	}
 
