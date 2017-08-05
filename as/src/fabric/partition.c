@@ -51,7 +51,7 @@
 
 cf_node find_best_node(const as_partition* p, bool is_read);
 void accumulate_replica_stats(const as_partition* p, uint64_t* p_n_objects, uint64_t* p_n_tombstones);
-int partition_reserve_read_write(as_namespace* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, bool is_read, uint64_t* cluster_key);
+int partition_reserve_read_write(as_namespace* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, bool is_read);
 void partition_reserve_lockfree(as_partition* p, as_namespace* ns, as_partition_reservation* rsv);
 cf_node partition_getreplica_prole(as_namespace* ns, uint32_t pid);
 char partition_descriptor(const as_partition* p);
@@ -353,17 +353,17 @@ as_partition_reserve_timeout(as_namespace* ns, uint32_t pid,
 
 int
 as_partition_reserve_write(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key)
+		as_partition_reservation* rsv, cf_node* node)
 {
-	return partition_reserve_read_write(ns, pid, rsv, node, false, cluster_key);
+	return partition_reserve_read_write(ns, pid, rsv, node, false);
 }
 
 
 int
 as_partition_reserve_read(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node, uint64_t* cluster_key)
+		as_partition_reservation* rsv, cf_node* node)
 {
-	return partition_reserve_read_write(ns, pid, rsv, node, true, cluster_key);
+	return partition_reserve_read_write(ns, pid, rsv, node, true);
 }
 
 
@@ -395,7 +395,7 @@ int
 as_partition_reserve_query(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv)
 {
-	return as_partition_reserve_write(ns, pid, rsv, NULL, NULL);
+	return as_partition_reserve_write(ns, pid, rsv, NULL);
 }
 
 
@@ -654,8 +654,7 @@ accumulate_replica_stats(const as_partition* p, uint64_t* p_n_objects,
 // -2 - not reserved - node parameter not filled - partition is "frozen"
 int
 partition_reserve_read_write(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node, bool is_read,
-		uint64_t* cluster_key)
+		as_partition_reservation* rsv, cf_node* node, bool is_read)
 {
 	as_partition* p = &ns->partitions[pid];
 
@@ -675,10 +674,6 @@ partition_reserve_read_write(as_namespace* ns, uint32_t pid,
 
 	if (node) {
 		*node = best_node;
-	}
-
-	if (cluster_key) {
-		*cluster_key = p->cluster_key;
 	}
 
 	// If this node is not the appropriate one, return.

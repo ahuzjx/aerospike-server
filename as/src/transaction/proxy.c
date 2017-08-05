@@ -71,7 +71,7 @@ typedef enum {
 	PROXY_FIELD_DIGEST,
 	PROXY_FIELD_REDIRECT,
 	PROXY_FIELD_AS_PROTO, // request as_proto - currently contains only as_msg's
-	PROXY_FIELD_CLUSTER_KEY,
+	PROXY_FIELD_UNUSED_5,
 	PROXY_FIELD_UNUSED_6,
 	PROXY_FIELD_UNUSED_7,
 
@@ -88,7 +88,7 @@ const msg_template proxy_mt[] = {
 	{ PROXY_FIELD_DIGEST, M_FT_BUF },
 	{ PROXY_FIELD_REDIRECT, M_FT_UINT64 },
 	{ PROXY_FIELD_AS_PROTO, M_FT_BUF },
-	{ PROXY_FIELD_CLUSTER_KEY, M_FT_UINT64 },
+	{ PROXY_FIELD_UNUSED_5, M_FT_UINT64 },
 	{ PROXY_FIELD_UNUSED_6, M_FT_UINT32 },
 	{ PROXY_FIELD_UNUSED_7, M_FT_UINT32 },
 };
@@ -239,8 +239,7 @@ as_proxy_hash_count()
 
 // Proxyer - divert a transaction request to another node.
 bool
-as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns,
-		uint64_t cluster_key)
+as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 {
 	uint32_t pid = as_partition_getid(&tr->keyd);
 
@@ -264,7 +263,6 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns,
 			MSG_SET_COPY);
 	msg_set_buf(m, PROXY_FIELD_AS_PROTO, (void*)tr->msgp,
 			as_proto_size_get(&tr->msgp->proto), set_type);
-	msg_set_uint64(m, PROXY_FIELD_CLUSTER_KEY, cluster_key);
 
 	// Set up a proxy_request and insert it in the hash.
 

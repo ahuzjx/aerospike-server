@@ -354,28 +354,6 @@ dup_res_handle_ack(cf_node node, msg* m)
 	uint64_t last_update_time = 0;
 	uint32_t result_code = parse_dup_meta(m, &generation, &last_update_time);
 
-	// If proceeding further is pointless, report failure to sender.
-	if (dup_res_should_fail_transaction(rw, result_code)) {
-		if (! rw->from.any) {
-			// Lost race against timeout in retransmit thread.
-			pthread_mutex_unlock(&rw->lock);
-			rw_request_release(rw);
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		rw->result_code = (uint8_t)result_code;
-		rw->dup_res_cb(rw);
-
-		rw->dup_res_complete = true;
-
-		pthread_mutex_unlock(&rw->lock);
-		rw_request_hash_delete(&hkey, rw);
-		rw_request_release(rw);
-		as_fabric_msg_put(m);
-		return;
-	}
-
 	// If it makes sense, retry transaction from the beginning.
 	// TODO - is this retry too fast? Should there be a throttle? If so, how?
 	if (dup_res_should_retry_transaction(rw, result_code)) {

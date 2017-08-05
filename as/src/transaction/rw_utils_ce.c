@@ -121,13 +121,6 @@ dup_res_should_retry_transaction(rw_request* rw, uint32_t result_code)
 }
 
 
-bool
-dup_res_should_fail_transaction(rw_request* rw, uint32_t result_code)
-{
-	return false;
-}
-
-
 void
 dup_res_translate_result_code(rw_request* rw)
 {

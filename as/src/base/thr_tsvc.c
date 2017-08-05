@@ -358,7 +358,6 @@ as_tsvc_process_transaction(as_transaction *tr)
 
 	uint32_t pid = as_partition_getid(&tr->keyd);
 	cf_node dest;
-	uint64_t partition_cluster_key = 0;
 
 	if (is_write) {
 		if (should_security_check_data_op(tr) &&
@@ -367,8 +366,7 @@ as_tsvc_process_transaction(as_transaction *tr)
 			goto Cleanup;
 		}
 
-		rv = as_partition_reserve_write(ns, pid, &tr->rsv, &dest,
-				&partition_cluster_key);
+		rv = as_partition_reserve_write(ns, pid, &tr->rsv, &dest);
 	}
 	else if (is_read) {
 		if (should_security_check_data_op(tr) &&
@@ -377,16 +375,14 @@ as_tsvc_process_transaction(as_transaction *tr)
 			goto Cleanup;
 		}
 
-		rv = as_partition_reserve_read(ns, pid, &tr->rsv, &dest,
-				&partition_cluster_key);
+		rv = as_partition_reserve_read(ns, pid, &tr->rsv, &dest);
 
 		// TODO - is reservation promotion really the best way?
 		if (rv == 0 && as_read_must_duplicate_resolve(tr)) {
 			// Upgrade to a write reservation.
 			as_partition_release(&tr->rsv);
 
-			rv = as_partition_reserve_write(ns, pid, &tr->rsv, &dest,
-					&partition_cluster_key);
+			rv = as_partition_reserve_write(ns, pid, &tr->rsv, &dest);
 		}
 	}
 	else {
@@ -455,7 +451,7 @@ as_tsvc_process_transaction(as_transaction *tr)
 		switch (tr->origin) {
 		case FROM_CLIENT:
 		case FROM_BATCH:
-			if (! as_proxy_divert(dest, tr, ns, partition_cluster_key)) {
+			if (! as_proxy_divert(dest, tr, ns)) {
 				as_transaction_error(tr, ns, AS_PROTO_RESULT_FAIL_UNKNOWN);
 			}
 			else {

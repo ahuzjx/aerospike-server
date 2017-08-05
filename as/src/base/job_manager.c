@@ -427,7 +427,7 @@ as_job_partition_reserve(as_job* _job, int pid, as_partition_reservation* rsv)
 {
 	if (_job->rsv_type == RSV_WRITE) {
 		while (pid < AS_PARTITIONS && as_partition_reserve_write(_job->ns, pid,
-				rsv, NULL, NULL) != 0) {
+				rsv, NULL) != 0) {
 			pid++;
 		}
 	}

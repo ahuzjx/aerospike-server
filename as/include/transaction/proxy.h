@@ -51,7 +51,7 @@ void as_proxy_init();
 
 uint32_t as_proxy_hash_count();
 
-bool as_proxy_divert(cf_node dst, struct as_transaction_s* tr, struct as_namespace_s* ns, uint64_t cluster_key);
+bool as_proxy_divert(cf_node dst, struct as_transaction_s* tr, struct as_namespace_s* ns);
 void as_proxy_return_to_sender(const struct as_transaction_s* tr, struct as_namespace_s* ns);
 
 void as_proxy_send_response(cf_node dst, uint32_t proxy_tid,

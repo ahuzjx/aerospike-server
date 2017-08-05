@@ -136,13 +136,12 @@ batch_build_response(batch_transaction* btr, cf_buf_builder** bb_r)
 			// try to get the key
 			as_partition_reservation rsv;
 			cf_node other_node = 0;
-			uint64_t cluster_key;
 
 			if (! *bb_r) {
 				*bb_r = cf_buf_builder_create_size(1024 * 4);
 			}
 
-			int rv = as_partition_reserve_read(ns, as_partition_getid(&bmd->keyd), &rsv, &other_node, &cluster_key);
+			int rv = as_partition_reserve_read(ns, as_partition_getid(&bmd->keyd), &rsv, &other_node);
 
 			if (rv == 0) {
 				as_index_ref r_ref;

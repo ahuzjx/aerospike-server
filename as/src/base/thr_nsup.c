@@ -472,11 +472,11 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 
 		// Note - may want a new method to get these under a single partition
 		// lock, but for now just do the two separate reserve calls.
-		if (0 == as_partition_reserve_write(ns, pid, &rsv, 0, 0)) {
+		if (as_partition_reserve_write(ns, pid, &rsv, NULL) == 0) {
 			// This is a master partition - continue.
 			as_partition_release(&rsv);
 		}
-		else if (0 == as_partition_reserve_read(ns, pid, &rsv, 0, 0)) {
+		else if (as_partition_reserve_read(ns, pid, &rsv, NULL) == 0) {
 			// This is a prole partition - garbage collect and break.
 			garbage_collect_info cb_info;
 
@@ -779,7 +779,7 @@ reduce_master_partitions(as_namespace* ns, as_index_reduce_fn cb, void* udata, u
 	as_partition_reservation rsv;
 
 	for (int n = 0; n < AS_PARTITIONS; n++) {
-		if (0 != as_partition_reserve_write(ns, n, &rsv, 0, 0)) {
+		if (as_partition_reserve_write(ns, n, &rsv, NULL) != 0) {
 			continue;
 		}
 
@@ -839,7 +839,7 @@ get_ttl_range(as_namespace* ns, uint32_t now)
 	as_partition_reservation rsv;
 
 	for (int n = 0; n < AS_PARTITIONS; n++) {
-		if (0 != as_partition_reserve_write(ns, n, &rsv, 0, 0)) {
+		if (as_partition_reserve_write(ns, n, &rsv, NULL) != 0) {
 			continue;
 		}
 
