@@ -238,7 +238,6 @@ repl_write_handle_op(cf_node node, msg* m)
 	as_partition_reservation rsv;
 
 	if (as_partition_reserve_replica(ns, as_partition_getid(keyd), &rsv) != 0) {
-		as_partition_release(&rsv);
 		send_repl_write_ack(node, m, AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
 		return;
 	}
