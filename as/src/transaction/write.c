@@ -694,7 +694,7 @@ write_master(rw_request* rw, as_transaction* tr)
 	if (is_delete) {
 		write_delete_record(r_ref.r, tree);
 		cf_atomic64_incr(&ns->n_deleted_last_bin);
-		tr->flags |= AS_TRANSACTION_FLAG_BECAME_DELETE;
+		tr->flags |= AS_TRANSACTION_FLAG_IS_DELETE;
 
 		generation = 0;
 		op_type = as_transaction_is_durable_delete(tr) ?

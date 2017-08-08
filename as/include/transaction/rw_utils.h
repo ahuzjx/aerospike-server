@@ -156,7 +156,7 @@ static inline void
 clear_delete_response_metadata(as_transaction* tr)
 {
 	// If write became delete, respond to origin with no metadata.
-	if ((tr->flags & AS_TRANSACTION_FLAG_BECAME_DELETE) != 0) {
+	if ((tr->flags & AS_TRANSACTION_FLAG_IS_DELETE) != 0) {
 		tr->generation = 0;
 		tr->void_time = 0;
 		tr->last_update_time = 0;

@@ -850,7 +850,7 @@ udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op,
 
 	if (final_op == UDF_OPTYPE_DELETE) {
 		*record_op = UDF_OPTYPE_DELETE;
-		urecord->tr->flags |= AS_TRANSACTION_FLAG_BECAME_DELETE;
+		urecord->tr->flags |= AS_TRANSACTION_FLAG_IS_DELETE;
 	}
 	else if (final_op == UDF_OPTYPE_WRITE) {
 		*record_op = UDF_OPTYPE_WRITE;

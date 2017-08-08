@@ -208,7 +208,7 @@ typedef struct as_transaction_s {
 
 // 'flags' bits - set in transaction body after queuing:
 #define AS_TRANSACTION_FLAG_SINDEX_TOUCHED	0x01
-#define AS_TRANSACTION_FLAG_BECAME_DELETE	0x02
+#define AS_TRANSACTION_FLAG_IS_DELETE		0x02
 
 
 void as_transaction_init_head(as_transaction *tr, cf_digest *, cl_msg *);
