@@ -59,7 +59,7 @@
 // Forward declarations.
 //
 
-uint32_t pack_info_bits(as_transaction* tr, bool has_udf);
+uint32_t pack_info_bits(as_transaction* tr);
 void send_repl_write_ack(cf_node node, msg* m, uint32_t result);
 uint32_t parse_result_code(msg* m);
 int drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
@@ -100,10 +100,7 @@ repl_write_make_message(rw_request* rw, as_transaction* tr)
 		msg_set_uint32(m, RW_FIELD_VOID_TIME, tr->void_time);
 	}
 
-	// TODO - deal with this on the write-becomes-drop & udf-drop paths?
-	clear_delete_response_metadata(rw, tr);
-
-	uint32_t info = pack_info_bits(tr, rw->has_udf);
+	uint32_t info = pack_info_bits(tr);
 
 	repl_write_flag_pickle(tr, rw->pickled_buf, &info);
 
@@ -164,8 +161,10 @@ repl_write_setup_rw(rw_request* rw, as_transaction* tr,
 	// Hereafter, rw_request must release reservation - happens in destructor.
 
 	rw->end_time = tr->end_time;
+	rw->flags = tr->flags;
 	rw->generation = tr->generation;
 	rw->void_time = tr->void_time;
+	rw->last_update_time = tr->last_update_time;
 
 	rw->repl_write_cb = repl_write_cb;
 	rw->timeout_cb = timeout_cb;
@@ -190,8 +189,10 @@ repl_write_reset_rw(rw_request* rw, as_transaction* tr, repl_write_done_cb cb)
 	rw->from.any = tr->from.any;
 
 	// Needed for response to origin.
+	rw->flags = tr->flags;
 	rw->generation = tr->generation;
 	rw->void_time = tr->void_time;
+	rw->last_update_time = tr->last_update_time;
 
 	rw->repl_write_cb = cb;
 
@@ -428,7 +429,7 @@ repl_write_handle_ack(cf_node node, msg* m)
 //
 
 uint32_t
-pack_info_bits(as_transaction* tr, bool has_udf)
+pack_info_bits(as_transaction* tr)
 {
 	uint32_t info = 0;
 
@@ -442,10 +443,6 @@ pack_info_bits(as_transaction* tr, bool has_udf)
 
 	if (as_transaction_is_nsup_delete(tr)) {
 		info |= RW_INFO_NSUP_DELETE;
-	}
-
-	if (has_udf) {
-		info |= RW_INFO_UDF_WRITE;
 	}
 
 	return info;

@@ -106,10 +106,10 @@ typedef struct rw_request_s {
 
 	uint64_t			end_time;
 	uint8_t				result_code;
-	// Don't (yet) need flags.
+	uint8_t				flags;
 	uint16_t			generation;
 	uint32_t			void_time;
-	// Don't (yet) need last_update_time.
+	uint64_t			last_update_time;
 
 	//
 	// End of as_transaction look-alike.
@@ -122,7 +122,6 @@ typedef struct rw_request_s {
 	uint32_t			wait_queue_depth;
 
 	bool				is_set_up; // TODO - redundant with timeout_cb
-	bool				has_udf; // TODO - only for stats?
 	bool				respond_client_on_master_completion;
 
 	// Store pickled data, for use in replica write.

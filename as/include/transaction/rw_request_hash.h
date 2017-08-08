@@ -85,7 +85,7 @@ typedef enum {
 #define RW_INFO_UNUSED_40		0x0040 // was LDT ESR
 #define RW_INFO_SINDEX_TOUCHED	0x0080 // sindex was touched
 #define RW_INFO_UNUSED_100		0x0100 // was LDT multi-op message
-#define RW_INFO_UDF_WRITE		0x0200 // write is done from inside UDF
+#define RW_INFO_UNUSED_200		0x0200 // was UDF
 #define RW_INFO_TOMBSTONE		0x0400 // enterprise only
 
 typedef struct rw_request_hkey_s {

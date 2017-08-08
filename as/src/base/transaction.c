@@ -113,9 +113,10 @@ as_transaction_init_from_rw(as_transaction *tr, rw_request *rw)
 
 	tr->end_time = rw->end_time;
 	tr->result_code = rw->result_code;
-	tr->flags = 0;
+	tr->flags = rw->flags;
 	tr->generation = rw->generation;
 	tr->void_time = rw->void_time;
+	tr->last_update_time = rw->last_update_time;
 }
 
 void

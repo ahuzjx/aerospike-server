@@ -153,10 +153,10 @@ is_valid_ttl(as_namespace* ns, uint32_t ttl)
 
 
 static inline void
-clear_delete_response_metadata(rw_request* rw, as_transaction* tr)
+clear_delete_response_metadata(as_transaction* tr)
 {
 	// If write became delete, respond to origin with no metadata.
-	if (as_record_pickle_is_binless(rw->pickled_buf)) {
+	if ((tr->flags & AS_TRANSACTION_FLAG_BECAME_DELETE) != 0) {
 		tr->generation = 0;
 		tr->void_time = 0;
 		tr->last_update_time = 0;

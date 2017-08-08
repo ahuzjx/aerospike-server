@@ -237,7 +237,6 @@ as_write_start(as_transaction* tr)
 	// If we don't need replica writes, transaction is finished.
 	// TODO - consider a single-node fast path bypassing hash and pickling?
 	if (rw->n_dest_nodes == 0) {
-		clear_delete_response_metadata(rw, tr);
 		send_write_response(tr, &rw->response_db);
 		rw_request_hash_delete(&hkey, rw);
 		return TRANS_DONE_SUCCESS;
@@ -337,7 +336,6 @@ write_dup_res_cb(rw_request* rw)
 
 	// If we don't need replica writes, transaction is finished.
 	if (rw->n_dest_nodes == 0) {
-		clear_delete_response_metadata(rw, &tr);
 		send_write_response(&tr, &rw->response_db);
 		return true;
 	}
@@ -405,6 +403,8 @@ send_write_response(as_transaction* tr, cf_dyn_buf* db)
 
 	// Note - if tr was setup from rw, rw->from.any has been set null and
 	// informs timeout it lost the race.
+
+	clear_delete_response_metadata(tr);
 
 	switch (tr->origin) {
 	case FROM_CLIENT:
@@ -694,6 +694,7 @@ write_master(rw_request* rw, as_transaction* tr)
 	if (is_delete) {
 		write_delete_record(r_ref.r, tree);
 		cf_atomic64_incr(&ns->n_deleted_last_bin);
+		tr->flags |= AS_TRANSACTION_FLAG_BECAME_DELETE;
 
 		generation = 0;
 		op_type = as_transaction_is_durable_delete(tr) ?

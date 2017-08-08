@@ -342,7 +342,6 @@ as_udf_start(as_transaction* tr)
 	// If we don't need replica writes, transaction is finished.
 	// TODO - consider a single-node fast path bypassing hash and pickling?
 	if (rw->n_dest_nodes == 0) {
-		clear_delete_response_metadata(rw, tr);
 		send_udf_response(tr, &rw->response_db);
 		rw_request_hash_delete(&hkey, rw);
 		return TRANS_DONE_SUCCESS;
@@ -471,7 +470,6 @@ udf_dup_res_cb(rw_request* rw)
 
 	// If we don't need replica writes, transaction is finished.
 	if (rw->n_dest_nodes == 0) {
-		clear_delete_response_metadata(rw, &tr);
 		send_udf_response(&tr, &rw->response_db);
 		return true;
 	}
@@ -540,6 +538,8 @@ send_udf_response(as_transaction* tr, cf_dyn_buf* db)
 
 	// Note - if tr was setup from rw, rw->from.any has been set null and
 	// informs timeout it lost the race.
+
+	clear_delete_response_metadata(tr);
 
 	switch (tr->origin) {
 	case FROM_CLIENT:
@@ -622,8 +622,6 @@ transaction_status
 udf_master(rw_request* rw, as_transaction* tr)
 {
 	CF_ALLOC_SET_NS_ARENA(tr->rsv.ns);
-
-	rw->has_udf = true;
 
 	udf_def def;
 	udf_call call = { &def, tr };
@@ -852,6 +850,7 @@ udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op,
 
 	if (final_op == UDF_OPTYPE_DELETE) {
 		*record_op = UDF_OPTYPE_DELETE;
+		urecord->tr->flags |= AS_TRANSACTION_FLAG_BECAME_DELETE;
 	}
 	else if (final_op == UDF_OPTYPE_WRITE) {
 		*record_op = UDF_OPTYPE_WRITE;
