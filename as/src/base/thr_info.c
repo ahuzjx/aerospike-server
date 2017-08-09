@@ -558,6 +558,7 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 
 	char port_str[50];
 	int  port_str_len = sizeof(port_str);
+	int rv = -1;
 
 	char tls_str[50];
 	int  tls_str_len = sizeof(tls_str);
@@ -570,12 +571,12 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 
 	if (0 != as_info_parameter_get(params, "host", host_str, &host_str_len)) {
 		cf_warning(AS_INFO, "tip command: no host, must add a host parameter");
-		return(0);
+		goto Exit;
 	}
 
 	if (0 != as_info_parameter_get(params, "port", port_str, &port_str_len)) {
 		cf_warning(AS_INFO, "tip command: no port, must have port");
-		return(0);
+		goto Exit;
 	}
 
 	if (0 != as_info_parameter_get(params, "tls", tls_str, &tls_str_len)) {
@@ -585,7 +586,7 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	int port = 0;
 	if (0 != cf_str_atoi(port_str, &port)) {
 		cf_warning(AS_INFO, "tip command: port must be an integer in: %s", port_str);
-		return(0);
+		goto Exit;
 	}
 
 	bool tls;
@@ -597,28 +598,16 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	}
 	else {
 		cf_warning(AS_INFO, "The \"%s:\" command argument \"tls\" value must be one of {\"true\", \"false\"}, not \"%s\"", name, tls_str);
-		cf_dyn_buf_append_string(db, "error");
-		return 0;
+		goto Exit;
 	}
 
-	int rv = as_hb_mesh_tip(host_str, port, tls);
+	rv = as_hb_mesh_tip(host_str, port, tls);
 
-	switch (rv) {
-		case CF_SHASH_OK:
-			cf_info(AS_INFO, "tip command executed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "ok");
-			break;
-		case CF_SHASH_ERR_FOUND:
-			cf_warning(AS_INFO, "tip command failed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "error: already exists");
-			break;
-		case CF_SHASH_ERR:
-			cf_warning(AS_INFO, "tip command failed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "error");
-			break;
+Exit:
+	if (0 == rv) {
+		cf_dyn_buf_append_string(db, "ok");
+	} else {
+		cf_dyn_buf_append_string(db, "error");
 	}
 
 	return(0);
@@ -642,8 +631,8 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 	char host_port_list[3000];
 	int host_port_list_len = sizeof(host_port_list);
 	host_port_list[0] = '\0';
-	bool clear_all = false, success = true;
-	int cleared = 0;
+	bool success = true;
+	uint32_t cleared = 0, not_found = 0;
 
 	if (as_info_parameter_get(params, "host-port-list", host_port_list,
 				  &host_port_list_len) == 0) {
@@ -654,8 +643,8 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 			  strtok_r(host_port_list, ",", &save_ptr);
 
 			while (host_port != NULL) {
-   				char* host_port_delim = ":";
-   				if(*host_port == '[') {
+				char* host_port_delim = ":";
+				if (*host_port == '[') {
 					// Parse IPv6 address differently.
 					host_port++;
 					host_port_delim = "]";
@@ -666,37 +655,37 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 				  strtok_r(host_port, host_port_delim, &host_port_save_ptr);
 
 				if (host == NULL) {
-					cf_warning(AS_INFO,
-						   "tip clear command: invalid host:port string: %s",
-						   host_port);
-					return (0);
+					cf_warning(AS_INFO, "tip clear command: invalid host:port string: %s", host_port);
+					success = false;
+					break;
 				}
 
 				char* port_str =
 				  strtok_r(NULL, host_port_delim, &host_port_save_ptr);
 
-				if(port_str != NULL && *port_str == ':') {
-			   		// IPv6 case
-				   	port_str++;
+				if (port_str != NULL && *port_str == ':') {
+					// IPv6 case
+					port_str++;
 				}
 				if (port_str == NULL ||
 					0 != cf_str_atoi(port_str, &port)) {
-					cf_warning(AS_INFO,
-						   "tip clear command: port must be an integer in: %s",
-						   port_str);
-					return (0);
+					cf_warning(AS_INFO, "tip clear command: port must be an integer in: %s", port_str);
+					success = false;
+					break;
 				}
 
 				if (as_hb_mesh_tip_clear(host, port) == -1) {
 					success = false;
-					break;
+					not_found++;
+					cf_warning(AS_INFO, "seed node %s:%d does not exist", host, port);
+				} else {
+					cleared++;
 				}
-				cleared++;
+
 				host_port = strtok_r(NULL, ",", &save_ptr);
 			}
 		} else {
-			clear_all = true;
-			if (as_hb_mesh_tip_clear_all()) {
+			if (as_hb_mesh_tip_clear_all(&cleared)) {
 				success = false;
 			}
 		}
@@ -705,17 +694,13 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 	}
 
 	if (success) {
-		char cleared_s[8];
-		cf_str_itoa(cleared, cleared_s, 10);
-		cf_info(AS_INFO,
-			"tip clear command executed: cleared %s, params %s",
-			(clear_all ? "all" : cleared_s), params);
+		cf_info(AS_INFO, "tip clear command executed: cleared %"PRIu32", params %s", cleared, params);
 		cf_dyn_buf_append_string(db, "ok");
 	} else {
-		cf_info(
-		  AS_INFO, "tip clear %s command failed: cleared %d, params %s",
-		  (clear_all ? "all" : ""), (clear_all ? 0 : cleared), params);
-		cf_dyn_buf_append_string(db, "error");
+		cf_info(AS_INFO, "tip clear command failed: cleared %"PRIu32", params %s", cleared, params);
+		char error_msg[1024];
+		sprintf(error_msg, "error: %"PRIu32" cleared, %"PRIu32" not found", cleared, not_found);
+		cf_dyn_buf_append_string(db, error_msg);
 	}
 
 	return (0);
@@ -5983,7 +5968,7 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 				"Index name too long");
 		return AS_SINDEX_ERR_PARAM;
 	}
-	
+
 	char cmd[128];
 	snprintf(cmd, 128, "%s %s", OP, indexname_str);
 
@@ -6003,7 +5988,7 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 				"Namespace name too long");
 		return AS_SINDEX_ERR_PARAM;
 	}
-	
+
 	as_namespace *ns = as_namespace_get_byname(ns_str);
 	if (! ns) {
 		cf_warning(AS_INFO, "%s : Failed. Namespace '%s' not found %d",
@@ -6131,7 +6116,7 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 		cf_vector_destroy(str_v);
 		return AS_SINDEX_ERR_PARAM;
 	}
-	
+
 	if (as_sindex_extract_bin_path(imd, path_str)
 			|| ! imd->bname) {
 		cf_warning(AS_INFO, "%s : Failed. Invalid Bin Path '%s'.", cmd, path_str);
@@ -6168,7 +6153,7 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 	}
 	imd->sktype = ktype;
 
-	
+
 
 	cf_vector_destroy(str_v);
 
@@ -6198,8 +6183,8 @@ int info_command_sindex_create(char *name, char *params, cf_dyn_buf *db)
 
 	if (res == AS_SINDEX_ERR_FOUND) {
 		cf_warning(AS_INFO, "SINDEX CREATE: Index already exists on namespace '%s', either with same name '%s' or same bin '%s' / type '%s' combination.",
-				imd.ns_name, imd.iname, imd.bname,                              
-				as_sindex_ktype_str(imd.sktype));                       
+				imd.ns_name, imd.iname, imd.bname,
+				as_sindex_ktype_str(imd.sktype));
 		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_INDEX_FOUND,
 				"Index with the same name already exists or this bin has already been indexed.");
 		goto ERR;

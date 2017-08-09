@@ -1349,6 +1349,10 @@ typedef struct as_hb_mesh_tip_clear_udata_s
 	 * Listening port of the host.
 	 */
 	int port;
+	/**
+	 * Tip-clear status
+	 */
+	bool entry_deleted;
 } as_hb_mesh_tip_clear_udata;
 
 /**
@@ -1724,28 +1728,9 @@ as_hb_init()
 	if (hb_is_mesh()) {
 		for (int i = 0; i < AS_CLUSTER_SZ; i++) {
 			if (g_config.hb_config.mesh_seed_addrs[i]) {
-				int rv = mesh_tip(g_config.hb_config.mesh_seed_addrs[i],
+				mesh_tip(g_config.hb_config.mesh_seed_addrs[i],
 						g_config.hb_config.mesh_seed_ports[i],
 						g_config.hb_config.mesh_seed_tls[i]);
-
-				switch (rv) {
-				case CF_SHASH_OK:
-					INFO("added mesh seed node from config %s:%d",
-							g_config.hb_config.mesh_seed_addrs[i],
-							g_config.hb_config.mesh_seed_ports[i]);
-					break;
-				case CF_SHASH_ERR_FOUND:
-					INFO("duplicate mesh seed node from config %s:%d",
-							g_config.hb_config.mesh_seed_addrs[i],
-							g_config.hb_config.mesh_seed_ports[i]);
-					break;
-				case CF_SHASH_ERR:
-					WARNING("error adding mesh seed node from config %s:%d",
-							g_config.hb_config.mesh_seed_addrs[i],
-							g_config.hb_config.mesh_seed_ports[i]);
-					break;
-				}
-
 			}
 			else {
 				break;
@@ -2192,18 +2177,19 @@ as_hb_mesh_tip_clear(char* host, int port)
 	as_hb_mesh_tip_clear_udata mesh_tip_clear_reduce_udata;
 	strncpy(mesh_tip_clear_reduce_udata.host, host, HOST_NAME_MAX);
 	mesh_tip_clear_reduce_udata.port = port;
+	mesh_tip_clear_reduce_udata.entry_deleted = false;
 	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_tip_clear_reduce, &mesh_tip_clear_reduce_udata);
 
 	MESH_UNLOCK();
-	return (0);
+	return mesh_tip_clear_reduce_udata.entry_deleted ? 0 : -1;
 }
 
 /**
  * Clear the entire mesh list.
  */
 int
-as_hb_mesh_tip_clear_all()
+as_hb_mesh_tip_clear_all(uint32_t* cleared)
 {
 	if (!hb_is_mesh()) {
 		WARNING("tip clear not applicable for multicast");
@@ -2211,6 +2197,7 @@ as_hb_mesh_tip_clear_all()
 	}
 
 	MESH_LOCK();
+	*cleared = cf_shash_get_size(g_hb.mode_state.mesh_state.nodeid_to_mesh_node);
 	cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
 			mesh_tip_clear_reduce, NULL);
 	MESH_UNLOCK();
@@ -7098,7 +7085,7 @@ mesh_tip(char* host, int port, bool tls)
 {
 	MESH_LOCK();
 
-	int rv = CF_SHASH_ERR;
+	int rv = -1;
 
 	as_hb_mesh_node new_node;
 	memset(&new_node, 0, sizeof(new_node));
@@ -7113,7 +7100,6 @@ mesh_tip(char* host, int port, bool tls)
 
 	if (mesh_node_endpoint_list_fill(&new_node) != 0) {
 		WARNING("error resolving ip address for mesh host %s:%d", host, port);
-		rv = CF_SHASH_ERR;
 		goto Exit;
 	}
 
@@ -7125,7 +7111,6 @@ mesh_tip(char* host, int port, bool tls)
 
 	if (udata.overlapped) {
 		WARNING("ignoring adding self %s:%d as mesh seed ", host, port);
-		rv = CF_SHASH_ERR_FOUND;
 		goto Exit;
 	}
 
@@ -7140,16 +7125,15 @@ mesh_tip(char* host, int port, bool tls)
 			if (existing_node.is_seed) {
 				WARNING("mesh host %s:%d already in mesh seed list", host,
 						port);
-				rv = CF_SHASH_ERR_FOUND;
 				goto Exit;
 			}
 			else {
-				INFO("mesh non seed host %s:%d already in mesh seed list - promoting to seed node",
+				INFO("mesh non seed host %s:%d already in mesh list - promoting to seed node",
 						host, port);
 
 				existing_node.is_seed = true;
 				mesh_node_add_update(&existing_node_key, &existing_node);
-				rv = CF_SHASH_OK;
+				rv = 0;
 				goto Exit;
 			}
 		}
@@ -7157,12 +7141,12 @@ mesh_tip(char* host, int port, bool tls)
 
 	mesh_seed_node_add(&new_node);
 
-	DEBUG("added new mesh seed %s:%d", host, port);
-	rv = CF_SHASH_OK;
+	INFO("added new mesh seed %s:%d", host, port);
+	rv = 0;
 
 Exit:
-	if (rv != CF_SHASH_OK) {
-		// Endure endpoint allocated space is freed.
+	if (rv != 0) {
+		// Ensure endpoint allocated space is freed.
 		mesh_node_destroy(&new_node);
 	}
 
@@ -7319,6 +7303,9 @@ Exit:
 		}
 
 		mesh_node_destroy(mesh_node);
+		if (tip_clear_udata != NULL) {
+			tip_clear_udata->entry_deleted = true;
+		}
 	}
 
 	MESH_UNLOCK();
