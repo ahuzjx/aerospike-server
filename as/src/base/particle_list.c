@@ -930,22 +930,24 @@ static uint32_t
 packed_list_op_list_size(const packed_list_op *op, bool has_ext,
 		uint32_t *ext_content_sz_r)
 {
-	uint32_t hdr_sz = as_pack_list_header_get_size(op->ele_count + 1);
-
 	if (! has_ext) {
-		return hdr_sz + op->content_sz;
+		return as_pack_list_header_get_size(op->ele_count) + op->content_sz;
 	}
 
-	uint32_t ext_content_sz =
+	uint32_t ext_cont_sz =
 			list_calc_ext_content_sz(op->ele_count, op->content_sz);
-	uint32_t ext_sz = as_pack_ext_header_get_size(ext_content_sz) +
-			ext_content_sz;
 
 	if (ext_content_sz_r) {
-		*ext_content_sz_r = ext_content_sz;
+		*ext_content_sz_r = ext_cont_sz;
 	}
 
-	return hdr_sz + ext_sz + op->content_sz;
+	if (ext_cont_sz == 0) {
+		return as_pack_list_header_get_size(op->ele_count) + op->content_sz;
+	}
+
+	return as_pack_list_header_get_size(op->ele_count + 1) +
+			as_pack_ext_header_get_size(ext_cont_sz) + ext_cont_sz +
+			op->content_sz;
 }
 
 static void
@@ -957,7 +959,7 @@ packed_list_op_buf_pack(const packed_list_op *op, uint8_t *buf, uint32_t sz,
 			.capacity = (int)sz
 	};
 
-	if (has_ext) {
+	if (has_ext && ext_content_sz != 0) {
 		as_pack_list_header(&pk, op->ele_count + 1);
 		as_pack_ext_header(&pk, ext_content_sz, PACKED_LIST_FLAG_OFF_IDX);
 		list_pack_empty_index(&pk, op->ele_count, op->content_sz);
