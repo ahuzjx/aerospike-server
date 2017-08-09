@@ -234,15 +234,8 @@ dup_res_handle_request(cf_node node, msg* m)
 	size_t buf_len;
 	uint8_t* buf = as_record_pickle(&rd, &buf_len);
 
-	uint32_t info = 0;
-
-	dup_res_flag_pickle(buf, &info);
-
-	if (info != 0) {
-		msg_set_uint32(m, RW_FIELD_INFO, info);
-	}
-
-	as_storage_record_get_key(&rd);
+	msg_set_buf(m, RW_FIELD_RECORD, (void*)buf, buf_len,
+			MSG_SET_HANDOFF_MALLOC);
 
 	const char* set_name = as_index_get_set_name(r, ns);
 
@@ -251,18 +244,23 @@ dup_res_handle_request(cf_node node, msg* m)
 				strlen(set_name), MSG_SET_COPY);
 	}
 
+	as_storage_record_get_key(&rd);
+
 	if (rd.key) {
 		msg_set_buf(m, RW_FIELD_KEY, rd.key, rd.key_size, MSG_SET_COPY);
 	}
-
-	msg_set_buf(m, RW_FIELD_RECORD, (void*)buf, buf_len,
-			MSG_SET_HANDOFF_MALLOC);
 
 	msg_set_uint32(m, RW_FIELD_GENERATION, r->generation);
 	msg_set_uint64(m, RW_FIELD_LAST_UPDATE_TIME, r->last_update_time);
 
 	if (r->void_time != 0) {
 		msg_set_uint32(m, RW_FIELD_VOID_TIME, r->void_time);
+	}
+
+	uint32_t info = dup_res_pack_info(r, ns);
+
+	if (info != 0) {
+		msg_set_uint32(m, RW_FIELD_INFO, info);
 	}
 
 	done_handle_request(&rsv, &r_ref, &rd);
@@ -533,7 +531,11 @@ apply_winner(rw_request* rw)
 		return;
 	}
 
-	if (dup_res_ignore_pickle(rr.record_buf, m)) {
+	uint32_t info = 0;
+
+	msg_get_uint32(m, RW_FIELD_INFO, &info);
+
+	if (dup_res_ignore_pickle(rr.record_buf, info)) {
 		cf_warning_digest(AS_RW, &rw->keyd, "dup-res ack: binless pickle ");
 		rw->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
 		return;

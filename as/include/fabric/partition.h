@@ -38,6 +38,7 @@
 #include "dynbuf.h"
 #include "node.h"
 
+#include "base/cfg.h"
 #include "fabric/hb.h"
 
 
@@ -68,6 +69,8 @@ typedef struct as_partition_version_s {
 	uint64_t subset:1;
 	uint64_t evade:1;
 } as_partition_version;
+
+COMPILER_ASSERT(sizeof(as_partition_version) == sizeof(uint64_t));
 
 typedef struct as_partition_version_string_s {
 	char s[19 + 1]; // format CCCCccccCCCC.F.mse - F may someday be 2 characters
@@ -235,6 +238,24 @@ static inline bool
 contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
 {
 	return index_of_node(nodes, n_nodes, node) != -1;
+}
+
+static inline int
+find_self_in_replicas(const as_partition* p)
+{
+	return index_of_node(p->replicas, p->n_replicas, g_config.self_node);
+}
+
+static inline bool
+is_self_replica(const as_partition* p)
+{
+	return contains_node(p->replicas, p->n_replicas, g_config.self_node);
+}
+
+static inline bool
+contains_self(const cf_node* nodes, uint32_t n_nodes)
+{
+	return contains_node(nodes, n_nodes, g_config.self_node);
 }
 
 #define AS_PARTITION_ID_UNDEF ((uint16_t)0xFFFF)

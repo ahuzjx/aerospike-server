@@ -23,6 +23,7 @@
 #include "fabric/exchange.h"
 
 #include <errno.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <sys/param.h> // For MAX() and MIN().
 
@@ -562,6 +563,11 @@ static const msg_template exchange_msg_template[] = {
 
 COMPILER_ASSERT(sizeof(exchange_msg_template) / sizeof(msg_template) ==
 		NUM_EXCHANGE_MSG_FIELDS);
+
+/**
+ * Global lock to set or get exchanged info from other threads.
+ */
+pthread_mutex_t g_exchanged_info_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * Global lock to serialize all reads and writes to the exchange state.
@@ -1352,6 +1358,8 @@ exchange_msg_data_payload_set(msg* msg)
 	cf_vector_define(partition_versions, sizeof(msg_buf_ele), ns_count, 0);
 	uint32_t rack_ids[ns_count];
 
+	pthread_mutex_lock(&g_exchanged_info_lock);
+
 	for (uint32_t ns_ix = 0; ns_ix < ns_count; ns_ix++) {
 		as_namespace* ns = g_config.namespaces[ns_ix];
 
@@ -1375,6 +1383,8 @@ exchange_msg_data_payload_set(msg* msg)
 			&partition_versions);
 	msg_msgpack_list_set_uint32(msg, AS_EXCHANGE_MSG_NS_RACK_IDS, rack_ids,
 			ns_count);
+
+	pthread_mutex_unlock(&g_exchanged_info_lock);
 }
 
 /**
@@ -2543,6 +2553,8 @@ exchange_data_commit()
 	INFO("data exchange completed with cluster key %"PRIx64,
 			g_exchange.cluster_key);
 
+	pthread_mutex_lock(&g_exchanged_info_lock);
+
 	// Reset exchange data for all namespaces.
 	for (int i = 0; i < g_config.n_namespaces; i++) {
 		as_namespace* ns = g_config.namespaces[i];
@@ -2575,6 +2587,9 @@ exchange_data_commit()
 			&g_exchange.succession_list);
 
 	as_partition_balance();
+
+	// Must cover partition balance since it may manipulate ns->cluster_size.
+	pthread_mutex_unlock(&g_exchanged_info_lock);
 
 	EXCHANGE_UNLOCK();
 }
@@ -3031,4 +3046,22 @@ cf_node
 as_exchange_principal()
 {
 	return g_exchange.committed_principal;
+}
+
+/**
+ * Lock before setting or getting exchanged info from non-exchange thread.
+ */
+void
+as_exchange_info_lock()
+{
+	pthread_mutex_lock(&g_exchanged_info_lock);
+}
+
+/**
+ * Unlock after setting or getting exchanged info from non-exchange thread.
+ */
+void
+as_exchange_info_unlock()
+{
+	pthread_mutex_unlock(&g_exchanged_info_lock);
 }

@@ -1049,7 +1049,8 @@ compare_rack_nodes(const void* pa, const void* pb)
 void
 namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 {
-	// Not thread safe - can be wrong, but not a disaster.
+	as_exchange_info_lock();
+
 	uint32_t n_nodes = ns->cluster_size;
 
 	if (n_nodes == 0) {
@@ -1062,7 +1063,8 @@ namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 		rack_nodes[i].rack_id = ns->rack_ids[i];
 		rack_nodes[i].node = ns->succession[i];
 	}
-	// End - not thread safe.
+
+	as_exchange_info_unlock();
 
 	qsort(rack_nodes, n_nodes, sizeof(rack_node), compare_rack_nodes);
 

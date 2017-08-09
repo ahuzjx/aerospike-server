@@ -237,9 +237,11 @@ repl_write_handle_op(cf_node node, msg* m)
 	}
 
 	as_partition_reservation rsv;
+	uint32_t result = as_partition_reserve_replica(ns, as_partition_getid(keyd),
+			&rsv);
 
-	if (as_partition_reserve_replica(ns, as_partition_getid(keyd), &rsv) != 0) {
-		send_repl_write_ack(node, m, AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH);
+	if (result != AS_PROTO_RESULT_OK) {
+		send_repl_write_ack(node, m, result);
 		return;
 	}
 
@@ -256,8 +258,6 @@ repl_write_handle_op(cf_node node, msg* m)
 		send_repl_write_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
 		return;
 	}
-
-	uint32_t result;
 
 	if (repl_write_pickle_is_drop(rr.record_buf, info)) {
 		result = drop_replica(&rsv, keyd,

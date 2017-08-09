@@ -100,15 +100,15 @@ udf_finish_delete(udf_record* urecord)
 }
 
 
-void
-dup_res_flag_pickle(const uint8_t* buf, uint32_t* info)
+uint32_t
+dup_res_pack_info(const as_record* r, as_namespace* ns)
 {
-	// Do nothing.
+	return 0;
 }
 
 
 bool
-dup_res_ignore_pickle(const uint8_t* buf, const msg* m)
+dup_res_ignore_pickle(const uint8_t* buf, uint32_t info)
 {
 	return as_record_pickle_is_binless(buf);
 }

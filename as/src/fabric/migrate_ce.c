@@ -55,9 +55,10 @@ should_emigrate_record(emigration *emig, as_index_ref *r_ref)
 	return true;
 }
 
-void
-emigration_flag_pickle(const uint8_t *buf, uint32_t *info)
+uint32_t
+emigration_pack_info(const as_record *r, const as_namespace *ns)
 {
+	return 0;
 }
 
 emig_meta_q *
@@ -79,7 +80,7 @@ emigration_handle_meta_batch_request(cf_node src, msg *m)
 }
 
 bool
-immigration_ignore_pickle(const uint8_t *buf, const msg *m)
+immigration_ignore_pickle(const uint8_t *buf, uint32_t info)
 {
 	return as_record_pickle_is_binless(buf);
 }

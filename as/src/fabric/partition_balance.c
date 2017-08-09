@@ -143,22 +143,10 @@ is_self_final_master(const as_partition* p)
 }
 
 static inline bool
-is_self_replica(const as_partition* p)
-{
-	return contains_node(p->replicas, p->n_replicas, g_config.self_node);
-}
-
-static inline bool
 is_family_same(const as_partition_version* v1, const as_partition_version* v2)
 {
 	return v1->ckey == v2->ckey && v1->family == v2->family &&
 			v1->family != VERSION_FAMILY_UNIQUE;
-}
-
-static inline bool
-contains_self(const cf_node* nodes, uint32_t n_nodes)
-{
-	return contains_node(nodes, n_nodes, g_config.self_node);
 }
 
 static inline uint32_t

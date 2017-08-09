@@ -757,7 +757,7 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 	// Read the record and pickle it.
 	//
 
-	as_index *r = r_ref->r;
+	as_record *r = r_ref->r;
 	as_storage_rd rd;
 
 	as_storage_record_open(ns, r, &rd);
@@ -786,6 +786,8 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 		memcpy(key, rd.key, key_size);
 	}
 
+	uint32_t info = emigration_pack_info(r, ns);
+
 	as_storage_record_close(&rd);
 	as_record_done(r_ref, ns);
 
@@ -803,10 +805,6 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 		cf_atomic32_set(&emig->state, EMIG_STATE_ABORTED);
 		return;
 	}
-
-	uint32_t info = 0;
-
-	emigration_flag_pickle(pr.record_buf, &info);
 
 	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_INSERT);
 	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
@@ -985,11 +983,12 @@ emigration_send_start(emigration *emig)
 emigration_result
 emigration_send_done(emigration *emig)
 {
+	as_namespace *ns = emig->rsv.ns;
 	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
 
 	if (! m) {
 		cf_warning(AS_MIGRATE, "imbalance: failed to get fabric msg");
-		cf_atomic_int_incr(&emig->rsv.ns->migrate_tx_partitions_imbalance);
+		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
 		return EMIG_RESULT_ERROR;
 	}
 
@@ -1469,7 +1468,11 @@ immigration_handle_insert_request(cf_node src, msg *m)
 	msg_get_buf(m, MIG_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
 			MSG_GET_DIRECT);
 
-	if (immigration_ignore_pickle(rr.record_buf, m)) {
+	uint32_t info = 0;
+
+	msg_get_uint32(m, MIG_FIELD_INFO, &info);
+
+	if (immigration_ignore_pickle(rr.record_buf, info)) {
 		cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: binless pickle ");
 	}
 	else {

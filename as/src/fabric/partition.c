@@ -42,6 +42,7 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
+#include "base/proto.h"
 #include "fabric/partition_balance.h"
 
 
@@ -55,17 +56,6 @@ void partition_reserve_lockfree(as_partition* p, as_namespace* ns, as_partition_
 cf_node partition_getreplica_prole(as_namespace* ns, uint32_t pid);
 char partition_descriptor(const as_partition* p);
 int partition_get_replica_self_lockfree(const as_namespace* ns, uint32_t pid);
-
-
-//==========================================================
-// Inlines & macros.
-//
-
-static inline int
-find_self_in_replicas(const as_partition* p)
-{
-	return index_of_node(p->replicas, p->n_replicas, g_config.self_node);
-}
 
 
 //==========================================================
@@ -348,9 +338,6 @@ as_partition_reserve_timeout(as_namespace* ns, uint32_t pid,
 }
 
 
-// Returns:
-//  0 - reserved
-// -1 - not reserved - not a replica (or partition is "frozen")
 int
 as_partition_reserve_replica(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv)
@@ -359,17 +346,16 @@ as_partition_reserve_replica(as_namespace* ns, uint32_t pid,
 
 	pthread_mutex_lock(&p->lock);
 
-	// TODO - move is_self_replica() so we can see it here.
-	if (! contains_node(p->replicas, p->n_replicas, g_config.self_node)) {
+	if (! is_self_replica(p)) {
 		pthread_mutex_unlock(&p->lock);
-		return -1;
+		return AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
 	}
 
 	partition_reserve_lockfree(p, ns, rsv);
 
 	pthread_mutex_unlock(&p->lock);
 
-	return 0;
+	return AS_PROTO_RESULT_OK;
 }
 
 

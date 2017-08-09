@@ -46,6 +46,7 @@
 // Forward declarations.
 //
 
+struct as_index_s;
 struct as_index_ref_s;
 struct as_namespace_s;
 
@@ -237,7 +238,7 @@ void immigration_release(immigration *immig);
 
 // Emigration.
 bool should_emigrate_record(emigration *emig, struct as_index_ref_s *r_ref);
-void emigration_flag_pickle(const uint8_t *buf, uint32_t *info);
+uint32_t emigration_pack_info(const struct as_index_s *r, const struct as_namespace_s *ns);
 
 // Emigration meta queue.
 emig_meta_q *emig_meta_q_create();
@@ -245,7 +246,7 @@ void emig_meta_q_destroy(emig_meta_q *emq);
 
 // Migrate fabric message handling.
 void emigration_handle_meta_batch_request(cf_node src, msg *m);
-bool immigration_ignore_pickle(const uint8_t *buf, const msg *m);
+bool immigration_ignore_pickle(const uint8_t *buf, uint32_t info);
 void immigration_handle_meta_batch_ack(cf_node src, msg *m);
 
 // Meta sender.

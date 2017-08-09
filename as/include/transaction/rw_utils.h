@@ -173,8 +173,8 @@ void write_delete_record(struct as_index_s* r, struct as_index_tree_s* tree);
 
 udf_optype udf_finish_delete(struct udf_record_s* urecord);
 
-void dup_res_flag_pickle(const uint8_t* buf, uint32_t* info);
-bool dup_res_ignore_pickle(const uint8_t* buf, const msg* m);
+uint32_t dup_res_pack_info(const struct as_index_s* r, struct as_namespace_s* ns);
+bool dup_res_ignore_pickle(const uint8_t* buf, uint32_t info);
 bool dup_res_should_retry_transaction(struct rw_request_s* rw, uint32_t result_code);
 void dup_res_translate_result_code(struct rw_request_s* rw);
 
