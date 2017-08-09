@@ -164,7 +164,7 @@ void as_partition_reserve(struct as_namespace_s* ns, uint32_t pid, as_partition_
 int as_partition_reserve_timeout(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, int timeout_ms);
 int as_partition_reserve_replica(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);
 int as_partition_reserve_write(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node);
-int as_partition_reserve_read(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node);
+int as_partition_reserve_read(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv, bool would_dup_res, cf_node* node);
 int as_partition_prereserve_query(struct as_namespace_s* ns, bool can_partition_query[], as_partition_reservation rsv[]);
 int as_partition_reserve_query(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);
 int as_partition_reserve_xdr_read(struct as_namespace_s* ns, uint32_t pid, as_partition_reservation* rsv);

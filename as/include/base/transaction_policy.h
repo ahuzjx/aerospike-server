@@ -111,6 +111,12 @@ typedef enum as_policy_commit_level_e {
 			tr->rsv.ns->read_consistency_level :					\
 			PROTO_CONSISTENCY_LEVEL(tr->msgp->msg))
 
+// Same as above, for use before tr->rsv has been made.
+#define READ_CONSISTENCY_LEVEL(ns, asmsg)							\
+	(ns->read_consistency_level_override ?							\
+			ns->read_consistency_level :							\
+			PROTO_CONSISTENCY_LEVEL((asmsg)))
+
 // Determine the write commit level for this transaction based upon the server's
 // namespace and client policy settings.
 #define TRANSACTION_COMMIT_LEVEL(tr)								\

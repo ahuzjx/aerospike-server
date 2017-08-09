@@ -53,6 +53,7 @@
 #include "base/stats.h"
 #include "base/thr_batch.h"
 #include "base/transaction.h"
+#include "base/transaction_policy.h"
 #include "base/xdr_serverside.h"
 #include "fabric/fabric.h"
 #include "fabric/partition.h"
@@ -96,6 +97,13 @@ static inline bool
 should_security_check_data_op(const as_transaction *tr)
 {
 	return tr->origin == FROM_CLIENT || tr->origin == FROM_BATCH;
+}
+
+static inline bool
+read_would_duplicate_resolve(const as_namespace* ns, const as_msg* m)
+{
+	return g_config.transaction_repeatable_read ||
+			READ_CONSISTENCY_LEVEL(ns, *m) == AS_POLICY_CONSISTENCY_LEVEL_ALL;
 }
 
 
@@ -375,15 +383,8 @@ as_tsvc_process_transaction(as_transaction *tr)
 			goto Cleanup;
 		}
 
-		rv = as_partition_reserve_read(ns, pid, &tr->rsv, &dest);
-
-		// TODO - is reservation promotion really the best way?
-		if (rv == 0 && as_read_must_duplicate_resolve(tr)) {
-			// Upgrade to a write reservation.
-			as_partition_release(&tr->rsv);
-
-			rv = as_partition_reserve_write(ns, pid, &tr->rsv, &dest);
-		}
+		rv = as_partition_reserve_read(ns, pid, &tr->rsv,
+				read_would_duplicate_resolve(ns, m), &dest);
 	}
 	else {
 		cf_warning(AS_TSVC, "transaction is neither read nor write - unexpected");

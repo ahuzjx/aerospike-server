@@ -462,8 +462,8 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 {
 	as_partition_reservation rsv;
 
-	// Look for the next prole partition past pid, but loop only once over all
-	// partitions.
+	// Look for the next non-master partition past pid, but loop only once over
+	// all partitions.
 	for (int n = 0; n < AS_PARTITIONS; n++) {
 		// Increment pid and wrap if necessary.
 		if (++pid == AS_PARTITIONS) {
@@ -476,8 +476,10 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 			// This is a master partition - continue.
 			as_partition_release(&rsv);
 		}
-		else if (as_partition_reserve_read(ns, pid, &rsv, NULL) == 0) {
-			// This is a prole partition - garbage collect and break.
+		else {
+			as_partition_reserve(ns, pid, &rsv);
+
+			// This is a non-master partition - garbage collect and break.
 			garbage_collect_info cb_info;
 
 			cb_info.ns = ns;
@@ -489,7 +491,7 @@ garbage_collect_next_prole_partition(as_namespace* ns, int pid)
 			as_index_reduce_live(rsv.tree, garbage_collect_reduce_cb, &cb_info);
 
 			if (cb_info.num_deleted != 0) {
-				cf_info(AS_NSUP, "namespace %s pid %d: %u expired proles",
+				cf_info(AS_NSUP, "namespace %s pid %d: %u expired non-masters",
 						ns->name, pid, cb_info.num_deleted);
 			}
 

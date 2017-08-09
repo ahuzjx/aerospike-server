@@ -51,7 +51,6 @@
 
 cf_node find_best_node(const as_partition* p, bool is_read);
 void accumulate_replica_stats(const as_partition* p, uint64_t* p_n_objects, uint64_t* p_n_tombstones);
-int partition_reserve_read_write(as_namespace* ns, uint32_t pid, as_partition_reservation* rsv, cf_node* node, bool is_read);
 void partition_reserve_lockfree(as_partition* p, as_namespace* ns, as_partition_reservation* rsv);
 cf_node partition_getreplica_prole(as_namespace* ns, uint32_t pid);
 char partition_descriptor(const as_partition* p);
@@ -374,19 +373,87 @@ as_partition_reserve_replica(as_namespace* ns, uint32_t pid,
 }
 
 
+// Returns:
+//  0 - reserved - node parameter returns self node
+// -1 - not reserved - node parameter returns other "better" node
+// -2 - not reserved - node parameter not filled - partition is "frozen"
 int
 as_partition_reserve_write(as_namespace* ns, uint32_t pid,
 		as_partition_reservation* rsv, cf_node* node)
 {
-	return partition_reserve_read_write(ns, pid, rsv, node, false);
+	as_partition* p = &ns->partitions[pid];
+
+	pthread_mutex_lock(&p->lock);
+
+	// If this partition is frozen, return.
+	if (p->n_replicas == 0) {
+		if (node) {
+			*node = (cf_node)0;
+		}
+
+		pthread_mutex_unlock(&p->lock);
+		return -2;
+	}
+
+	cf_node best_node = find_best_node(p, false);
+
+	if (node) {
+		*node = best_node;
+	}
+
+	// If this node is not the appropriate one, return.
+	if (best_node != g_config.self_node) {
+		pthread_mutex_unlock(&p->lock);
+		return -1;
+	}
+
+	partition_reserve_lockfree(p, ns, rsv);
+
+	pthread_mutex_unlock(&p->lock);
+
+	return 0;
 }
 
 
+// Returns:
+//  0 - reserved - node parameter returns self node
+// -1 - not reserved - node parameter returns other "better" node
+// -2 - not reserved - node parameter not filled - partition is "frozen"
 int
 as_partition_reserve_read(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node)
+		as_partition_reservation* rsv, bool would_dup_res, cf_node* node)
 {
-	return partition_reserve_read_write(ns, pid, rsv, node, true);
+	as_partition* p = &ns->partitions[pid];
+
+	pthread_mutex_lock(&p->lock);
+
+	// If this partition is frozen, return.
+	if (p->n_replicas == 0) {
+		if (node) {
+			*node = (cf_node)0;
+		}
+
+		pthread_mutex_unlock(&p->lock);
+		return -2;
+	}
+
+	cf_node best_node = find_best_node(p, p->n_dupl == 0 || ! would_dup_res);
+
+	if (node) {
+		*node = best_node;
+	}
+
+	// If this node is not the appropriate one, return.
+	if (best_node != g_config.self_node) {
+		pthread_mutex_unlock(&p->lock);
+		return -1;
+	}
+
+	partition_reserve_lockfree(p, ns, rsv);
+
+	pthread_mutex_unlock(&p->lock);
+
+	return 0;
 }
 
 
@@ -666,48 +733,6 @@ accumulate_replica_stats(const as_partition* p, uint64_t* p_n_objects,
 
 	*p_n_objects += n_objects > 0 ? (uint64_t)n_objects : 0;
 	*p_n_tombstones += (uint64_t)n_tombstones;
-}
-
-
-// Returns:
-//  0 - reserved - node parameter returns self node
-// -1 - not reserved - node parameter returns other "better" node
-// -2 - not reserved - node parameter not filled - partition is "frozen"
-int
-partition_reserve_read_write(as_namespace* ns, uint32_t pid,
-		as_partition_reservation* rsv, cf_node* node, bool is_read)
-{
-	as_partition* p = &ns->partitions[pid];
-
-	pthread_mutex_lock(&p->lock);
-
-	// If this partition is frozen, return.
-	if (p->n_replicas == 0) {
-		if (node) {
-			*node = (cf_node)0;
-		}
-
-		pthread_mutex_unlock(&p->lock);
-		return -2;
-	}
-
-	cf_node best_node = find_best_node(p, is_read);
-
-	if (node) {
-		*node = best_node;
-	}
-
-	// If this node is not the appropriate one, return.
-	if (best_node != g_config.self_node) {
-		pthread_mutex_unlock(&p->lock);
-		return -1;
-	}
-
-	partition_reserve_lockfree(p, ns, rsv);
-
-	pthread_mutex_unlock(&p->lock);
-
-	return 0;
 }
 
 
