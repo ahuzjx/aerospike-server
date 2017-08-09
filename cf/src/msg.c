@@ -513,28 +513,10 @@ msg_set_uint32(msg *m, int field_id, uint32_t v)
 }
 
 int
-msg_set_int32(msg *m, int field_id, int32_t v)
-{
-	m->f[field_id].is_set = true;
-	m->f[field_id].u.i32 = v;
-
-	return 0;
-}
-
-int
 msg_set_uint64(msg *m, int field_id, uint64_t v)
 {
 	m->f[field_id].is_set = true;
 	m->f[field_id].u.ui64 = v;
-
-	return 0;
-}
-
-int
-msg_set_int64(msg *m, int field_id, int64_t v)
-{
-	m->f[field_id].is_set = true;
-	m->f[field_id].u.i64 = v;
 
 	return 0;
 }
@@ -798,18 +780,6 @@ msg_get_uint32(const msg *m, int field_id, uint32_t *val_r)
 }
 
 int
-msg_get_int32(const msg *m, int field_id, int32_t *val_r)
-{
-	if (! &m->f[field_id].is_set) {
-		return -1;
-	}
-
-	*val_r = m->f[field_id].u.i32;
-
-	return 0;
-}
-
-int
 msg_get_uint64(const msg *m, int field_id, uint64_t *val_r)
 {
 	if (! m->f[field_id].is_set) {
@@ -817,18 +787,6 @@ msg_get_uint64(const msg *m, int field_id, uint64_t *val_r)
 	}
 
 	*val_r = m->f[field_id].u.ui64;
-
-	return 0;
-}
-
-int
-msg_get_int64(const msg *m, int field_id, int64_t *val_r)
-{
-	if (! m->f[field_id].is_set) {
-		return -1;
-	}
-
-	*val_r = m->f[field_id].u.i64;
 
 	return 0;
 }
