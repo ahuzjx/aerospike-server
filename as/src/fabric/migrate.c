@@ -1568,7 +1568,7 @@ immigration_handle_all_done_request(cf_node src, msg *m)
 	uint32_t emig_id;
 
 	if (msg_get_uint32(m, MIG_FIELD_EMIG_ID, &emig_id) != 0) {
-		cf_warning(AS_MIGRATE, "handle start: msg get for emig id failed");
+		cf_warning(AS_MIGRATE, "handle all done: msg get for emig id failed");
 		as_fabric_msg_put(m);
 		return;
 	}

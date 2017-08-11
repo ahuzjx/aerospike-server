@@ -181,7 +181,7 @@ typedef struct emigration_s {
 	cf_node     dest;
 	uint64_t    cluster_key;
 	uint32_t    id;
-	emig_type	type;
+	emig_type   type;
 	uint32_t    tx_flags;
 	cf_atomic32 state;
 	bool        aborted;

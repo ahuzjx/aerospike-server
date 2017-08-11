@@ -847,9 +847,9 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		fill_translation(translation, ns);
 	}
 
-	int ns_pending_immigrations = 0;
-	int ns_pending_emigrations = 0;
-	int ns_pending_signals = 0;
+	uint32_t ns_pending_immigrations = 0;
+	uint32_t ns_pending_emigrations = 0;
+	uint32_t ns_pending_signals = 0;
 
 	for (uint32_t pid = 0; pid < AS_PARTITIONS; pid++) {
 		as_partition* p = &ns->partitions[pid];
@@ -971,8 +971,8 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 			set_partition_version_in_storage(ns, p->id, &p->version, false);
 		}
 
-		ns_pending_immigrations += p->pending_immigrations;
-		ns_pending_emigrations += p->pending_emigrations;
+		ns_pending_immigrations += (uint32_t)p->pending_immigrations;
+		ns_pending_emigrations += (uint32_t)p->pending_emigrations;
 
 		// TEMPORARY debugging.
 		if (pid < 20) {
@@ -988,15 +988,15 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		pthread_mutex_unlock(&p->lock);
 	}
 
-	cf_info(AS_PARTITION, "{%s} re-balanced, expected migrations - (%d tx, %d rx, %d sig)",
+	cf_info(AS_PARTITION, "{%s} rebalanced: expected-migrations (%u,%u) expected-signals %u",
 			ns->name, ns_pending_emigrations, ns_pending_immigrations,
 			ns_pending_signals);
 
-	ns->migrate_tx_partitions_initial = (uint64_t)ns_pending_emigrations;
-	ns->migrate_tx_partitions_remaining = (uint64_t)ns_pending_emigrations;
+	ns->migrate_tx_partitions_initial = ns_pending_emigrations;
+	ns->migrate_tx_partitions_remaining = ns_pending_emigrations;
 
-	ns->migrate_rx_partitions_initial = (uint64_t)ns_pending_immigrations;
-	ns->migrate_rx_partitions_remaining = (uint64_t)ns_pending_immigrations;
+	ns->migrate_rx_partitions_initial = ns_pending_immigrations;
+	ns->migrate_rx_partitions_remaining = ns_pending_immigrations;
 
 	ns->migrate_signals_remaining = ns_pending_signals;
 }
