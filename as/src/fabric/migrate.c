@@ -786,7 +786,7 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 		memcpy(key, rd.key, key_size);
 	}
 
-	uint32_t info = emigration_pack_info(r, ns);
+	uint32_t info = emigration_pack_info(emig, r);
 
 	as_storage_record_close(&rd);
 	as_record_done(r_ref, ns);

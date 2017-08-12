@@ -238,7 +238,7 @@ void immigration_release(immigration *immig);
 
 // Emigration.
 bool should_emigrate_record(emigration *emig, struct as_index_ref_s *r_ref);
-uint32_t emigration_pack_info(const struct as_index_s *r, const struct as_namespace_s *ns);
+uint32_t emigration_pack_info(const emigration *emig, const struct as_index_s *r);
 
 // Emigration meta queue.
 emig_meta_q *emig_meta_q_create();
