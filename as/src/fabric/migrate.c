@@ -36,7 +36,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h> // for alloca() only
 #include <string.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -59,6 +58,7 @@
 #include "base/rec_props.h"
 #include "fabric/exchange.h"
 #include "fabric/fabric.h"
+#include "fabric/meta_batch.h"
 #include "fabric/partition.h"
 #include "fabric/partition_balance.h"
 #include "storage/storage.h"
@@ -121,11 +121,10 @@ typedef struct pickled_record_s {
 } pickled_record;
 
 typedef enum {
-	EMIG_RESULT_DONE,
-	EMIG_RESULT_START,
-	EMIG_RESULT_ERROR,
-	EMIG_RESULT_EAGAIN
-} emigration_result;
+	EMIG_START_RESULT_OK,
+	EMIG_START_RESULT_ERROR,
+	EMIG_START_RESULT_EAGAIN
+} emigration_start_result;
 
 typedef enum {
 	// Order matters - we use an atomic set-max that relies on it.
@@ -179,17 +178,17 @@ int emigration_pop_reduce_fn(void *buf, void *udata);
 void emigration_hash_insert(emigration *emig);
 void emigration_hash_delete(emigration *emig);
 bool emigrate_transfer(emigration *emig);
-emigration_result emigrate(emigration *emig);
-emigration_result emigrate_tree(emigration *emig);
+void emigrate_signal(emigration *emig);
+emigration_start_result emigration_send_start(emigration *emig);
+bool emigrate_tree(emigration *emig);
+bool emigration_send_done(emigration *emig);
 void *run_emigration_reinserter(void *arg);
 void emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata);
-void emigrate_record(emigration *emig, msg *m);
 int emigration_reinsert_reduce_fn(const void *key, void *data, void *udata);
-emigration_result emigration_send_start(emigration *emig);
-emigration_result emigration_send_done(emigration *emig);
-void emigrate_signal(emigration *emig);
+void emigrate_record(emigration *emig, msg *m);
 
 // Immigration.
+uint32_t immigration_hashfn(const void *value, uint32_t value_len);
 void *run_immigration_reaper(void *arg);
 int immigration_reaper_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
 
@@ -206,17 +205,6 @@ void emigration_handle_ctrl_ack(cf_node src, msg *m, uint32_t op);
 // Info API helpers.
 int emigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
 int immigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, void *udata);
-
-
-//==========================================================
-// Inlines & macros.
-//
-
-static inline uint32_t
-immigration_hashfn(const void *value, uint32_t value_len)
-{
-	return ((const immigration_hkey *)value)->emig_id;
-}
 
 
 //==========================================================
@@ -387,7 +375,7 @@ emigration_init(emigration *emig)
 
 	cf_assert(emig->ctrl_q, AS_MIGRATE, "failed to create queue");
 
-	emig->meta_q = emig_meta_q_create();
+	emig->meta_q = meta_in_q_create();
 }
 
 
@@ -408,14 +396,12 @@ emigration_destroy(void *parm)
 	}
 
 	if (emig->meta_q) {
-		emig_meta_q_destroy(emig->meta_q);
+		meta_in_q_destroy(emig->meta_q);
 	}
 
-	if (emig->rsv.p) {
-		cf_atomic_int_decr(&emig->rsv.ns->migrate_tx_instance_count);
+	as_partition_release(&emig->rsv);
 
-		as_partition_release(&emig->rsv);
-	}
+	cf_atomic_int_decr(&emig->rsv.ns->migrate_tx_instance_count);
 }
 
 
@@ -450,7 +436,9 @@ immigration_destroy(void *parm)
 		as_partition_release(&immig->rsv);
 	}
 
-	immig_meta_q_destroy(&immig->meta_q);
+	if (immig->meta_q) {
+		meta_out_q_destroy(immig->meta_q);
+	}
 
 	cf_atomic_int_decr(&immig->ns->migrate_rx_instance_count);
 }
@@ -621,10 +609,13 @@ emigration_hash_delete(emigration *emig)
 bool
 emigrate_transfer(emigration *emig)
 {
-	emigration_result result = emigrate(emig);
-	as_namespace *ns = emig->rsv.ns;
+	//--------------------------------------------
+	// Send START request.
+	//
 
-	if (result == EMIG_RESULT_EAGAIN) {
+	emigration_start_result result = emigration_send_start(emig);
+
+	if (result == EMIG_START_RESULT_EAGAIN) {
 		// Remote node refused migration, requeue and fetch another.
 		if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
 			cf_crash(AS_MIGRATE, "failed emigration queue push");
@@ -633,50 +624,174 @@ emigrate_transfer(emigration *emig)
 		return true; // requeued
 	}
 
-	if (result == EMIG_RESULT_DONE) {
-		as_partition_emigrate_done(ns, emig->rsv.p->id, emig->cluster_key,
-				emig->tx_flags);
+	if (result != EMIG_START_RESULT_OK) {
+		return false; // did not requeue
 	}
-	else {
-		cf_assert(result == EMIG_RESULT_ERROR, AS_MIGRATE, "unexpected emigrate result %d",
-				result);
+
+	//--------------------------------------------
+	// Send whole tree - may block a while.
+	//
+
+	if (! emigrate_tree(emig)) {
+		return false; // did not requeue
+	}
+
+	//--------------------------------------------
+	// Send DONE request.
+	//
+
+	if (emigration_send_done(emig)) {
+		as_partition_emigrate_done(emig->rsv.ns, emig->rsv.p->id,
+				emig->cluster_key, emig->tx_flags);
 	}
 
 	return false; // did not requeue
 }
 
 
-emigration_result
-emigrate(emigration *emig)
+void
+emigrate_signal(emigration *emig)
 {
-	emigration_result result;
+	as_namespace *ns = emig->rsv.ns;
+	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
 
-	//--------------------------------------------
-	// Send START request.
-	//
-	if ((result = emigration_send_start(emig)) != EMIG_RESULT_START) {
-		return result;
+	if (! m) {
+		cf_warning(AS_MIGRATE, "signal: failed to get fabric msg");
+		return;
 	}
 
-	//--------------------------------------------
-	// Send whole tree - may block a while.
-	//
-	if ((result = emigrate_tree(emig)) != EMIG_RESULT_DONE) {
-		return result;
+	switch (emig->type) {
+	case EMIG_TYPE_SIGNAL_ALL_DONE:
+		msg_set_uint32(m, MIG_FIELD_OP, OPERATION_ALL_DONE);
+		break;
+	default:
+		cf_crash(AS_MIGRATE, "signal: bad emig type %u", emig->type);
+		break;
 	}
 
-	//--------------------------------------------
-	// Send DONE request.
-	//
-	return emigration_send_done(emig);
+	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
+	msg_set_uint64(m, MIG_FIELD_CLUSTER_KEY, emig->cluster_key);
+	msg_set_buf(m, MIG_FIELD_NAMESPACE, (const uint8_t *)ns->name,
+			strlen(ns->name), MSG_SET_COPY);
+	msg_set_uint32(m, MIG_FIELD_PARTITION, emig->rsv.p->id);
+
+	uint64_t signal_xmit_ms = 0;
+
+	while (true) {
+		if (emig->cluster_key != as_exchange_cluster_key()) {
+			as_fabric_msg_put(m);
+			return;
+		}
+
+		uint64_t now = cf_getms();
+
+		if (signal_xmit_ms + MIGRATE_RETRANSMIT_SIGNAL_MS < now) {
+			msg_incr_ref(m);
+
+			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
+					AS_FABRIC_SUCCESS) {
+				as_fabric_msg_put(m);
+			}
+
+			signal_xmit_ms = now;
+		}
+
+		int op;
+
+		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_SIGNAL_MS) ==
+				CF_QUEUE_OK) {
+			switch (op) {
+			case OPERATION_ALL_DONE_ACK:
+				cf_atomic_int_decr(&ns->migrate_signals_remaining);
+				as_fabric_msg_put(m);
+				return;
+			default:
+				cf_warning(AS_MIGRATE, "signal: unexpected ctrl op %d", op);
+				break;
+			}
+		}
+	}
 }
 
 
-emigration_result
+emigration_start_result
+emigration_send_start(emigration *emig)
+{
+	as_namespace *ns = emig->rsv.ns;
+	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
+
+	if (! m) {
+		cf_warning(AS_MIGRATE, "failed to get fabric msg");
+		return EMIG_START_RESULT_ERROR;
+	}
+
+	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_START);
+	msg_set_uint32(m, MIG_FIELD_FEATURES, MY_MIG_FEATURES);
+	msg_set_uint64(m, MIG_FIELD_PARTITION_SIZE,
+			as_index_tree_size(emig->rsv.tree));
+	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
+	msg_set_uint64(m, MIG_FIELD_CLUSTER_KEY, emig->cluster_key);
+	msg_set_buf(m, MIG_FIELD_NAMESPACE, (const uint8_t *)ns->name,
+			strlen(ns->name), MSG_SET_COPY);
+	msg_set_uint32(m, MIG_FIELD_PARTITION, emig->rsv.p->id);
+
+	uint64_t start_xmit_ms = 0;
+
+	while (true) {
+		if (emig->cluster_key != as_exchange_cluster_key()) {
+			as_fabric_msg_put(m);
+			return EMIG_START_RESULT_ERROR;
+		}
+
+		uint64_t now = cf_getms();
+
+		if (cf_queue_sz(emig->ctrl_q) == 0 &&
+				start_xmit_ms + MIGRATE_RETRANSMIT_STARTDONE_MS < now) {
+			msg_incr_ref(m);
+
+			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
+					AS_FABRIC_SUCCESS) {
+				as_fabric_msg_put(m);
+			}
+
+			start_xmit_ms = now;
+		}
+
+		int op;
+
+		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_STARTDONE_MS) ==
+				CF_QUEUE_OK) {
+			switch (op) {
+			case OPERATION_START_ACK_OK:
+				as_fabric_msg_put(m);
+				return EMIG_START_RESULT_OK;
+			case OPERATION_START_ACK_EAGAIN:
+				as_fabric_msg_put(m);
+				return EMIG_START_RESULT_EAGAIN;
+			case OPERATION_START_ACK_FAIL:
+				cf_warning(AS_MIGRATE, "imbalance: dest refused migrate with ACK_FAIL");
+				cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
+				as_fabric_msg_put(m);
+				return EMIG_START_RESULT_ERROR;
+			default:
+				cf_warning(AS_MIGRATE, "unexpected ctrl op %d", op);
+				break;
+			}
+		}
+	}
+
+	// Should never get here.
+	cf_crash(AS_MIGRATE, "unexpected - exited infinite while loop");
+
+	return EMIG_START_RESULT_ERROR;
+}
+
+
+bool
 emigrate_tree(emigration *emig)
 {
 	if (as_index_tree_size(emig->rsv.tree) == 0) {
-		return EMIG_RESULT_DONE;
+		return true;
 	}
 
 	cf_atomic32_set(&emig->state, EMIG_STATE_ACTIVE);
@@ -694,8 +809,61 @@ emigrate_tree(emigration *emig)
 
 	pthread_join(thread, NULL);
 
-	return emig->state == EMIG_STATE_ABORTED ?
-			EMIG_RESULT_ERROR : EMIG_RESULT_DONE;
+	return emig->state != EMIG_STATE_ABORTED;
+}
+
+
+bool
+emigration_send_done(emigration *emig)
+{
+	as_namespace *ns = emig->rsv.ns;
+	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
+
+	if (! m) {
+		cf_warning(AS_MIGRATE, "imbalance: failed to get fabric msg");
+		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
+		return false;
+	}
+
+	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_DONE);
+	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
+
+	uint64_t done_xmit_ms = 0;
+
+	while (true) {
+		if (emig->cluster_key != as_exchange_cluster_key()) {
+			as_fabric_msg_put(m);
+			return false;
+		}
+
+		uint64_t now = cf_getms();
+
+		if (done_xmit_ms + MIGRATE_RETRANSMIT_STARTDONE_MS < now) {
+			msg_incr_ref(m);
+
+			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
+					AS_FABRIC_SUCCESS) {
+				as_fabric_msg_put(m);
+			}
+
+			done_xmit_ms = now;
+		}
+
+		int op;
+
+		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_STARTDONE_MS) ==
+				CF_QUEUE_OK) {
+			if (op == OPERATION_DONE_ACK) {
+				as_fabric_msg_put(m);
+				return true;
+			}
+		}
+	}
+
+	// Should never get here.
+	cf_crash(AS_MIGRATE, "unexpected - exited infinite while loop");
+
+	return false;
 }
 
 
@@ -858,6 +1026,30 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 }
 
 
+int
+emigration_reinsert_reduce_fn(const void *key, void *data, void *udata)
+{
+	emigration_reinsert_ctrl *ri_ctrl = (emigration_reinsert_ctrl *)data;
+	as_namespace *ns = ri_ctrl->emig->rsv.ns;
+	uint64_t now = (uint64_t)udata;
+
+	if (ri_ctrl->xmit_ms + ns->migrate_retransmit_ms < now) {
+		msg_incr_ref(ri_ctrl->m);
+
+		if (as_fabric_send(ri_ctrl->emig->dest, ri_ctrl->m,
+				AS_FABRIC_CHANNEL_BULK) != AS_FABRIC_SUCCESS) {
+			as_fabric_msg_put(ri_ctrl->m);
+			return -1; // this will stop the reduce
+		}
+
+		ri_ctrl->xmit_ms = now;
+		cf_atomic_int_incr(&ns->migrate_record_retransmits);
+	}
+
+	return 0;
+}
+
+
 void
 emigrate_record(emigration *emig, msg *m)
 {
@@ -883,225 +1075,16 @@ emigrate_record(emigration *emig, msg *m)
 }
 
 
-int
-emigration_reinsert_reduce_fn(const void *key, void *data, void *udata)
-{
-	emigration_reinsert_ctrl *ri_ctrl = (emigration_reinsert_ctrl *)data;
-	as_namespace *ns = ri_ctrl->emig->rsv.ns;
-	uint64_t now = (uint64_t)udata;
-
-	if (ri_ctrl->xmit_ms + ns->migrate_retransmit_ms < now) {
-		msg_incr_ref(ri_ctrl->m);
-
-		if (as_fabric_send(ri_ctrl->emig->dest, ri_ctrl->m,
-				AS_FABRIC_CHANNEL_BULK) != AS_FABRIC_SUCCESS) {
-			as_fabric_msg_put(ri_ctrl->m);
-			return -1; // this will stop the reduce
-		}
-
-		ri_ctrl->xmit_ms = now;
-		cf_atomic_int_incr(&ns->migrate_record_retransmits);
-	}
-
-	return 0;
-}
-
-
-emigration_result
-emigration_send_start(emigration *emig)
-{
-	as_namespace *ns = emig->rsv.ns;
-	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "failed to get fabric msg");
-		return EMIG_RESULT_ERROR;
-	}
-
-	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_START);
-	msg_set_uint32(m, MIG_FIELD_FEATURES, MY_MIG_FEATURES);
-	msg_set_uint64(m, MIG_FIELD_PARTITION_SIZE,
-			as_index_tree_size(emig->rsv.tree));
-	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
-	msg_set_uint64(m, MIG_FIELD_CLUSTER_KEY, emig->cluster_key);
-	msg_set_buf(m, MIG_FIELD_NAMESPACE, (const uint8_t *)ns->name,
-			strlen(ns->name), MSG_SET_COPY);
-	msg_set_uint32(m, MIG_FIELD_PARTITION, emig->rsv.p->id);
-
-	uint64_t start_xmit_ms = 0;
-
-	while (true) {
-		if (emig->cluster_key != as_exchange_cluster_key()) {
-			as_fabric_msg_put(m);
-			return EMIG_RESULT_ERROR;
-		}
-
-		uint64_t now = cf_getms();
-
-		if (cf_queue_sz(emig->ctrl_q) == 0 &&
-				start_xmit_ms + MIGRATE_RETRANSMIT_STARTDONE_MS < now) {
-			msg_incr_ref(m);
-
-			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
-					AS_FABRIC_SUCCESS) {
-				as_fabric_msg_put(m);
-			}
-
-			start_xmit_ms = now;
-		}
-
-		int op;
-
-		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_STARTDONE_MS) ==
-				CF_QUEUE_OK) {
-			switch (op) {
-			case OPERATION_START_ACK_OK:
-				as_fabric_msg_put(m);
-				return EMIG_RESULT_START;
-			case OPERATION_START_ACK_EAGAIN:
-				as_fabric_msg_put(m);
-				return EMIG_RESULT_EAGAIN;
-			case OPERATION_START_ACK_FAIL:
-				cf_warning(AS_MIGRATE, "imbalance: dest refused migrate with ACK_FAIL");
-				cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
-				as_fabric_msg_put(m);
-				return EMIG_RESULT_ERROR;
-			default:
-				cf_warning(AS_MIGRATE, "unexpected ctrl op %d", op);
-				break;
-			}
-		}
-	}
-
-	// Should never get here.
-	cf_crash(AS_MIGRATE, "unexpected - exited infinite while loop");
-
-	return EMIG_RESULT_ERROR;
-}
-
-
-emigration_result
-emigration_send_done(emigration *emig)
-{
-	as_namespace *ns = emig->rsv.ns;
-	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "imbalance: failed to get fabric msg");
-		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
-		return EMIG_RESULT_ERROR;
-	}
-
-	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_DONE);
-	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
-
-	uint64_t done_xmit_ms = 0;
-
-	while (true) {
-		if (emig->cluster_key != as_exchange_cluster_key()) {
-			as_fabric_msg_put(m);
-			return EMIG_RESULT_ERROR;
-		}
-
-		uint64_t now = cf_getms();
-
-		if (done_xmit_ms + MIGRATE_RETRANSMIT_STARTDONE_MS < now) {
-			msg_incr_ref(m);
-
-			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
-					AS_FABRIC_SUCCESS) {
-				as_fabric_msg_put(m);
-			}
-
-			done_xmit_ms = now;
-		}
-
-		int op;
-
-		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_STARTDONE_MS) ==
-				CF_QUEUE_OK) {
-			if (op == OPERATION_DONE_ACK) {
-				as_fabric_msg_put(m);
-				return EMIG_RESULT_DONE;
-			}
-		}
-	}
-
-	// Should never get here.
-	cf_crash(AS_MIGRATE, "unexpected - exited infinite while loop");
-
-	return EMIG_RESULT_ERROR;
-}
-
-
-void
-emigrate_signal(emigration *emig)
-{
-	as_namespace *ns = emig->rsv.ns;
-	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "signal: failed to get fabric msg");
-		return;
-	}
-
-	switch (emig->type) {
-	case EMIG_TYPE_SIGNAL_ALL_DONE:
-		msg_set_uint32(m, MIG_FIELD_OP, OPERATION_ALL_DONE);
-		break;
-	default:
-		cf_crash(AS_MIGRATE, "signal: bad emig type %u", emig->type);
-		break;
-	}
-
-	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
-	msg_set_uint64(m, MIG_FIELD_CLUSTER_KEY, emig->cluster_key);
-	msg_set_buf(m, MIG_FIELD_NAMESPACE, (const uint8_t *)ns->name,
-			strlen(ns->name), MSG_SET_COPY);
-	msg_set_uint32(m, MIG_FIELD_PARTITION, emig->rsv.p->id);
-
-	uint64_t signal_xmit_ms = 0;
-
-	while (true) {
-		if (emig->cluster_key != as_exchange_cluster_key()) {
-			as_fabric_msg_put(m);
-			return;
-		}
-
-		uint64_t now = cf_getms();
-
-		if (signal_xmit_ms + MIGRATE_RETRANSMIT_SIGNAL_MS < now) {
-			msg_incr_ref(m);
-
-			if (as_fabric_send(emig->dest, m, AS_FABRIC_CHANNEL_CTRL) !=
-					AS_FABRIC_SUCCESS) {
-				as_fabric_msg_put(m);
-			}
-
-			signal_xmit_ms = now;
-		}
-
-		int op;
-
-		if (cf_queue_pop(emig->ctrl_q, &op, MIGRATE_RETRANSMIT_SIGNAL_MS) ==
-				CF_QUEUE_OK) {
-			switch (op) {
-			case OPERATION_ALL_DONE_ACK:
-				cf_atomic_int_decr(&ns->migrate_signals_remaining);
-				as_fabric_msg_put(m);
-				return;
-			default:
-				cf_warning(AS_MIGRATE, "signal: unexpected ctrl op %d", op);
-				break;
-			}
-		}
-	}
-}
-
-
 //==========================================================
 // Local helpers - immigration.
 //
+
+uint32_t
+immigration_hashfn(const void *value, uint32_t value_len)
+{
+	return ((const immigration_hkey *)value)->emig_id;
+}
+
 
 void *
 run_immigration_reaper(void *arg)
@@ -1291,7 +1274,7 @@ immigration_handle_start_request(cf_node src, msg *m)
 	immig->done_recv = 0;
 	immig->done_recv_ms = 0;
 	immig->emig_id = emig_id;
-	immig_meta_q_init(&immig->meta_q);
+	immig->meta_q = meta_out_q_create();
 	immig->features = MY_MIG_FEATURES;
 	immig->ns = ns;
 	immig->rsv.p = NULL;
@@ -1713,7 +1696,7 @@ emigration_handle_ctrl_ack(cf_node src, msg *m, uint32_t op)
 			if ((immig_features & MIG_FEATURE_MERGE) == 0) {
 				// TODO - rethink where this should go after further refactor.
 				if (op == OPERATION_START_ACK_OK && emig->meta_q) {
-					emig->meta_q->is_done = true;
+					meta_in_q_rejected(emig->meta_q);
 				}
 			}
 

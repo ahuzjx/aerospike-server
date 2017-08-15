@@ -61,17 +61,6 @@ emigration_pack_info(const emigration *emig, const as_record *r)
 	return 0;
 }
 
-emig_meta_q *
-emig_meta_q_create()
-{
-	return NULL;
-}
-
-void
-emig_meta_q_destroy(emig_meta_q *emq)
-{
-}
-
 void
 emigration_handle_meta_batch_request(cf_node src, msg *m)
 {
@@ -97,14 +86,4 @@ immigration_start_meta_sender(immigration *immig, uint32_t emig_features,
 		uint64_t emig_partition_sz)
 {
 	return false;
-}
-
-void
-immig_meta_q_init(immig_meta_q *imq)
-{
-}
-
-void
-immig_meta_q_destroy(immig_meta_q *imq)
-{
 }

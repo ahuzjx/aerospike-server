@@ -49,6 +49,8 @@
 struct as_index_s;
 struct as_index_ref_s;
 struct as_namespace_s;
+struct meta_in_q_s;
+struct meta_out_q_s;
 
 
 //==========================================================
@@ -157,26 +159,6 @@ typedef enum {
 #define MIG_FEATURES_SEEN 0x80000000U // needed for backward compatibility
 extern const uint32_t MY_MIG_FEATURES;
 
-typedef struct meta_record_s {
-	cf_digest keyd;
-	uint16_t generation;
-	uint64_t last_update_time: 40;
-} __attribute__ ((__packed__)) meta_record;
-
-typedef struct meta_batch_s {
-	bool is_final;
-	uint32_t n_records;
-	meta_record *records;
-} meta_batch;
-
-typedef struct emig_meta_q_s {
-	uint32_t current_rec_i;
-	meta_batch current_batch;
-	cf_queue *batch_q;
-	cf_atomic32 last_acked;
-	bool is_done;
-} emig_meta_q;
-
 typedef struct emigration_s {
 	cf_node     dest;
 	uint64_t    cluster_key;
@@ -190,17 +172,10 @@ typedef struct emigration_s {
 	cf_shash    *reinsert_hash;
 	uint64_t    insert_id;
 	cf_queue    *ctrl_q;
-	emig_meta_q *meta_q;
+	struct meta_in_q_s *meta_q;
 
 	as_partition_reservation rsv;
 } emigration;
-
-typedef struct immig_meta_q_s {
-	meta_batch current_batch;
-	cf_queue *batch_q;
-	uint32_t sequence;
-	cf_atomic32 last_acked;
-} immig_meta_q;
 
 typedef struct immigration_s {
 	cf_node          src;
@@ -212,7 +187,7 @@ typedef struct immigration_s {
 	uint64_t         done_recv_ms;   // time the first DONE event was received
 
 	uint32_t         emig_id;
-	immig_meta_q     meta_q;
+	struct meta_out_q_s *meta_q;
 
 	as_migrate_result start_result;
 	uint32_t        features;
@@ -240,10 +215,6 @@ void immigration_release(immigration *immig);
 bool should_emigrate_record(emigration *emig, struct as_index_ref_s *r_ref);
 uint32_t emigration_pack_info(const emigration *emig, const struct as_index_s *r);
 
-// Emigration meta queue.
-emig_meta_q *emig_meta_q_create();
-void emig_meta_q_destroy(emig_meta_q *emq);
-
 // Migrate fabric message handling.
 void emigration_handle_meta_batch_request(cf_node src, msg *m);
 bool immigration_ignore_pickle(const uint8_t *buf, uint32_t info);
@@ -251,7 +222,3 @@ void immigration_handle_meta_batch_ack(cf_node src, msg *m);
 
 // Meta sender.
 bool immigration_start_meta_sender(immigration *immig, uint32_t emig_features, uint64_t emig_n_recs);
-
-// Immigration meta queue.
-void immig_meta_q_init(immig_meta_q *imq);
-void immig_meta_q_destroy(immig_meta_q *imq);
