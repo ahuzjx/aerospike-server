@@ -105,7 +105,7 @@ extern cf_node* as_exchange_succession();
 
 // Helpers - generic.
 void set_partition_version_in_storage(as_namespace* ns, uint32_t pid, const as_partition_version* version, bool flush);
-void partition_migrate_record_fill(partition_migrate_record* pmr, cf_node dest, as_namespace* ns, uint32_t pid, uint64_t cluster_key, emig_type type, uint32_t tx_flags);
+void pb_task_init(pb_task* task, cf_node dest, as_namespace* ns, uint32_t pid, uint64_t cluster_key, pb_task_type type, uint32_t tx_flags);
 void drop_trees(as_partition* p, as_namespace* ns);
 
 // Helpers - balance partitions.
@@ -195,15 +195,6 @@ compare_rack_ids(const void* pa, const void* pb)
 //==========================================================
 // Public API - regulate migrations.
 //
-
-void
-as_partition_balance_allow_migrations()
-{
-	cf_detail(AS_PARTITION, "allow migrations");
-
-	g_allow_migrations = true;
-}
-
 
 void
 as_partition_balance_disallow_migrations()
@@ -352,8 +343,8 @@ as_partition_balance()
 
 	cf_queue mq;
 
-	cf_queue_init(&mq, sizeof(partition_migrate_record),
-			g_config.n_namespaces * AS_PARTITIONS, false);
+	cf_queue_init(&mq, sizeof(pb_task), g_config.n_namespaces * AS_PARTITIONS,
+			false);
 
 	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
 		balance_namespace(g_config.namespaces[ns_ix], &mq);
@@ -367,12 +358,13 @@ as_partition_balance()
 		as_storage_info_flush(g_config.namespaces[ns_ix]);
 	}
 
-	as_partition_balance_allow_migrations();
+	g_allow_migrations = true;
+	cf_detail(AS_PARTITION, "allow migrations");
 
-	partition_migrate_record pmr;
+	pb_task task;
 
-	while (cf_queue_pop(&mq, &pmr, CF_QUEUE_FOREVER) == CF_QUEUE_OK) {
-		as_migrate_emigrate(&pmr);
+	while (cf_queue_pop(&mq, &task, CF_QUEUE_NOWAIT) == CF_QUEUE_OK) {
+		as_migrate_emigrate(&task);
 	}
 
 	cf_queue_destroy(&mq);
@@ -466,26 +458,25 @@ as_partition_emigrate_done(as_namespace* ns, uint32_t pid,
 	}
 
 	cf_queue mq;
-	partition_migrate_record pmr;
+	pb_task task;
 	int w_ix = -1;
 
 	if (is_self_final_master(p) &&
 			p->pending_emigrations == 0 && p->pending_immigrations == 0) {
-		cf_queue_init(&mq, sizeof(partition_migrate_record), p->n_witnesses,
-				false);
+		cf_queue_init(&mq, sizeof(pb_task), p->n_witnesses, false);
 
 		for (w_ix = 0; w_ix < (int)p->n_witnesses; w_ix++) {
-			partition_migrate_record_fill(&pmr, p->witnesses[w_ix], ns, pid,
-					orig_cluster_key, EMIG_TYPE_SIGNAL_ALL_DONE, TX_FLAGS_NONE);
-			cf_queue_push(&mq, &pmr);
+			pb_task_init(&task, p->witnesses[w_ix], ns, pid, orig_cluster_key,
+					PB_TASK_EMIG_SIGNAL_ALL_DONE, TX_FLAGS_NONE);
+			cf_queue_push(&mq, &task);
 		}
 	}
 
 	pthread_mutex_unlock(&p->lock);
 
 	if (w_ix >= 0) {
-		while (cf_queue_pop(&mq, &pmr, CF_QUEUE_NOWAIT) == CF_QUEUE_OK) {
-			as_migrate_emigrate(&pmr);
+		while (cf_queue_pop(&mq, &task, CF_QUEUE_NOWAIT) == CF_QUEUE_OK) {
+			as_migrate_emigrate(&task);
 		}
 
 		cf_queue_destroy(&mq);
@@ -613,36 +604,33 @@ as_partition_immigrate_done(as_namespace* ns, uint32_t pid,
 	// Final master finished all immigration.
 
 	cf_queue mq;
-	partition_migrate_record pmr;
+	pb_task task;
 
 	if (p->pending_emigrations != 0) {
-		cf_queue_init(&mq, sizeof(partition_migrate_record), p->n_replicas - 1,
-				false);
+		cf_queue_init(&mq, sizeof(pb_task), p->n_replicas - 1, false);
 
 		for (uint32_t repl_ix = 1; repl_ix < p->n_replicas; repl_ix++) {
 			if (p->immigrators[repl_ix]) {
-				partition_migrate_record_fill(&pmr, p->replicas[repl_ix], ns,
-						pid, orig_cluster_key, EMIG_TYPE_TRANSFER,
-						TX_FLAGS_NONE);
-				cf_queue_push(&mq, &pmr);
+				pb_task_init(&task, p->replicas[repl_ix], ns, pid,
+						orig_cluster_key, PB_TASK_EMIG_TRANSFER, TX_FLAGS_NONE);
+				cf_queue_push(&mq, &task);
 			}
 		}
 	}
 	else {
-		cf_queue_init(&mq, sizeof(partition_migrate_record), p->n_witnesses,
-				false);
+		cf_queue_init(&mq, sizeof(pb_task), p->n_witnesses, false);
 
 		for (uint32_t w_ix = 0; w_ix < p->n_witnesses; w_ix++) {
-			partition_migrate_record_fill(&pmr, p->witnesses[w_ix], ns, pid,
-					orig_cluster_key, EMIG_TYPE_SIGNAL_ALL_DONE, TX_FLAGS_NONE);
-			cf_queue_push(&mq, &pmr);
+			pb_task_init(&task, p->witnesses[w_ix], ns, pid, orig_cluster_key,
+					PB_TASK_EMIG_SIGNAL_ALL_DONE, TX_FLAGS_NONE);
+			cf_queue_push(&mq, &task);
 		}
 	}
 
 	pthread_mutex_unlock(&p->lock);
 
-	while (cf_queue_pop(&mq, &pmr, 0) == CF_QUEUE_OK) {
-		as_migrate_emigrate(&pmr);
+	while (cf_queue_pop(&mq, &task, 0) == CF_QUEUE_OK) {
+		as_migrate_emigrate(&task);
 	}
 
 	cf_queue_destroy(&mq);
@@ -699,16 +687,16 @@ set_partition_version_in_storage(as_namespace* ns, uint32_t pid,
 
 
 void
-partition_migrate_record_fill(partition_migrate_record* pmr, cf_node dest,
-		as_namespace* ns, uint32_t pid, uint64_t cluster_key, emig_type type,
+pb_task_init(pb_task* task, cf_node dest, as_namespace* ns,
+		uint32_t pid, uint64_t cluster_key, pb_task_type type,
 		uint32_t tx_flags)
 {
-	pmr->dest = dest;
-	pmr->ns = ns;
-	pmr->pid = pid;
-	pmr->type = type;
-	pmr->tx_flags = tx_flags;
-	pmr->cluster_key = cluster_key;
+	task->dest = dest;
+	task->ns = ns;
+	task->pid = pid;
+	task->type = type;
+	task->tx_flags = tx_flags;
+	task->cluster_key = cluster_key;
 }
 
 
@@ -1501,7 +1489,7 @@ void
 queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 		cf_node working_master, uint32_t n_dupl, cf_node dupls[], cf_queue* mq)
 {
-	partition_migrate_record pmr;
+	pb_task task;
 
 	if (self_n == 0) {
 		// <><><><><><>  Final Master  <><><><><><>
@@ -1537,10 +1525,10 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 		for (uint32_t repl_ix = 1; repl_ix < p->n_replicas; repl_ix++) {
 			if (p->immigrators[repl_ix]) {
 				p->pending_emigrations++;
-				partition_migrate_record_fill(&pmr, p->replicas[repl_ix],
-						ns, p->id, as_exchange_cluster_key(),
-						EMIG_TYPE_TRANSFER, TX_FLAGS_NONE);
-				cf_queue_push(mq, &pmr);
+				pb_task_init(&task, p->replicas[repl_ix], ns, p->id,
+						as_exchange_cluster_key(), PB_TASK_EMIG_TRANSFER,
+						TX_FLAGS_NONE);
+				cf_queue_push(mq, &task);
 			}
 		}
 
@@ -1556,16 +1544,16 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 
 		p->target = p->replicas[0];
 		p->pending_emigrations = 1;
-		partition_migrate_record_fill(&pmr, p->target, ns, p->id,
-				as_exchange_cluster_key(), EMIG_TYPE_TRANSFER,
-				TX_FLAGS_ACTING_MASTER);
-		cf_queue_push(mq, &pmr);
+		pb_task_init(&task, p->target, ns, p->id, as_exchange_cluster_key(),
+				PB_TASK_EMIG_TRANSFER, TX_FLAGS_ACTING_MASTER);
+		cf_queue_push(mq, &task);
 	}
 	else if (contains_self(dupls, n_dupl)) {
 		p->pending_emigrations = 1;
-		partition_migrate_record_fill(&pmr, p->replicas[0], ns, p->id,
-				as_exchange_cluster_key(), EMIG_TYPE_TRANSFER, TX_FLAGS_NONE);
-		cf_queue_push(mq, &pmr);
+		pb_task_init(&task, p->replicas[0], ns, p->id,
+				as_exchange_cluster_key(), PB_TASK_EMIG_TRANSFER,
+				TX_FLAGS_NONE);
+		cf_queue_push(mq, &task);
 	}
 
 	if (self_n < p->n_replicas && p->immigrators[self_n]) {

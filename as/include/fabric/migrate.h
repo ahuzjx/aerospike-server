@@ -40,6 +40,7 @@
 
 #include "fabric/hb.h"
 #include "fabric/partition.h"
+#include "fabric/partition_balance.h"
 
 
 //==========================================================
@@ -51,6 +52,7 @@ struct as_index_ref_s;
 struct as_namespace_s;
 struct meta_in_q_s;
 struct meta_out_q_s;
+struct pb_task_s;
 
 
 //==========================================================
@@ -65,23 +67,8 @@ struct meta_out_q_s;
 // Maximum permissible number of migrate xmit threads.
 #define MAX_NUM_MIGRATE_XMIT_THREADS 100
 
-typedef enum {
-	EMIG_TYPE_TRANSFER,
-	EMIG_TYPE_SIGNAL_ALL_DONE
-} emig_type;
-
 #define TX_FLAGS_NONE           ((uint32_t) 0x0)
 #define TX_FLAGS_ACTING_MASTER  ((uint32_t) 0x1)
-
-// A data structure for temporarily en-queuing partition migrations.
-typedef struct partition_migrate_record_s {
-	cf_node dest;
-	struct as_namespace_s *ns;
-	uint32_t pid;
-	uint64_t cluster_key;
-	emig_type type;
-	uint32_t tx_flags;
-} partition_migrate_record;
 
 
 //==========================================================
@@ -89,7 +76,7 @@ typedef struct partition_migrate_record_s {
 //
 
 void as_migrate_init();
-void as_migrate_emigrate(const partition_migrate_record *pmr);
+void as_migrate_emigrate(const struct pb_task_s *task);
 void as_migrate_set_num_xmit_threads(uint32_t n_threads);
 void as_migrate_dump(bool verbose);
 
@@ -163,7 +150,7 @@ typedef struct emigration_s {
 	cf_node     dest;
 	uint64_t    cluster_key;
 	uint32_t    id;
-	emig_type   type;
+	pb_task_type type;
 	uint32_t    tx_flags;
 	cf_atomic32 state;
 	bool        aborted;

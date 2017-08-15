@@ -255,17 +255,17 @@ as_migrate_init()
 
 // Kicks off an emigration.
 void
-as_migrate_emigrate(const partition_migrate_record *pmr)
+as_migrate_emigrate(const pb_task *task)
 {
 	emigration *emig = cf_rc_alloc(sizeof(emigration));
 
 	cf_assert(emig, AS_MIGRATE, "failed emigration malloc");
 
-	emig->dest = pmr->dest;
-	emig->cluster_key = pmr->cluster_key;
+	emig->dest = task->dest;
+	emig->cluster_key = task->cluster_key;
 	emig->id = cf_atomic32_incr(&g_emigration_id);
-	emig->type = pmr->type;
-	emig->tx_flags = pmr->tx_flags;
+	emig->type = task->type;
+	emig->tx_flags = task->tx_flags;
 	emig->state = EMIG_STATE_ACTIVE;
 	emig->aborted = false;
 
@@ -276,7 +276,7 @@ as_migrate_emigrate(const partition_migrate_record *pmr)
 	emig->ctrl_q = NULL;
 	emig->meta_q = NULL;
 
-	as_partition_reserve(pmr->ns, pmr->pid, &emig->rsv);
+	as_partition_reserve(task->ns, task->pid, &emig->rsv);
 
 	cf_atomic_int_incr(&emig->rsv.ns->migrate_tx_instance_count);
 
@@ -490,12 +490,12 @@ run_emigration(void *arg)
 		emigration_hash_insert(emig);
 
 		switch (emig->type) {
-		case EMIG_TYPE_TRANSFER:
+		case PB_TASK_EMIG_TRANSFER:
 			cf_atomic_int_incr(&ns->migrate_tx_partitions_active);
 			requeued = emigrate_transfer(emig);
 			cf_atomic_int_decr(&ns->migrate_tx_partitions_active);
 			break;
-		case EMIG_TYPE_SIGNAL_ALL_DONE:
+		case PB_TASK_EMIG_SIGNAL_ALL_DONE:
 			cf_atomic_int_incr(&ns->migrate_signals_active);
 			emigrate_signal(emig);
 			cf_atomic_int_decr(&ns->migrate_signals_active);
@@ -551,7 +551,7 @@ emigration_pop_reduce_fn(void *buf, void *udata)
 		return -1; // process immediately
 	}
 
-	if (emig->type == EMIG_TYPE_SIGNAL_ALL_DONE) {
+	if (emig->type == PB_TASK_EMIG_SIGNAL_ALL_DONE) {
 		return -1; // process immediately
 	}
 
@@ -661,7 +661,7 @@ emigrate_signal(emigration *emig)
 	}
 
 	switch (emig->type) {
-	case EMIG_TYPE_SIGNAL_ALL_DONE:
+	case PB_TASK_EMIG_SIGNAL_ALL_DONE:
 		msg_set_uint32(m, MIG_FIELD_OP, OPERATION_ALL_DONE);
 		break;
 	default:
