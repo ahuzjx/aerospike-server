@@ -105,6 +105,7 @@ COMPILER_ASSERT(sizeof(migrate_mt) / sizeof(msg_template) == NUM_MIG_FIELDS);
 
 #define MIG_MSG_SCRATCH_SIZE 192
 
+#define EMIGRATION_SLOW_Q_WAIT_MS 1000 // 1 second
 #define MIGRATE_RETRANSMIT_STARTDONE_MS 1000 // for now, not configurable
 #define MIGRATE_RETRANSMIT_SIGNAL_MS 1000 // for now, not configurable
 #define MAX_BYTES_EMIGRATING (16 * 1024 * 1024)
@@ -158,6 +159,7 @@ cf_rchash *g_immigration_hash = NULL;
 static uint64_t g_avoid_dest = 0;
 static cf_atomic32 g_emigration_id = 0;
 static cf_queue g_emigration_q;
+static cf_queue g_emigration_slow_q;
 
 
 //==========================================================
@@ -173,6 +175,7 @@ void pickled_record_destroy(pickled_record *pr);
 
 // Emigration.
 void *run_emigration(void *arg);
+void *run_emigration_slow(void *arg);
 void emigration_pop(emigration **emigp);
 int emigration_pop_reduce_fn(void *buf, void *udata);
 void emigration_hash_insert(emigration *emig);
@@ -217,6 +220,7 @@ as_migrate_init()
 	g_avoid_dest = (uint64_t)g_config.self_node;
 
 	cf_queue_init(&g_emigration_q, sizeof(emigration*), 4096, true);
+	cf_queue_init(&g_emigration_slow_q, sizeof(emigration*), 4096, true);
 
 	if (cf_rchash_create(&g_emigration_hash, cf_rchash_fn_u32,
 			emigration_destroy, sizeof(uint32_t), 64,
@@ -242,6 +246,10 @@ as_migrate_init()
 		if (pthread_create(&thread, &attrs, run_emigration, NULL) != 0) {
 			cf_crash(AS_MIGRATE, "failed to create emigration thread");
 		}
+	}
+
+	if (pthread_create(&thread, &attrs, run_emigration_slow, NULL) != 0) {
+		cf_crash(AS_MIGRATE, "failed to create emigration slow thread");
 	}
 
 	if (pthread_create(&thread, &attrs, run_immigration_reaper, NULL) != 0) {
@@ -514,6 +522,32 @@ run_emigration(void *arg)
 }
 
 
+void *
+run_emigration_slow(void *arg)
+{
+	while (true) {
+		emigration *emig;
+
+		if (cf_queue_pop(&g_emigration_slow_q, (void *)&emig,
+				CF_QUEUE_FOREVER) != CF_QUEUE_OK) {
+			cf_crash(AS_MIGRATE, "emigration slow queue pop failed");
+		}
+
+		uint64_t now_ms = cf_getms();
+
+		if (emig->wait_until_ms > now_ms) {
+			usleep(1000 * (emig->wait_until_ms - now_ms));
+		}
+
+		if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
+			cf_crash(AS_MIGRATE, "failed emigration re-queue push");
+		}
+	}
+
+	return NULL;
+}
+
+
 void
 emigration_pop(emigration **emigp)
 {
@@ -617,8 +651,10 @@ emigrate_transfer(emigration *emig)
 
 	if (result == EMIG_START_RESULT_EAGAIN) {
 		// Remote node refused migration, requeue and fetch another.
-		if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
-			cf_crash(AS_MIGRATE, "failed emigration queue push");
+		emig->wait_until_ms = cf_getms() + EMIGRATION_SLOW_Q_WAIT_MS;
+
+		if (cf_queue_push(&g_emigration_slow_q, &emig) != CF_QUEUE_OK) {
+			cf_crash(AS_MIGRATE, "failed emigration slow queue push");
 		}
 
 		return true; // requeued

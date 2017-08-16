@@ -154,6 +154,7 @@ typedef struct emigration_s {
 	uint32_t    tx_flags;
 	cf_atomic32 state;
 	bool        aborted;
+	uint64_t    wait_until_ms;
 
 	cf_atomic32 bytes_emigrating;
 	cf_shash    *reinsert_hash;
