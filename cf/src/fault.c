@@ -137,7 +137,7 @@ typedef struct cf_fault_cache_hkey_s {
 	const char			*file_name;
 	cf_fault_severity	severity;
 	char				msg[CACHE_MSG_MAX_SIZE];
-} cf_fault_cache_hkey;
+} __attribute__((__packed__)) cf_fault_cache_hkey;
 
 bool g_use_local_time = false;
 

@@ -160,12 +160,6 @@ void proxyee_handle_request(cf_node src, msg* m, uint32_t tid);
 // Inlines & macros.
 //
 
-static inline uint32_t
-proxy_hash_fn(const void* value)
-{
-	return *(const uint32_t*)value;
-}
-
 static inline void
 error_response(cf_node src, uint32_t tid, uint32_t error)
 {
@@ -212,7 +206,7 @@ batch_sub_proxy_update_stats(as_namespace* ns, uint8_t result_code)
 void
 as_proxy_init()
 {
-	g_proxy_hash = cf_shash_create(proxy_hash_fn, sizeof(uint32_t),
+	g_proxy_hash = cf_shash_create(cf_shash_fn_u32, sizeof(uint32_t),
 			sizeof(proxy_request), 4 * 1024, CF_SHASH_MANY_LOCK);
 
 	pthread_t thread;

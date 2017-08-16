@@ -91,7 +91,7 @@ typedef enum {
 typedef struct rw_request_hkey_s {
 	uint32_t	ns_id;
 	cf_digest	keyd;
-} rw_request_hkey;
+} __attribute__((__packed__)) rw_request_hkey;
 
 
 //==========================================================
