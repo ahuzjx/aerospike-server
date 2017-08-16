@@ -139,7 +139,6 @@ typedef struct as_config_s {
 	uint32_t		query_threshold;
 	uint64_t		query_untracked_time_ms;
 	uint32_t		query_worker_threads;
-	PAD_BOOL		respond_client_on_master_completion;
 	PAD_BOOL		run_as_daemon;
 	uint32_t		scan_max_active; // maximum number of active scans allowed
 	uint32_t		scan_max_done; // maximum number of finished scans kept for monitoring
@@ -153,7 +152,6 @@ typedef struct as_config_s {
 	uint64_t		transaction_max_ns;
 	uint32_t		transaction_pending_limit; // 0 means no limit
 	uint32_t		n_transaction_queues;
-	PAD_BOOL		transaction_repeatable_read;
 	uint32_t		transaction_retry_ms;
 	uint32_t		n_transaction_threads_per_queue;
 	char*			work_directory;

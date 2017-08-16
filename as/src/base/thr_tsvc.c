@@ -102,8 +102,7 @@ should_security_check_data_op(const as_transaction *tr)
 static inline bool
 read_would_duplicate_resolve(const as_namespace* ns, const as_msg* m)
 {
-	return g_config.transaction_repeatable_read ||
-			READ_CONSISTENCY_LEVEL(ns, *m) == AS_POLICY_CONSISTENCY_LEVEL_ALL;
+	return READ_CONSISTENCY_LEVEL(ns, *m) == AS_READ_CONSISTENCY_LEVEL_ALL;
 }
 
 

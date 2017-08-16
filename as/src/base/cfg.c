@@ -160,7 +160,6 @@ cfg_set_defaults()
 	c->ticker_interval = 10;
 	c->transaction_max_ns = 1000 * 1000 * 1000; // 1 second
 	c->transaction_pending_limit = 20;
-	c->transaction_repeatable_read = false;
 	c->transaction_retry_ms = 1000 + 2; // 1 second + epsilon, so default timeout happens first
 	c->n_transaction_threads_per_queue = 4;
 	as_sindex_gconfig_default(c);
@@ -302,7 +301,6 @@ typedef enum {
 	CASE_SERVICE_QUERY_THRESHOLD,
 	CASE_SERVICE_QUERY_UNTRACKED_TIME_MS,
 	CASE_SERVICE_QUERY_WORKER_THREADS,
-	CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION,
 	CASE_SERVICE_RUN_AS_DAEMON,
 	CASE_SERVICE_SCAN_MAX_ACTIVE,
 	CASE_SERVICE_SCAN_MAX_DONE,
@@ -316,7 +314,6 @@ typedef enum {
 	CASE_SERVICE_TRANSACTION_MAX_MS,
 	CASE_SERVICE_TRANSACTION_PENDING_LIMIT,
 	CASE_SERVICE_TRANSACTION_QUEUES,
-	CASE_SERVICE_TRANSACTION_REPEATABLE_READ,
 	CASE_SERVICE_TRANSACTION_RETRY_MS,
 	CASE_SERVICE_TRANSACTION_THREADS_PER_QUEUE,
 	CASE_SERVICE_WORK_DIRECTORY,
@@ -328,6 +325,8 @@ typedef enum {
 	CASE_SERVICE_PROLE_EXTRA_TTL,
 	// Obsoleted:
 	CASE_SERVICE_ALLOW_INLINE_TRANSACTIONS,
+	CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION,
+	CASE_SERVICE_TRANSACTION_REPEATABLE_READ,
 	// Deprecated:
 	CASE_SERVICE_AUTO_DUN,
 	CASE_SERVICE_AUTO_UNDUN,
@@ -793,7 +792,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "query-threshold", 				CASE_SERVICE_QUERY_THRESHOLD },
 		{ "query-untracked-time-ms",		CASE_SERVICE_QUERY_UNTRACKED_TIME_MS },
 		{ "query-worker-threads",			CASE_SERVICE_QUERY_WORKER_THREADS },
-		{ "respond-client-on-master-completion", CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION },
 		{ "run-as-daemon",					CASE_SERVICE_RUN_AS_DAEMON },
 		{ "scan-max-active",				CASE_SERVICE_SCAN_MAX_ACTIVE },
 		{ "scan-max-done",					CASE_SERVICE_SCAN_MAX_DONE },
@@ -807,7 +805,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "transaction-max-ms",				CASE_SERVICE_TRANSACTION_MAX_MS },
 		{ "transaction-pending-limit",		CASE_SERVICE_TRANSACTION_PENDING_LIMIT },
 		{ "transaction-queues",				CASE_SERVICE_TRANSACTION_QUEUES },
-		{ "transaction-repeatable-read",	CASE_SERVICE_TRANSACTION_REPEATABLE_READ },
 		{ "transaction-retry-ms",			CASE_SERVICE_TRANSACTION_RETRY_MS },
 		{ "transaction-threads-per-queue",	CASE_SERVICE_TRANSACTION_THREADS_PER_QUEUE },
 		{ "work-directory",					CASE_SERVICE_WORK_DIRECTORY },
@@ -817,6 +814,8 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "max-msgs-per-type",				CASE_SERVICE_MAX_MSGS_PER_TYPE },
 		{ "prole-extra-ttl",				CASE_SERVICE_PROLE_EXTRA_TTL },
 		{ "allow-inline-transactions",		CASE_SERVICE_ALLOW_INLINE_TRANSACTIONS },
+		{ "respond-client-on-master-completion", CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION },
+		{ "transaction-repeatable-read",	CASE_SERVICE_TRANSACTION_REPEATABLE_READ },
 		{ "auto-dun",						CASE_SERVICE_AUTO_DUN },
 		{ "auto-undun",						CASE_SERVICE_AUTO_UNDUN },
 		{ "batch-retransmit",				CASE_SERVICE_BATCH_RETRANSMIT },
@@ -2241,9 +2240,6 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_QUERY_WORKER_THREADS:
 				c->query_worker_threads = cfg_u32(&line, 1, AS_QUERY_MAX_WORKER_THREADS);
 				break;
-			case CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION:
-				c->respond_client_on_master_completion = cfg_bool(&line);
-				break;
 			case CASE_SERVICE_RUN_AS_DAEMON:
 				c->run_as_daemon = cfg_bool_no_value_is_true(&line);
 				break;
@@ -2282,9 +2278,6 @@ as_config_init(const char* config_file)
 				break;
 			case CASE_SERVICE_TRANSACTION_QUEUES:
 				c->n_transaction_queues = cfg_u32(&line, 1, MAX_TRANSACTION_QUEUES);
-				break;
-			case CASE_SERVICE_TRANSACTION_REPEATABLE_READ:
-				c->transaction_repeatable_read = cfg_bool(&line);
 				break;
 			case CASE_SERVICE_TRANSACTION_RETRY_MS:
 				c->transaction_retry_ms = cfg_u32_no_checks(&line);
@@ -2329,7 +2322,13 @@ as_config_init(const char* config_file)
 				c->prole_extra_ttl = cfg_u32_no_checks(&line);
 				break;
 			case CASE_SERVICE_ALLOW_INLINE_TRANSACTIONS:
-				cfg_obsolete(&line, "please configure 'service-threads' carefully"); // FIXME - better message?
+				cfg_obsolete(&line, "please configure 'service-threads' carefully");
+				break;
+			case CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION:
+				cfg_obsolete(&line, "please use namespace-context 'write-commit-level-override' and/or write transaction policy");
+				break;
+			case CASE_SERVICE_TRANSACTION_REPEATABLE_READ:
+				cfg_obsolete(&line, "please use namespace-context 'read-consistency-level-override' and/or read transaction policy");
 				break;
 			case CASE_SERVICE_AUTO_DUN:
 			case CASE_SERVICE_AUTO_UNDUN:
@@ -2937,15 +2936,13 @@ as_config_init(const char* config_file)
 			case CASE_NAMESPACE_READ_CONSISTENCY_LEVEL_OVERRIDE:
 				switch (cfg_find_tok(line.val_tok_1, NAMESPACE_READ_CONSISTENCY_OPTS, NUM_NAMESPACE_READ_CONSISTENCY_OPTS)) {
 				case CASE_NAMESPACE_READ_CONSISTENCY_ALL:
-					ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ALL;
-					ns->read_consistency_level_override = true;
+					ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ALL;
 					break;
 				case CASE_NAMESPACE_READ_CONSISTENCY_OFF:
-					ns->read_consistency_level_override = false;
+					ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_PROTO;
 					break;
 				case CASE_NAMESPACE_READ_CONSISTENCY_ONE:
-					ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE;
-					ns->read_consistency_level_override = true;
+					ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ONE;
 					break;
 				case CASE_NOT_FOUND:
 				default:
@@ -2981,15 +2978,13 @@ as_config_init(const char* config_file)
 			case CASE_NAMESPACE_WRITE_COMMIT_LEVEL_OVERRIDE:
 				switch (cfg_find_tok(line.val_tok_1, NAMESPACE_WRITE_COMMIT_OPTS, NUM_NAMESPACE_WRITE_COMMIT_OPTS)) {
 				case CASE_NAMESPACE_WRITE_COMMIT_ALL:
-					ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL;
-					ns->write_commit_level_override = true;
+					ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_ALL;
 					break;
 				case CASE_NAMESPACE_WRITE_COMMIT_MASTER:
-					ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_MASTER;
-					ns->write_commit_level_override = true;
+					ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_MASTER;
 					break;
 				case CASE_NAMESPACE_WRITE_COMMIT_OFF:
-					ns->write_commit_level_override = false;
+					ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_PROTO;
 					break;
 				case CASE_NOT_FOUND:
 				default:

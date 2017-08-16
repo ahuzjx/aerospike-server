@@ -118,8 +118,7 @@ static inline bool
 respond_on_master_complete(as_transaction* tr)
 {
 	return tr->origin == FROM_CLIENT &&
-			(g_config.respond_client_on_master_completion ||
-			TRANSACTION_COMMIT_LEVEL(tr) == AS_POLICY_COMMIT_LEVEL_MASTER);
+			TR_WRITE_COMMIT_LEVEL(tr) == AS_WRITE_COMMIT_LEVEL_MASTER;
 }
 
 

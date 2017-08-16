@@ -539,16 +539,6 @@ struct as_sindex_config_s;
 #define AS_SET_MAX_COUNT 0x3FF	// ID's 10 bits worth minus 1 (ID 0 means no set)
 #define AS_BINID_HAS_SINDEX_SIZE  MAX_BIN_NAMES / ( sizeof(uint32_t) * CHAR_BIT )
 
-#define  NS_READ_CONSISTENCY_LEVEL_NAME()								\
-	(ns->read_consistency_level_override ?								\
-	 (AS_POLICY_CONSISTENCY_LEVEL_ALL == ns->read_consistency_level ? "all" : "one") \
-	 : "off")
-
-#define NS_WRITE_COMMIT_LEVEL_NAME()									\
-	(ns->write_commit_level_override ?									\
-	 (AS_POLICY_COMMIT_LEVEL_ALL == ns->write_commit_level ? "all" : "master") \
-	 : "off")
-
 
 // TODO - would be nice to put this in as_index.h:
 // Callback invoked when as_index is destroyed.
@@ -706,14 +696,12 @@ struct as_namespace_s {
 	uint32_t		migrate_sleep;
 	cf_atomic32		obj_size_hist_max; // TODO - doesn't need to be atomic, really.
 	uint32_t		rack_id;
-	as_policy_consistency_level read_consistency_level;
-	PAD_BOOL		read_consistency_level_override;
+	as_read_consistency_level read_consistency_level;
 	PAD_BOOL		single_bin; // restrict the namespace to objects with exactly one bin
 	uint32_t		stop_writes_pct;
 	uint32_t		tomb_raider_eligible_age; // relevant only for enterprise edition
 	uint32_t		tomb_raider_period; // relevant only for enterprise edition
-	as_policy_commit_level write_commit_level;
-	PAD_BOOL		write_commit_level_override;
+	as_write_commit_level write_commit_level;
 	cf_vector		xdr_dclist_v;
 
 	as_storage_type storage_type;

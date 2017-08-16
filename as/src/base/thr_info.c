@@ -1520,7 +1520,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "query-threshold", g_config.query_threshold);
 	info_append_uint64(db, "query-untracked-time-ms", g_config.query_untracked_time_ms);
 	info_append_uint32(db, "query-worker-threads", g_config.query_worker_threads);
-	info_append_bool(db, "respond-client-on-master-completion", g_config.respond_client_on_master_completion);
 	info_append_bool(db, "run-as-daemon", g_config.run_as_daemon);
 	info_append_uint32(db, "scan-max-active", g_config.scan_max_active);
 	info_append_uint32(db, "scan-max-done", g_config.scan_max_done);
@@ -1534,7 +1533,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_int(db, "transaction-max-ms", (int)(g_config.transaction_max_ns / 1000000));
 	info_append_uint32(db, "transaction-pending-limit", g_config.transaction_pending_limit);
 	info_append_uint32(db, "transaction-queues", g_config.n_transaction_queues);
-	info_append_bool(db, "transaction-repeatable-read", g_config.transaction_repeatable_read);
 	info_append_uint32(db, "transaction-retry-ms", g_config.transaction_retry_ms);
 	info_append_uint32(db, "transaction-threads-per-queue", g_config.n_transaction_threads_per_queue);
 	info_append_string_safe(db, "work-directory", g_config.work_directory);
@@ -1899,18 +1897,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of transaction-pending-limit from %d to %d ", g_config.transaction_pending_limit, val);
 			g_config.transaction_pending_limit = val;
 		}
-		else if (0 == as_info_parameter_get(params, "transaction-repeatable-read", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of transaction-repeatable-read from %s to %s", bool_val[g_config.transaction_repeatable_read], context);
-				g_config.transaction_repeatable_read = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of transaction-repeatable-read from %s to %s", bool_val[g_config.transaction_repeatable_read], context);
-				g_config.transaction_repeatable_read = false;
-			}
-			else
-				goto Error;
-		}
 		else if (0 == as_info_parameter_get(params, "ticker-interval", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
 				goto Error;
@@ -2059,18 +2045,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
 				cf_info(AS_INFO, "Changing value of write-duplicate-resolution-disable from %s to %s", bool_val[g_config.write_duplicate_resolution_disable], context);
 				g_config.write_duplicate_resolution_disable = false;
-			}
-			else
-				goto Error;
-		}
-		else if (0 == as_info_parameter_get(params, "respond-client-on-master-completion", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of respond-client-on-master-completion from %s to %s", bool_val[g_config.respond_client_on_master_completion], context);
-				g_config.respond_client_on_master_completion = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of respond-client-on-master-completion from %s to %s", bool_val[g_config.respond_client_on_master_completion], context);
-				g_config.respond_client_on_master_completion = false;
 			}
 			else
 				goto Error;
@@ -2974,16 +2948,13 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "read-consistency-level-override", context, &context_len)) {
 			char *original_value = NS_READ_CONSISTENCY_LEVEL_NAME();
 			if (strcmp(context, "all") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ALL;
-				ns->read_consistency_level_override = true;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ALL;
 			}
 			else if (strcmp(context, "off") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE; // restore default
-				ns->read_consistency_level_override = false;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_PROTO;
 			}
 			else if (strcmp(context, "one") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE;
-				ns->read_consistency_level_override = true;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ONE;
 			}
 			else {
 				goto Error;
@@ -2995,16 +2966,13 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "write-commit-level-override", context, &context_len)) {
 			char *original_value = NS_WRITE_COMMIT_LEVEL_NAME();
 			if (strcmp(context, "all") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL;
-				ns->write_commit_level_override = true;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_ALL;
 			}
 			else if (strcmp(context, "master") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_MASTER;
-				ns->write_commit_level_override = true;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_MASTER;
 			}
 			else if (strcmp(context, "off") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL; // restore default
-				ns->write_commit_level_override = false;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_PROTO;
 			}
 			else {
 				goto Error;

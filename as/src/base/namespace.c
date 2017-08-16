@@ -156,13 +156,13 @@ as_namespace_create(char *name)
 	ns->migrate_retransmit_ms = 1000 * 5; // 5 seconds
 	ns->migrate_sleep = 1;
 	ns->obj_size_hist_max = OBJ_SIZE_HIST_NUM_BUCKETS;
-	ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE;
+	ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_PROTO;
 	ns->stop_writes_pct = 90; // stop writes when 90% of either memory or disk is used
 	ns->tomb_raider_eligible_age = 60 * 60 * 24; // 1 day
 	ns->tomb_raider_period = 60 * 60 * 24; // 1 day
 	ns->tree_shared.n_lock_pairs = 8;
 	ns->tree_shared.n_sprigs = 64;
-	ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL;
+	ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_PROTO;
 
 	ns->storage_type = AS_STORAGE_ENGINE_MEMORY;
 	ns->storage_data_in_memory = true;
