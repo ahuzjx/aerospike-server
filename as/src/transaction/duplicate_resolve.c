@@ -202,20 +202,22 @@ dup_res_handle_request(cf_node node, msg* m)
 
 	as_record* r = r_ref.r;
 
+	int result;
+
 	if (local_conflict_check &&
-			as_record_resolve_conflict(ns->conflict_resolution_policy,
+			(result = as_record_resolve_conflict(ns->conflict_resolution_policy,
 					generation, last_update_time, r->generation,
-					r->last_update_time) <= 0) {
+					r->last_update_time)) <= 0) {
 		done_handle_request(&rsv, &r_ref, NULL);
-		send_dup_res_ack(node, m, AS_PROTO_RESULT_FAIL_RECORD_EXISTS);
+		send_dup_res_ack(node, m, result == 0 ?
+				AS_PROTO_RESULT_FAIL_RECORD_EXISTS :
+				AS_PROTO_RESULT_FAIL_GENERATION);
 		return;
 	}
 
 	as_storage_rd rd;
 
 	as_storage_record_open(ns, r, &rd);
-
-	int result;
 
 	if ((result = as_storage_rd_load_n_bins(&rd)) < 0) {
 		done_handle_request(&rsv, &r_ref, &rd);
