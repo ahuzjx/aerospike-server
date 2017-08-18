@@ -334,13 +334,12 @@ cdt_calc_delta_add(cdt_calc_delta *cdv, as_unpacker *pk_value)
 
 		cdv->type = packed_value_type;
 	}
+	else if (cdv->type == AS_DOUBLE) {
+		cdv->value_double += cdv->incr_double;
+	}
 	else {
-		if (cdv->type == AS_DOUBLE) {
-			cdv->value_double += cdv->incr_double;
-		}
-		else {
-			cdv->value_int += cdv->incr_int;
-		}
+		cdv->type = AS_INTEGER; // default to AS_INTEGER if UNDEF
+		cdv->value_int += cdv->incr_int;
 	}
 
 	return true;
