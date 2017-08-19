@@ -5364,6 +5364,11 @@ info_get_sindexes(char *name, cf_dyn_buf *db)
 void
 info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 {
+	// Cluster size.
+
+	// Using ns_ prefix to avoid confusion with global cluster_size.
+	info_append_uint32(db, "ns_cluster_size", ns->cluster_size);
+
 	// Object counts.
 
 	info_append_uint64(db, "objects", ns->n_objects);
