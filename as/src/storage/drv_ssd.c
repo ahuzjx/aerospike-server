@@ -2391,8 +2391,7 @@ ssd_start_maintenance_threads(drv_ssds *ssds)
 // -1 means unrecoverable error
 // -2 means not formatted, please overwrite me
 int
-as_storage_read_header(drv_ssd *ssd, as_namespace *ns,
-		ssd_device_header **header_r)
+ssd_read_header(drv_ssd *ssd, as_namespace *ns, ssd_device_header **header_r)
 {
 	*header_r = 0;
 
@@ -2527,7 +2526,7 @@ Fail:
 
 
 ssd_device_header *
-as_storage_init_header(as_namespace *ns)
+ssd_init_header(as_namespace *ns)
 {
 	ssd_device_header *h = cf_valloc(SSD_DEFAULT_HEADER_LENGTH);
 
@@ -2554,7 +2553,7 @@ as_storage_init_header(as_namespace *ns)
 
 
 bool
-as_storage_empty_header(int fd, const char* device_name)
+ssd_empty_header(int fd, const char* device_name)
 {
 	void *h = cf_valloc(SSD_DEFAULT_HEADER_LENGTH);
 
@@ -2588,7 +2587,7 @@ as_storage_empty_header(int fd, const char* device_name)
 
 
 void
-as_storage_write_header(drv_ssd *ssd, ssd_device_header *header, size_t size)
+ssd_write_header(drv_ssd *ssd, ssd_device_header *header, size_t size)
 {
 	int fd = ssd_fd_get(ssd);
 
@@ -3259,7 +3258,7 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 	// Check all the headers. Pick one as the representative.
 	for (int i = 0; i < n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
-		int rvh = as_storage_read_header(ssd, ns, &headers[i]);
+		int rvh = ssd_read_header(ssd, ns, &headers[i]);
 
 		if (rvh == -1) {
 			cf_crash(AS_DRV_SSD, "unable to read disk header %s: %s",
@@ -3267,7 +3266,7 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		}
 
 		if (rvh == -2) {
-			headers[i] = as_storage_init_header(ns);
+			headers[i] = ssd_init_header(ns);
 		}
 	}
 
@@ -3602,7 +3601,7 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 		ssd->io_min_size = find_io_min_size(fd, ssd->name);
 
 		if (ns->cold_start && ns->storage_cold_start_empty) {
-			if (! as_storage_empty_header(fd, ssd->name)) {
+			if (! ssd_empty_header(fd, ssd->name)) {
 				close(fd);
 				return -1;
 			}
@@ -3678,7 +3677,7 @@ ssd_init_shadows(as_namespace *ns, drv_ssds *ssds)
 		}
 
 		if (ns->cold_start && ns->storage_cold_start_empty) {
-			if (! as_storage_empty_header(fd, ssd->shadow_name)) {
+			if (! ssd_empty_header(fd, ssd->shadow_name)) {
 				close(fd);
 				return -1;
 			}
@@ -4196,7 +4195,7 @@ as_storage_info_flush_ssd(as_namespace *ns)
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
-		as_storage_write_header(ssd, ssds->header, ssds->header->header_length);
+		ssd_write_header(ssd, ssds->header, ssds->header->header_length);
 	}
 
 	return 0;
@@ -4218,7 +4217,7 @@ as_storage_save_evict_void_time_ssd(as_namespace *ns, uint32_t evict_void_time)
 		drv_ssd* ssd = &ssds->ssds[i];
 		size_t peek_size = BYTES_UP_TO_IO_MIN(ssd, sizeof(ssd_device_header));
 
-		as_storage_write_header(ssd, ssds->header, peek_size);
+		ssd_write_header(ssd, ssds->header, peek_size);
 	}
 }
 
