@@ -155,7 +155,6 @@ typedef struct as_config_s {
 	uint32_t		transaction_retry_ms;
 	uint32_t		n_transaction_threads_per_queue;
 	char*			work_directory;
-	PAD_BOOL		write_duplicate_resolution_disable;
 
 	// For special debugging or bug-related repair:
 

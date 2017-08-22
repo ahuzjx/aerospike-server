@@ -317,7 +317,6 @@ typedef enum {
 	CASE_SERVICE_TRANSACTION_RETRY_MS,
 	CASE_SERVICE_TRANSACTION_THREADS_PER_QUEUE,
 	CASE_SERVICE_WORK_DIRECTORY,
-	CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE,
 	// For special debugging or bug-related repair:
 	CASE_SERVICE_DEBUG_ALLOCATIONS,
 	CASE_SERVICE_FABRIC_DUMP_MSGS,
@@ -375,6 +374,7 @@ typedef enum {
 	CASE_SERVICE_UDF_RUNTIME_MAX_GMEMORY,
 	CASE_SERVICE_UDF_RUNTIME_MAX_MEMORY,
 	CASE_SERVICE_USE_QUEUE_PER_DEVICE,
+	CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE,
 
 	// Service auto-pin options (value tokens):
 	CASE_SERVICE_AUTO_PIN_NONE,
@@ -808,7 +808,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "transaction-retry-ms",			CASE_SERVICE_TRANSACTION_RETRY_MS },
 		{ "transaction-threads-per-queue",	CASE_SERVICE_TRANSACTION_THREADS_PER_QUEUE },
 		{ "work-directory",					CASE_SERVICE_WORK_DIRECTORY },
-		{ "write-duplicate-resolution-disable", CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE },
 		{ "debug-allocations",				CASE_SERVICE_DEBUG_ALLOCATIONS },
 		{ "fabric-dump-msgs",				CASE_SERVICE_FABRIC_DUMP_MSGS },
 		{ "max-msgs-per-type",				CASE_SERVICE_MAX_MSGS_PER_TYPE },
@@ -863,6 +862,7 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "udf-runtime-max-gmemory",		CASE_SERVICE_UDF_RUNTIME_MAX_GMEMORY },
 		{ "udf-runtime-max-memory",			CASE_SERVICE_UDF_RUNTIME_MAX_MEMORY },
 		{ "use-queue-per-device",			CASE_SERVICE_USE_QUEUE_PER_DEVICE },
+		{ "write-duplicate-resolution-disable", CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -2288,9 +2288,6 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_WORK_DIRECTORY:
 				c->work_directory = cfg_strdup_no_checks(&line);
 				break;
-			case CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE:
-				c->write_duplicate_resolution_disable = cfg_bool(&line);
-				break;
 			case CASE_SERVICE_DEBUG_ALLOCATIONS:
 				switch (cfg_find_tok(line.val_tok_1, SERVICE_DEBUG_ALLOCATIONS_OPTS, NUM_SERVICE_DEBUG_ALLOCATIONS_OPTS)) {
 				case CASE_SERVICE_DEBUG_ALLOCATIONS_NONE:
@@ -2377,6 +2374,7 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_UDF_RUNTIME_MAX_GMEMORY:
 			case CASE_SERVICE_UDF_RUNTIME_MAX_MEMORY:
 			case CASE_SERVICE_USE_QUEUE_PER_DEVICE:
+			case CASE_SERVICE_WRITE_DUPLICATE_RESOLUTION_DISABLE:
 				cfg_deprecated_name_tok(&line);
 				break;
 			case CASE_CONTEXT_END:

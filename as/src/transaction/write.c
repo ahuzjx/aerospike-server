@@ -199,12 +199,6 @@ as_write_start(as_transaction* tr)
 	}
 	// else - rw_request is now in hash, continue...
 
-	if (g_config.write_duplicate_resolution_disable) {
-		// Note - preventing duplicate resolution this way allows
-		// rw_request_destroy() to handle dup_msg[] cleanup correctly.
-		tr->rsv.n_dupl = 0;
-	}
-
 	// If there are duplicates to resolve, start doing so.
 	if (tr->rsv.n_dupl != 0) {
 		if (! start_write_dup_res(rw, tr)) {

@@ -1536,7 +1536,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "transaction-retry-ms", g_config.transaction_retry_ms);
 	info_append_uint32(db, "transaction-threads-per-queue", g_config.n_transaction_threads_per_queue);
 	info_append_string_safe(db, "work-directory", g_config.work_directory);
-	info_append_bool(db, "write-duplicate-resolution-disable", g_config.write_duplicate_resolution_disable);
 
 	info_append_string(db, "debug-allocations", debug_allocations_string());
 	info_append_bool(db, "fabric-dump-msgs", g_config.fabric_dump_msgs);
@@ -2035,18 +2034,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		}
 		else if (0 == as_info_parameter_get(params, "min-cluster-size", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val) || (0 > val) || (as_clustering_cluster_size_min_set(val) < 0))
-				goto Error;
-		}
-		else if (0 == as_info_parameter_get(params, "write-duplicate-resolution-disable", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of write-duplicate-resolution-disable from %s to %s", bool_val[g_config.write_duplicate_resolution_disable], context);
-				g_config.write_duplicate_resolution_disable = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of write-duplicate-resolution-disable from %s to %s", bool_val[g_config.write_duplicate_resolution_disable], context);
-				g_config.write_duplicate_resolution_disable = false;
-			}
-			else
 				goto Error;
 		}
 		else if (0 == as_info_parameter_get(params, "prole-extra-ttl", context, &context_len)) {
