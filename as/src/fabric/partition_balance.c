@@ -938,20 +938,17 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 					ns_pending_signals += p->n_witnesses;
 				}
 			}
-			else {
+			else if (self_n < p->n_replicas) {
 				// No migrations required - refresh replicas' versions (only
-				// truly necessary if replication factor decreased) and drop
-				// superfluous non-replica partitions immediately.
-
-				if (self_n < p->n_replicas) {
-					p->version = p->final_version;
-				}
-				else {
-					p->version = ZERO_VERSION;
-					set_partition_version_in_storage(ns, p->id, &p->version,
-							false);
-					drop_trees(p, ns);
-				}
+				// truly necessary if replication factor decreased).
+				p->version = p->final_version;
+			}
+			else {
+				// No migrations required - drop superfluous non-replica
+				// partitions immediately.
+				p->version = ZERO_VERSION;
+				set_partition_version_in_storage(ns, p->id, &p->version, false);
+				drop_trees(p, ns);
 			}
 		}
 
