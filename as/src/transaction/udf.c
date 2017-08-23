@@ -648,26 +648,10 @@ udf_master_apply(udf_call* call, rw_request* rw)
 	as_transaction* tr = call->tr;
 	as_namespace* ns = tr->rsv.ns;
 
-	// Prepare UDF record.
+	// Find record in index.
 
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;
-
-	as_storage_rd rd;
-
-	udf_record urecord;
-	udf_record_init(&urecord, true);
-
-	xdr_dirty_bins dirty_bins;
-	xdr_clear_dirty_bins(&dirty_bins);
-
-	urecord.r_ref	= &r_ref;
-	urecord.tr		= tr;
-	urecord.rd		= &rd;
-	urecord.dirty	= &dirty_bins;
-	urecord.keyd	= tr->keyd;
-
-	// Find record in index.
 
 	int get_rv = as_record_get(tr->rsv.tree, &tr->keyd, &r_ref);
 
@@ -686,6 +670,20 @@ udf_master_apply(udf_call* call, rw_request* rw)
 	}
 
 	// Open storage record.
+
+	as_storage_rd rd;
+
+	udf_record urecord;
+	udf_record_init(&urecord, true);
+
+	xdr_dirty_bins dirty_bins;
+	xdr_clear_dirty_bins(&dirty_bins);
+
+	urecord.r_ref	= &r_ref;
+	urecord.tr		= tr;
+	urecord.rd		= &rd;
+	urecord.dirty	= &dirty_bins;
+	urecord.keyd	= tr->keyd;
 
 	if (get_rv == 0) {
 		urecord.flag |= (UDF_RECORD_FLAG_OPEN | UDF_RECORD_FLAG_PREEXISTS);
@@ -879,8 +877,8 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op)
 	urecord->pickled_sz = 0;
 	as_rec_props_clear(&urecord->pickled_rec_props);
 
-	uint16_t generation;
-	uint16_t set_id;
+	uint16_t generation = 0;
+	uint16_t set_id = 0;
 	xdr_dirty_bins dirty_bins;
 
 	if (urecord_op == UDF_OPTYPE_WRITE || urecord_op == UDF_OPTYPE_DELETE) {
