@@ -76,7 +76,6 @@ typedef struct udf_record_s {
 	uint16_t			flag;
 
 	// FABRIC MESSAGE
-	uint8_t             op;
 	uint8_t				*pickled_buf;
 	size_t				pickled_sz;
 	as_rec_props		pickled_rec_props;

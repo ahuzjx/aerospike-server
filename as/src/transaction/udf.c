@@ -122,11 +122,9 @@ transaction_status udf_master(rw_request* rw, as_transaction* tr);
 udf_optype udf_master_apply(udf_call* call, rw_request* rw);
 int udf_apply_record(udf_call* call, as_rec* rec, as_result* result);
 uint64_t udf_end_time(time_tracker* tt);
-void udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op,
-		uint16_t set_id);
+void udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op);
 udf_optype udf_finish_op(udf_record* urecord);
-void udf_post_processing(udf_record* urecord, udf_optype urecord_op,
-		uint16_t set_id);
+void udf_post_processing(udf_record* urecord, udf_optype urecord_op);
 void write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
 		uint8_t** pickled_buf, size_t* pickled_sz,
 		as_rec_props* p_pickled_rec_props);
@@ -669,11 +667,6 @@ udf_master_apply(udf_call* call, rw_request* rw)
 	urecord.dirty	= &dirty_bins;
 	urecord.keyd	= tr->keyd;
 
-	// This as_rec needs to be in the heap - once passed into the lua scope it
-	// gets garbage collected later. Also, the destroy hook is set to NULL so
-	// garbage collection has nothing to do.
-	as_rec* urec = as_rec_new(&urecord, &udf_record_hooks);
-
 	// Find record in index.
 
 	int get_rv = as_record_get(tr->rsv.tree, &tr->keyd, &r_ref);
@@ -689,12 +682,8 @@ udf_master_apply(udf_call* call, rw_request* rw)
 		// Internal UDFs must not create records.
 		tr->result_code = AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		process_failure(call, NULL, &rw->response_db);
-		udf_record_destroy(urec);
 		return UDF_OPTYPE_NONE;
 	}
-
-	// Needed for XDR shipping.
-	uint32_t set_id = INVALID_SET_ID;
 
 	// Open storage record.
 
@@ -705,7 +694,6 @@ udf_master_apply(udf_call* call, rw_request* rw)
 			udf_record_close(&urecord);
 			tr->result_code = AS_PROTO_RESULT_FAIL_BIN_NAME; // overloaded... add bin_count error?
 			process_failure(call, NULL, &rw->response_db);
-			udf_record_destroy(urec);
 			return UDF_OPTYPE_NONE;
 		}
 
@@ -719,7 +707,6 @@ udf_master_apply(udf_call* call, rw_request* rw)
 				udf_record_close(&urecord);
 				tr->result_code = AS_PROTO_RESULT_FAIL_NOT_FOUND; // not ideal
 				process_failure(call, NULL, &rw->response_db);
-				udf_record_destroy(urec);
 				return UDF_OPTYPE_NONE;
 			}
 		}
@@ -732,7 +719,6 @@ udf_master_apply(udf_call* call, rw_request* rw)
 				udf_record_close(&urecord);
 				tr->result_code = AS_PROTO_RESULT_FAIL_KEY_MISMATCH;
 				process_failure(call, NULL, &rw->response_db);
-				udf_record_destroy(urec);
 				return UDF_OPTYPE_NONE;
 			}
 		}
@@ -742,15 +728,11 @@ udf_master_apply(udf_call* call, rw_request* rw)
 				udf_record_close(&urecord);
 				tr->result_code = AS_PROTO_RESULT_FAIL_UNSUPPORTED_FEATURE;
 				process_failure(call, NULL, &rw->response_db);
-				udf_record_destroy(urec);
 				return UDF_OPTYPE_NONE;
 			}
 
 			urecord.flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
 		}
-
-		// Save the set-ID for XDR in case record is deleted.
-		set_id = as_index_get_set_id(urecord.r_ref->r);
 	}
 	else {
 		urecord.flag &= ~(UDF_RECORD_FLAG_OPEN |
@@ -760,17 +742,22 @@ udf_master_apply(udf_call* call, rw_request* rw)
 
 	// Run UDF.
 
-	as_result result;
-	as_result_init(&result);
-
-	udf_optype optype = UDF_OPTYPE_NONE;
+	// This as_rec needs to be in the heap - once passed into the lua scope it
+	// gets garbage collected later. Also, the destroy hook is set to NULL so
+	// garbage collection has nothing to do.
+	as_rec* urec = as_rec_new(&urecord, &udf_record_hooks);
 
 	as_val_reserve(urec); // for lua
 
+	as_result result;
+	as_result_init(&result);
+
 	int apply_rv = udf_apply_record(call, urec, &result);
 
+	udf_optype optype = UDF_OPTYPE_NONE;
+
 	if (apply_rv == 0) {
-		udf_finish(&urecord, rw, &optype, set_id);
+		udf_finish(&urecord, rw, &optype);
 		process_result(&result, call, &rw->response_db);
 	}
 	else {
@@ -835,8 +822,7 @@ udf_end_time(time_tracker* tt)
 
 
 void
-udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op,
-		uint16_t set_id)
+udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op)
 {
 	*record_op = UDF_OPTYPE_READ;
 
@@ -850,7 +836,7 @@ udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op,
 		*record_op = UDF_OPTYPE_WRITE;
 	}
 
-	udf_post_processing(urecord, final_op, set_id);
+	udf_post_processing(urecord, final_op);
 
 	// Normal UDF case - pass on pickled buf created for the record.
 	rw->pickled_buf			= urecord->pickled_buf;
@@ -883,7 +869,7 @@ udf_finish_op(udf_record* urecord)
 
 
 void
-udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
+udf_post_processing(udf_record* urecord, udf_optype urecord_op)
 {
 	as_storage_rd* rd = urecord->rd;
 	as_transaction* tr = urecord->tr;
@@ -892,7 +878,10 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 	urecord->pickled_buf = NULL;
 	urecord->pickled_sz = 0;
 	as_rec_props_clear(&urecord->pickled_rec_props);
-	bool udf_xdr_ship_op = false;
+
+	uint16_t generation;
+	uint16_t set_id;
+	xdr_dirty_bins dirty_bins;
 
 	if (urecord_op == UDF_OPTYPE_WRITE || urecord_op == UDF_OPTYPE_DELETE) {
 		size_t rec_props_data_size = as_storage_record_rec_props_size(rd);
@@ -931,42 +920,30 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op, uint16_t set_id)
 		}
 
 		as_storage_record_adjust_mem_stats(rd, urecord->starting_memory_bytes);
-		udf_xdr_ship_op = true;
-	}
 
-	// Collect information for XDR before closing the record.
-
-	uint16_t generation = 0;
-
-	if ((urecord->flag & UDF_RECORD_FLAG_OPEN) != 0) {
+		// Collect information for XDR before closing the record.
 		generation = r->generation;
 		set_id = as_index_get_set_id(r);
-	}
 
-	urecord->op = urecord_op;
-
-	xdr_dirty_bins dirty_bins;
-	xdr_clear_dirty_bins(&dirty_bins);
-
-	if (urecord->dirty && udf_xdr_ship_op && urecord_op == UDF_OPTYPE_WRITE) {
-		xdr_copy_dirty_bins(urecord->dirty, &dirty_bins);
+		if (urecord->dirty && urecord_op == UDF_OPTYPE_WRITE) {
+			xdr_clear_dirty_bins(&dirty_bins);
+			xdr_copy_dirty_bins(urecord->dirty, &dirty_bins);
+		}
 	}
 
 	// Close the record for all the cases.
 	udf_record_close(urecord);
 
 	// Write to XDR pipe.
-	if (udf_xdr_ship_op) {
-		if (urecord_op == UDF_OPTYPE_WRITE) {
-			xdr_write(tr->rsv.ns, &tr->keyd, generation, 0, XDR_OP_TYPE_WRITE,
-					set_id, &dirty_bins);
-		}
-		else if (urecord_op == UDF_OPTYPE_DELETE) {
-			xdr_write(tr->rsv.ns, &tr->keyd, 0, 0,
-					as_transaction_is_durable_delete(tr) ?
-							XDR_OP_TYPE_DURABLE_DELETE : XDR_OP_TYPE_DROP,
-					set_id, NULL);
-		}
+	if (urecord_op == UDF_OPTYPE_WRITE) {
+		xdr_write(tr->rsv.ns, &tr->keyd, generation, 0, XDR_OP_TYPE_WRITE,
+				set_id, &dirty_bins);
+	}
+	else if (urecord_op == UDF_OPTYPE_DELETE) {
+		xdr_write(tr->rsv.ns, &tr->keyd, 0, 0,
+				as_transaction_is_durable_delete(tr) ?
+						XDR_OP_TYPE_DURABLE_DELETE : XDR_OP_TYPE_DROP,
+				set_id, NULL);
 	}
 }
 

@@ -301,7 +301,6 @@ udf_record_init(udf_record *urecord, bool allow_updates)
 
 	as_rec_props_clear(&urecord->pickled_rec_props);
 
-	urecord->op                 = UDF_OPTYPE_READ;
 	urecord->keyd               = cf_digest_zero;
 	for (uint32_t i = 0; i < UDF_RECORD_BIN_ULIMIT; i++) {
 		urecord->updates[i].particle_buf = NULL;
