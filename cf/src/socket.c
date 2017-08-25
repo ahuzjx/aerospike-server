@@ -1553,17 +1553,17 @@ cf_poll_destroy(cf_poll poll)
 }
 
 #define RESP_SIZE (2 * 1024 * 1024)
-#define MAX_INTERS 50
-#define MAX_ADDRS 50
+#define MAX_INTERS 500
+#define MAX_ADDRS 20
 
 typedef struct inter_entry_s {
 	uint32_t index;
-	char name[100];
+	char name[50];
 	bool def_route;
 	bool up;
 	uint32_t mtu;
 	uint32_t mac_addr_len;
-	uint8_t mac_addr[100];
+	uint8_t mac_addr[50];
 	uint32_t n_addrs;
 	cf_ip_addr addrs[MAX_ADDRS];
 
@@ -1591,7 +1591,7 @@ typedef struct cb_context_s {
 	bool has_local;
 	bool has_index;
 	bool has_priority;
-	char curr_label[100];
+	char curr_label[50];
 	cf_ip_addr curr_address;
 	uint32_t curr_index;
 	uint32_t curr_priority;
