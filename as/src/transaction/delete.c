@@ -152,6 +152,10 @@ as_delete_start(as_transaction* tr)
 	}
 	// else - no duplicate resolution phase, apply operation to master.
 
+	// Set up the nodes to which we'll write replicas.
+	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
+			rw->dest_nodes);
+
 	// If error, transaction is finished.
 	if ((status = delete_master(tr, rw)) != TRANS_IN_PROGRESS) {
 		rw_request_hash_delete(&hkey, rw);
@@ -159,12 +163,7 @@ as_delete_start(as_transaction* tr)
 		return status;
 	}
 
-	// Set up the nodes to which we'll write replicas.
-	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
-			rw->dest_nodes);
-
 	// If we don't need replica writes, transaction is finished.
-	// TODO - consider a single-node fast path bypassing hash?
 	if (rw->n_dest_nodes == 0) {
 		rw_request_hash_delete(&hkey, rw);
 		send_delete_response(tr);

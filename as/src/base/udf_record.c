@@ -296,47 +296,10 @@ udf_record_init(udf_record *urecord, bool allow_updates)
 	if (allow_updates) {
 		urecord->flag           |= UDF_RECORD_FLAG_ALLOW_UPDATES;
 	}
-	urecord->pickled_buf        = NULL;
-	urecord->pickled_sz         = 0;
-
-	as_rec_props_clear(&urecord->pickled_rec_props);
 
 	urecord->keyd               = cf_digest_zero;
 	for (uint32_t i = 0; i < UDF_RECORD_BIN_ULIMIT; i++) {
 		urecord->updates[i].particle_buf = NULL;
-	}
-}
-
-/*
- * Function: Cleans up the pickled if it is hanging from the udf_record.
- *           frees it as well if pickled_buf needs to be freed up.
- *
- * Parameters:
- * 		urec	: UDF record
- *
- * Return value : Nothing
- *
- * Callers:
- * 		udf_rw_finish
- */
-void
-udf_record_cleanup(udf_record *urecord, bool dofree)
-{
-	if (urecord->pickled_buf) {
-		if (dofree) {
-			cf_free(urecord->pickled_buf);
-		}
-
-		urecord->pickled_buf       = NULL;
-		urecord->pickled_sz        = 0;
-	}
-
-	if (urecord->pickled_rec_props.p_data) {
-		if (dofree) {
-			cf_free(urecord->pickled_rec_props.p_data);
-		}
-
-		as_rec_props_clear(&urecord->pickled_rec_props);
 	}
 }
 
@@ -850,7 +813,6 @@ udf_record_destroy(as_rec *rec)
 
 	udf_record *urecord = (udf_record *) as_rec_source(rec);
 	udf_record_close(urecord);
-	udf_record_cleanup(urecord, true);
 	as_rec_destroy(rec);
 	return true;
 } 

@@ -87,13 +87,6 @@ typedef struct udf_call_s {
 	as_transaction* tr;
 } udf_call;
 
-typedef struct pickle_info_s {
-	uint8_t*	rec_props_data;
-	uint32_t	rec_props_size;
-	uint8_t*	buf;
-	size_t		buf_size;
-} pickle_info;
-
 
 //==========================================================
 // Globals.
@@ -124,11 +117,8 @@ int udf_apply_record(udf_call* call, as_rec* rec, as_result* result);
 uint64_t udf_end_time(time_tracker* tt);
 void udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op);
 udf_optype udf_finish_op(udf_record* urecord);
-void udf_post_processing(udf_record* urecord, udf_optype urecord_op);
-void write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
-		uint8_t** pickled_buf, size_t* pickled_sz,
-		as_rec_props* p_pickled_rec_props);
-void udf_pickle_all(as_storage_rd* rd, pickle_info* pickle);
+void udf_post_processing(udf_record* urecord, rw_request* rw,
+		udf_optype urecord_op);
 
 void update_lua_complete_stats(uint8_t origin, as_namespace* ns, udf_optype op,
 		int ret, bool is_success);
@@ -315,6 +305,10 @@ as_udf_start(as_transaction* tr)
 	}
 	// else - no duplicate resolution phase, apply operation to master.
 
+	// Set up the nodes to which we'll write replicas.
+	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
+			rw->dest_nodes);
+
 	status = udf_master(rw, tr);
 
 	BENCHMARK_NEXT_DATA_POINT(tr, udf, master);
@@ -327,12 +321,7 @@ as_udf_start(as_transaction* tr)
 		return status;
 	}
 
-	// Set up the nodes to which we'll write replicas.
-	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
-			rw->dest_nodes);
-
 	// If we don't need replica writes, transaction is finished.
-	// TODO - consider a single-node fast path bypassing hash and pickling?
 	if (rw->n_dest_nodes == 0) {
 		send_udf_response(tr, &rw->response_db);
 		rw_request_hash_delete(&hkey, rw);
@@ -834,14 +823,7 @@ udf_finish(udf_record* urecord, rw_request* rw, udf_optype* record_op)
 		*record_op = UDF_OPTYPE_WRITE;
 	}
 
-	udf_post_processing(urecord, final_op);
-
-	// Normal UDF case - pass on pickled buf created for the record.
-	rw->pickled_buf			= urecord->pickled_buf;
-	rw->pickled_sz			= urecord->pickled_sz;
-	rw->pickled_rec_props	= urecord->pickled_rec_props;
-
-	udf_record_cleanup(urecord, false);
+	udf_post_processing(urecord, rw, final_op);
 }
 
 
@@ -867,15 +849,11 @@ udf_finish_op(udf_record* urecord)
 
 
 void
-udf_post_processing(udf_record* urecord, udf_optype urecord_op)
+udf_post_processing(udf_record* urecord, rw_request* rw, udf_optype urecord_op)
 {
 	as_storage_rd* rd = urecord->rd;
 	as_transaction* tr = urecord->tr;
 	as_record* r = rd->r;
-
-	urecord->pickled_buf = NULL;
-	urecord->pickled_sz = 0;
-	as_rec_props_clear(&urecord->pickled_rec_props);
 
 	uint16_t generation = 0;
 	uint16_t set_id = 0;
@@ -897,8 +875,13 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op)
 			m->record_ttl = TTL_NAMESPACE_DEFAULT;
 		}
 
-		write_udf_post_processing(tr, rd, &urecord->pickled_buf,
-			&urecord->pickled_sz, &urecord->pickled_rec_props);
+		update_metadata_in_index(tr, true, r);
+
+		pickle_all(rd, rw);
+
+		tr->generation = r->generation;
+		tr->void_time = r->void_time;
+		tr->last_update_time = r->last_update_time;
 
 		// Now ok to accommodate a new stored key...
 		if (r->key_stored == 0 && rd->key) {
@@ -942,50 +925,6 @@ udf_post_processing(udf_record* urecord, udf_optype urecord_op)
 				as_transaction_is_durable_delete(tr) ?
 						XDR_OP_TYPE_DURABLE_DELETE : XDR_OP_TYPE_DROP,
 				set_id, NULL);
-	}
-}
-
-
-void
-write_udf_post_processing(as_transaction* tr, as_storage_rd* rd,
-		uint8_t** pickled_buf, size_t* pickled_sz,
-		as_rec_props* p_pickled_rec_props)
-{
-	update_metadata_in_index(tr, true, rd->r);
-
-	pickle_info pickle;
-
-	udf_pickle_all(rd, &pickle);
-
-	*pickled_buf = pickle.buf;
-	*pickled_sz = pickle.buf_size;
-	p_pickled_rec_props->p_data = pickle.rec_props_data;
-	p_pickled_rec_props->size = pickle.rec_props_size;
-
-	tr->generation = rd->r->generation;
-	tr->void_time = rd->r->void_time;
-	tr->last_update_time = rd->r->last_update_time;
-}
-
-
-void
-udf_pickle_all(as_storage_rd* rd, pickle_info* pickle)
-{
-	pickle->buf = as_record_pickle(rd, &pickle->buf_size);
-
-	pickle->rec_props_data = NULL;
-	pickle->rec_props_size = 0;
-
-	// TODO - we could avoid this copy (and maybe even not do this here at all)
-	// if all callers malloced rdp->rec_props.p_data upstream for hand-off...
-	if (rd->rec_props.p_data) {
-		pickle->rec_props_size = rd->rec_props.size;
-		pickle->rec_props_data = cf_malloc(pickle->rec_props_size);
-
-		cf_assert(pickle->rec_props_data, AS_UDF, "alloc failed");
-
-		memcpy(pickle->rec_props_data, rd->rec_props.p_data,
-				pickle->rec_props_size);
 	}
 }
 

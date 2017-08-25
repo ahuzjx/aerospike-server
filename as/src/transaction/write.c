@@ -213,6 +213,10 @@ as_write_start(as_transaction* tr)
 	}
 	// else - no duplicate resolution phase, apply operation to master.
 
+	// Set up the nodes to which we'll write replicas.
+	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
+			rw->dest_nodes);
+
 	status = write_master(rw, tr);
 
 	BENCHMARK_NEXT_DATA_POINT(tr, write, master);
@@ -224,12 +228,7 @@ as_write_start(as_transaction* tr)
 		return status;
 	}
 
-	// Set up the nodes to which we'll write replicas.
-	rw->n_dest_nodes = as_partition_get_other_replicas(tr->rsv.p,
-			rw->dest_nodes);
-
 	// If we don't need replica writes, transaction is finished.
-	// TODO - consider a single-node fast path bypassing hash and pickling?
 	if (rw->n_dest_nodes == 0) {
 		send_write_response(tr, &rw->response_db);
 		rw_request_hash_delete(&hkey, rw);

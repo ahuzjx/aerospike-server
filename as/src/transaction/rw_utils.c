@@ -242,6 +242,10 @@ update_metadata_in_index(as_transaction* tr, bool increment_generation,
 void
 pickle_all(as_storage_rd* rd, rw_request* rw)
 {
+	if (rw->n_dest_nodes == 0) {
+		return;
+	}
+
 	rw->pickled_buf = as_record_pickle(rd, &rw->pickled_sz);
 
 	// TODO - we could avoid this copy (and maybe even not do this here at all)

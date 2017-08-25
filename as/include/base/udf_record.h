@@ -74,11 +74,6 @@ typedef struct udf_record_s {
 
 	// INTERNAL UTILITY
 	uint16_t			flag;
-
-	// FABRIC MESSAGE
-	uint8_t				*pickled_buf;
-	size_t				pickled_sz;
-	as_rec_props		pickled_rec_props;
 } udf_record;
 
 #define UDF_RECORD_FLAG_ALLOW_UPDATES		0x0001   // Write/Updates Allowed
@@ -102,7 +97,6 @@ extern int      udf_storage_record_open (udf_record *);
 extern void     udf_record_close        (udf_record *);
 extern int      udf_storage_record_close(udf_record *);
 extern void     udf_record_init         (udf_record *, bool);
-extern void     udf_record_cleanup      (udf_record *, bool);
 extern as_val * udf_record_storage_get  (const udf_record *, const char *);
 
 #define UDF_ERR_INTERNAL_PARAMETER   2
