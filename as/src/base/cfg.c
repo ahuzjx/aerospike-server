@@ -86,6 +86,7 @@ as_config g_config;
 
 void init_addr_list(cf_addr_list* addrs);
 void add_addr(const char* name, cf_addr_list* addrs);
+void add_tls_peer_name(const char* name, cf_serv_spec* spec);
 void copy_addrs(const cf_addr_list* from, cf_addr_list* to);
 void default_addrs(cf_addr_list* one, cf_addr_list* two);
 void bind_to_access(const cf_serv_spec* from, cf_addr_list* to);
@@ -108,7 +109,6 @@ void cfg_create_all_histograms();
 void cfg_init_serv_spec(cf_serv_spec* spec_p);
 cf_tls_spec* cfg_create_tls_spec(as_config* cfg, char* name);
 char* cfg_resolve_tls_name(char* tls_name, const char* cluster_name, const char* which);
-cf_tls_spec* cfg_link_tls(const char* which, cf_serv_spec* tls_name);
 
 void xdr_cfg_add_datacenter(char* dc, uint32_t nsid);
 void xdr_cfg_add_node_addr_port(dc_config_opt *dc_cfg, char* addr, int port);
@@ -701,11 +701,7 @@ typedef enum {
 	CASE_XDR_DATACENTER_DC_INT_EXT_IPMAP,
 	CASE_XDR_DATACENTER_DC_SECURITY_CONFIG_FILE,
 	CASE_XDR_DATACENTER_DC_USE_ALTERNATE_SERVICES,
-	CASE_XDR_DATACENTER_TLS_CAFILE,
-	CASE_XDR_DATACENTER_TLS_CAPATH,
-	CASE_XDR_DATACENTER_TLS_CERT_BLACKLIST,
-	CASE_XDR_DATACENTER_TLS_CERTFILE,
-	CASE_XDR_DATACENTER_TLS_KEYFILE,
+	CASE_XDR_DATACENTER_TLS_NAME,
 	CASE_XDR_DATACENTER_TLS_NODE,
 
 	// Used parsing separate file, but share this enum:
@@ -1212,11 +1208,7 @@ const cfg_opt XDR_DATACENTER_OPTS[] = {
 		{ "dc-int-ext-ipmap",				CASE_XDR_DATACENTER_DC_INT_EXT_IPMAP },
 		{ "dc-security-config-file",		CASE_XDR_DATACENTER_DC_SECURITY_CONFIG_FILE },
 		{ "dc-use-alternate-services",		CASE_XDR_DATACENTER_DC_USE_ALTERNATE_SERVICES },
-		{ "tls-cafile",						CASE_XDR_DATACENTER_TLS_CAFILE },
-		{ "tls-capath",						CASE_XDR_DATACENTER_TLS_CAPATH },
-		{ "tls-cert-blacklist",				CASE_XDR_DATACENTER_TLS_CERT_BLACKLIST },
-		{ "tls-certfile",					CASE_XDR_DATACENTER_TLS_CERTFILE },
-		{ "tls-keyfile",					CASE_XDR_DATACENTER_TLS_KEYFILE },
+		{ "tls-name",						CASE_XDR_DATACENTER_TLS_NAME },
 		{ "tls-node",						CASE_XDR_DATACENTER_TLS_NODE },
 		{ "}",								CASE_CONTEXT_END }
 };
@@ -2535,7 +2527,7 @@ as_config_init(const char* config_file)
 				break;
 			case CASE_NETWORK_SERVICE_TLS_AUTHENTICATE_CLIENT:
 				cfg_enterprise_only(&line);
-				c->tls_service.tls_peer_name = cfg_strdup_no_checks(&line);
+				add_tls_peer_name(line.val_tok_1, &c->tls_service);
 				break;
 			case CASE_NETWORK_SERVICE_TLS_NAME:
 				cfg_enterprise_only(&line);
@@ -3465,20 +3457,8 @@ as_config_init(const char* config_file)
 			case CASE_XDR_DATACENTER_DC_USE_ALTERNATE_SERVICES:
 				cur_dc_cfg->dc_use_alternate_services = cfg_bool(&line);
 				break;
-			case CASE_XDR_DATACENTER_TLS_CAFILE:
-				cur_dc_cfg->tls_cafile = cfg_strdup(&line, true);
-				break;
-			case CASE_XDR_DATACENTER_TLS_CAPATH:
-				cur_dc_cfg->tls_capath = cfg_strdup(&line, true);
-				break;
-			case CASE_XDR_DATACENTER_TLS_CERT_BLACKLIST:
-				cur_dc_cfg->tls_cert_blacklist = cfg_strdup(&line, true);
-				break;
-			case CASE_XDR_DATACENTER_TLS_CERTFILE:
-				cur_dc_cfg->tls_certfile = cfg_strdup(&line, true);
-				break;
-			case CASE_XDR_DATACENTER_TLS_KEYFILE:
-				cur_dc_cfg->tls_keyfile = cfg_strdup(&line, true);
+			case CASE_XDR_DATACENTER_TLS_NAME:
+				cur_dc_cfg->tls_our_name = cfg_strdup_no_checks(&line);
 				break;
 			case CASE_XDR_DATACENTER_TLS_NODE:
 				xdr_cfg_add_tls_node(cur_dc_cfg, cfg_strdup(&line, true), cfg_strdup_val2(&line, true), cfg_port_val3(&line));
@@ -3675,24 +3655,40 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&g_config.tls_service, &g_config.service, &g_service_bind,
 				CF_SOCK_OWNER_SERVICE_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("service", &g_config.tls_service);
+		cf_tls_spec* tls_spec = cfg_link_tls("service", g_config.tls_service.tls_our_name);
 
-		char *peer_name = g_config.tls_service.tls_peer_name;
+		uint32_t n_peer_names = g_config.tls_service.n_tls_peer_names;
+		char **peer_names = g_config.tls_service.tls_peer_names;
+
+		bool has_any = false;
+		bool has_false = false;
+
+		for (uint32_t i = 0; i < n_peer_names; ++i) {
+			has_any = has_any || strcmp(peer_names[i], "any") == 0;
+			has_false = has_false || strcmp(peer_names[i], "false") == 0;
+		}
+
+		if ((has_any || has_false) && n_peer_names > 1) {
+			cf_crash_nostack(AS_CFG, "\"any\" and \"false\" are incompatible with other tls-authenticate-client arguments");
+		}
+
 		bool auth_client;
 
-		if (peer_name == NULL || strcmp(peer_name, "false") == 0) {
-			auth_client = false;
-			peer_name = NULL;
-		}
-		else if (strcmp(peer_name, "any") == 0) {
+		if (has_any || n_peer_names == 0) {
 			auth_client = true;
-			peer_name = NULL;
+			n_peer_names = 0;
+			peer_names = NULL;
+		}
+		else if (has_false) {
+			auth_client = false;
+			n_peer_names = 0;
+			peer_names = NULL;
 		}
 		else {
 			auth_client = true;
 		}
 
-		tls_config_server_context(tls_spec, auth_client, peer_name, &g_service_tls);
+		g_service_tls = tls_config_server_context(tls_spec, auth_client, n_peer_names, peer_names);
 	}
 
 	if (g_service_bind.n_cfgs == 0) {
@@ -3718,8 +3714,8 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&c->hb_tls_serv_spec, &c->hb_serv_spec, &c->hb_config.bind_cfg,
 				CF_SOCK_OWNER_HEARTBEAT_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("heartbeat", &c->hb_tls_serv_spec);
-		tls_config_intra_context(tls_spec, &c->hb_config.tls);
+		cf_tls_spec* tls_spec = cfg_link_tls("heartbeat", c->hb_tls_serv_spec.tls_our_name);
+		c->hb_config.tls = tls_config_intra_context(tls_spec, "heartbeat");
 	}
 
 	if (g_config.hb_config.bind_cfg.n_cfgs == 0) {
@@ -3749,8 +3745,8 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&g_config.tls_fabric, &g_config.fabric, &g_fabric_bind,
 				CF_SOCK_OWNER_FABRIC_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("fabric", &g_config.tls_fabric);
-		tls_config_intra_context(tls_spec, &g_fabric_tls);
+		cf_tls_spec* tls_spec = cfg_link_tls("fabric", g_config.tls_fabric.tls_our_name);
+		g_fabric_tls = tls_config_intra_context(tls_spec, "fabric");
 	}
 
 	if (g_fabric_bind.n_cfgs == 0) {
@@ -4088,6 +4084,24 @@ add_addr(const char* name, cf_addr_list* addrs)
 	}
 
 	++addrs->n_addrs;
+}
+
+void
+add_tls_peer_name(const char* name, cf_serv_spec* spec)
+{
+	uint32_t n = spec->n_tls_peer_names;
+
+	if (n >= CF_SOCK_CFG_MAX) {
+		cf_crash_nostack(CF_SOCKET, "Too many TLS peer names: %s", name);
+	}
+
+	spec->tls_peer_names[n] = cf_strdup(name);
+
+	if (spec->tls_peer_names[n] == NULL) {
+		cf_crash(CF_SOCKET, "Out of memory");
+	}
+
+	++spec->n_tls_peer_names;
 }
 
 void
@@ -4461,7 +4475,8 @@ cfg_init_serv_spec(cf_serv_spec* spec_p)
 	spec_p->alt_port = 0;
 	init_addr_list(&spec_p->alt);
 	spec_p->tls_our_name = NULL;
-	spec_p->tls_peer_name = NULL;
+	spec_p->n_tls_peer_names = 0;
+	memset(spec_p->tls_peer_names, 0, sizeof(spec_p->tls_peer_names));
 }
 
 cf_tls_spec*
@@ -4513,17 +4528,17 @@ cfg_resolve_tls_name(char* tls_name, const char* cluster_name, const char* which
 }
 
 cf_tls_spec*
-cfg_link_tls(const char* which, cf_serv_spec* spec)
+cfg_link_tls(const char* which, char* our_name)
 {
-	if (spec->tls_our_name == NULL) {
+	if (our_name == NULL) {
 		cf_crash_nostack(AS_CFG, "%s TLS configuration requires tls-name", which);
 	}
 
-	spec->tls_our_name = cfg_resolve_tls_name(spec->tls_our_name, g_config.cluster_name, which);
+	our_name = cfg_resolve_tls_name(our_name, g_config.cluster_name, which);
 	cf_tls_spec* tls_spec = NULL;
 
 	for (uint32_t i = 0; i < g_config.n_tls_specs; ++i) {
-		if (strcmp(spec->tls_our_name, g_config.tls_specs[i].name) == 0) {
+		if (strcmp(our_name, g_config.tls_specs[i].name) == 0) {
 			tls_spec = g_config.tls_specs + i;
 			break;
 		}
@@ -4531,7 +4546,7 @@ cfg_link_tls(const char* which, cf_serv_spec* spec)
 
 	if (tls_spec == NULL) {
 		cf_crash_nostack(AS_CFG, "invalid tls-name in TLS configuration: %s",
-				spec->tls_our_name);
+				our_name);
 	}
 
 	return tls_spec;

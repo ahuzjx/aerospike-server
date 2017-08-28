@@ -221,7 +221,7 @@ COMPILER_ASSERT(sizeof(CHANNEL_NAMES) / sizeof(const char *) ==
 //
 
 cf_serv_cfg g_fabric_bind = { .n_cfgs = 0 };
-cf_tls_info g_fabric_tls = { .ssl_ctx_ser = NULL, .ssl_ctx_cli = NULL, .cbl = NULL };
+cf_tls_info *g_fabric_tls;
 
 static fabric_state g_fabric;
 static cf_poll g_accept_poll;
@@ -983,7 +983,7 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 	as_endpoint_to_sock_addr(connected_endpoint, &addr);
 
 	if (as_endpoint_capability_is_supported(connected_endpoint, AS_ENDPOINT_TLS_MASK)) {
-		tls_socket_prepare_client(&g_fabric_tls, &sock);
+		tls_socket_prepare_client(g_fabric_tls, &sock);
 	}
 
 	cf_atomic64_incr(&g_stats.fabric_connections_opened);
@@ -2297,7 +2297,7 @@ run_fabric_accept(void *arg)
 				cf_sock_cfg *cfg = ssock->cfg;
 
 				if (cfg->owner == CF_SOCK_OWNER_FABRIC_TLS) {
-					tls_socket_prepare_server(&g_fabric_tls, &fc->sock);
+					tls_socket_prepare_server(g_fabric_tls, &fc->sock);
 				}
 
 				uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;

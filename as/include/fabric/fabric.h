@@ -86,7 +86,7 @@ typedef int (*as_fabric_transact_complete_fn) (msg *rsp, void *udata, int as_fab
 //
 
 extern cf_serv_cfg g_fabric_bind;
-extern cf_tls_info g_fabric_tls;
+extern cf_tls_info *g_fabric_tls;
 
 
 //==========================================================

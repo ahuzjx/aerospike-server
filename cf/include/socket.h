@@ -99,7 +99,8 @@ typedef struct cf_serv_spec_s {
 	cf_ip_port alt_port;
 	cf_addr_list alt;
 	char *tls_our_name;
-	char *tls_peer_name;
+	uint32_t n_tls_peer_names;
+	char *tls_peer_names[CF_SOCK_CFG_MAX];
 } cf_serv_spec;
 
 typedef struct cf_sock_addr_s {

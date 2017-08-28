@@ -24,8 +24,8 @@
 
 #include "socket.h"
 
-struct ssl_ctx_st;
-struct cbl_header_s;
+struct cf_tls_info_s;
+typedef struct cf_tls_info_s cf_tls_info;
 
 typedef struct cf_tls_spec_s {
 	char *ca_file;
@@ -38,33 +38,20 @@ typedef struct cf_tls_spec_s {
 	char *protocols;
 } cf_tls_spec;
 
-typedef struct cf_tls_info_s {
-	struct ssl_ctx_st *ssl_ctx_ser;
-	struct ssl_ctx_st *ssl_ctx_cli;
-	struct cbl_header_s *cbl;
-	char *peer_name;
-} cf_tls_info;
-
 void tls_check_init();
 
 void tls_cleanup();
-
 void tls_thread_cleanup();
 
 void tls_socket_init(cf_socket *sock);
-
 void tls_socket_term(cf_socket *sock);
-
 int tls_socket_shutdown(cf_socket *sock);
-
 void tls_socket_close(cf_socket *sock);
 
-void tls_config_server_context(cf_tls_spec *tspec, bool auth_client, char *peer_name, cf_tls_info *info);
-
-void tls_config_intra_context(cf_tls_spec *tspec, cf_tls_info *info);
+cf_tls_info *tls_config_server_context(cf_tls_spec *tspec, bool auth_client, uint32_t n_peer_names, char **peer_names);
+cf_tls_info *tls_config_intra_context(cf_tls_spec *tspec, const char *which);
 
 void tls_socket_prepare_server(cf_tls_info *info, cf_socket *sock);
-
 void tls_socket_prepare_client(cf_tls_info *info, cf_socket *sock);
 
 static inline bool tls_socket_needs_handshake(cf_socket *sock)
@@ -75,11 +62,8 @@ static inline bool tls_socket_needs_handshake(cf_socket *sock)
 void tls_socket_must_not_have_data(cf_socket *sock, const char *caller);
 
 int tls_socket_accept(cf_socket *sock);
-
 int tls_socket_connect(cf_socket *sock);
-
 int tls_socket_accept_block(cf_socket *sock);
-
 int tls_socket_connect_block(cf_socket *sock);
 
 int tls_socket_recv(cf_socket *sock, void *buf, size_t sz, int32_t flags,

@@ -1570,7 +1570,11 @@ info_network_config_get(cf_dyn_buf *db)
 	info_append_int(db, "service.tls-alternate-access-port", g_config.tls_service.alt_port);
 	append_addrs(db, "service.tls-alternate-access-address", &g_config.tls_service.alt);
 	info_append_string_safe(db, "service.tls-name", g_config.tls_service.tls_our_name);
-	info_append_bool(db, "service.tls-authenticate-client", g_config.tls_service.tls_peer_name);
+
+	for (uint32_t i = 0; i < g_config.tls_service.n_tls_peer_names; ++i) {
+		info_append_string(db, "service.tls-authenticate-client",
+				g_config.tls_service.tls_peer_names[i]);
+	}
 
 	// Heartbeat:
 

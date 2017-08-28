@@ -71,15 +71,18 @@ tls_socket_close(cf_socket *sock)
 	}
 }
 
-void
-tls_config_server_context(cf_tls_spec *tspec, bool auth_client, char *peer_name, cf_tls_info *info)
+cf_tls_info *
+tls_config_server_context(cf_tls_spec *tspec, bool auth_client, uint32_t n_peer_names, char **peer_names)
 {
 	cf_crash(CF_TLS, "unexpected TLS state");
+	return NULL;
 }
 
-void tls_config_intra_context(cf_tls_spec *tspec, cf_tls_info *info)
+cf_tls_info *
+tls_config_intra_context(cf_tls_spec *tspec, const char *which)
 {
 	cf_crash(CF_TLS, "unexpected TLS state");
+	return NULL;
 }
 
 void

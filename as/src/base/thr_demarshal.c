@@ -81,7 +81,7 @@ as_info_access g_access = {
 };
 
 cf_serv_cfg g_service_bind = { .n_cfgs = 0 };
-cf_tls_info g_service_tls = { .ssl_ctx_ser = NULL, .ssl_ctx_cli = NULL, .cbl = NULL };
+cf_tls_info *g_service_tls;
 
 static cf_sockets g_sockets;
 
@@ -479,7 +479,7 @@ thr_demarshal(void *unused)
 
 				// Initialize the TLS part of the socket.
 				if (cfg->owner == CF_SOCK_OWNER_SERVICE_TLS) {
-					tls_socket_prepare_server(&g_service_tls, &csock);
+					tls_socket_prepare_server(g_service_tls, &csock);
 				}
 
 				// Create as_file_handle and queue it up in epoll_fd for further
