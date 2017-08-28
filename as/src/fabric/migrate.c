@@ -1499,9 +1499,10 @@ immigration_handle_insert_request(cf_node src, msg *m)
 				immig->rsv.ns->conflict_resolution_policy, false, false);
 
 		// If replace failed, don't ack - it will be retransmitted.
-		if (rv != 0) {
-			cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: failed replace %d ",
-				rv);
+		if (! (rv == AS_PROTO_RESULT_OK ||
+				// Migrations just treat these errors as successful no-ops:
+				rv == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
+				rv == AS_PROTO_RESULT_FAIL_GENERATION)) {
 			immigration_release(immig);
 			as_fabric_msg_put(m);
 			return;

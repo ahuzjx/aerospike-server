@@ -553,4 +553,10 @@ apply_winner(rw_request* rw)
 
 	rw->result_code = (uint8_t)as_record_replace_if_better(&rr,
 			rw->rsv.ns->conflict_resolution_policy, false, false);
+
+	// Duplicate resolution just treats these errors as successful no-ops:
+	if (rw->result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
+			rw->result_code == AS_PROTO_RESULT_FAIL_GENERATION) {
+		rw->result_code = AS_PROTO_RESULT_OK;
+	}
 }

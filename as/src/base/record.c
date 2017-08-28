@@ -392,16 +392,18 @@ as_record_replace_if_better(as_remote_record *rr,
 	bool is_create = rv == 1;
 	as_index *r = r_ref.r;
 
-	// If local record is better, no-op.
-	if (! is_create && as_record_resolve_conflict(policy, r->generation,
-			r->last_update_time, (uint16_t)rr->generation,
-			rr->last_update_time) <= 0) {
+	int result;
+
+	// If local record is better, no-op or fail.
+	if (! is_create && (result = as_record_resolve_conflict(policy,
+			r->generation, r->last_update_time, (uint16_t)rr->generation,
+			rr->last_update_time)) <= 0) {
 		record_replace_failed(rr, &r_ref, NULL, is_create);
-		return AS_PROTO_RESULT_OK; // TODO - will CP repl-writes care?
+		return result == 0 ?
+				AS_PROTO_RESULT_FAIL_RECORD_EXISTS :
+				AS_PROTO_RESULT_FAIL_GENERATION;
 	}
 	// else - remote winner - apply it.
-
-	int result;
 
 	// If creating record, write set-ID into index.
 	if (is_create) {
