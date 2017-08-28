@@ -107,8 +107,7 @@ as_partition_freeze(as_partition* p)
 	p->pending_immigrations = 0;
 	memset(p->immigrators, 0, sizeof(p->immigrators));
 
-	p->origin = (cf_node)0;
-	p->target = (cf_node)0;
+	p->working_master = (cf_node)0;
 
 	p->n_dupl = 0;
 	memset(p->dupls, 0, sizeof(p->dupls));
@@ -172,12 +171,16 @@ as_partition_proxyee_redirect(as_namespace* ns, uint32_t pid)
 
 	pthread_mutex_lock(&p->lock);
 
-	bool is_final_master = p->replicas[0] == g_config.self_node;
-	cf_node acting_master = p->origin; // 0 if final master is working master
+	cf_node node = (cf_node)0;
+
+	if (g_config.self_node == p->replicas[0] &&
+			g_config.self_node != p->working_master) {
+		node = p->working_master;
+	}
 
 	pthread_mutex_unlock(&p->lock);
 
-	return is_final_master ? acting_master : (cf_node)0;
+	return node;
 }
 
 
@@ -277,10 +280,8 @@ as_partition_get_replica_stats(as_namespace* ns, repl_stats* p_stats)
 		pthread_mutex_lock(&p->lock);
 
 		int self_n = find_self_in_replicas(p); // -1 if not
-		bool is_working_master = (self_n == 0 && p->origin == (cf_node)0) ||
-				p->target != (cf_node)0;
 
-		if (is_working_master) {
+		if (g_config.self_node == p->working_master) {
 			accumulate_replica_stats(p,
 					&p_stats->n_master_objects,
 					&p_stats->n_master_tombstones);
@@ -527,7 +528,7 @@ as_partition_getinfo_str(cf_dyn_buf* db)
 	size_t db_sz = db->used_sz;
 
 	cf_dyn_buf_append_string(db, "namespace:partition:state:replica:n_dupl:"
-			"origin:target:emigrates:immigrates:records:tombstones:version:"
+			"working_master:emigrates:immigrates:records:tombstones:version:"
 			"final_version;");
 
 	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
@@ -552,9 +553,7 @@ as_partition_getinfo_str(cf_dyn_buf* db)
 			cf_dyn_buf_append_char(db, ':');
 			cf_dyn_buf_append_uint32(db, p->n_dupl);
 			cf_dyn_buf_append_char(db, ':');
-			cf_dyn_buf_append_uint64_x(db, p->origin);
-			cf_dyn_buf_append_char(db, ':');
-			cf_dyn_buf_append_uint64_x(db, p->target);
+			cf_dyn_buf_append_uint64_x(db, p->working_master);
 			cf_dyn_buf_append_char(db, ':');
 			cf_dyn_buf_append_int(db, p->pending_emigrations);
 			cf_dyn_buf_append_char(db, ':');
@@ -690,19 +689,17 @@ find_best_node(const as_partition* p, bool is_read)
 	int self_n = find_self_in_replicas(p);
 	bool is_final_master = self_n == 0;
 	bool is_prole = self_n > 0; // self_n is -1 if not replica
-	bool is_acting_master = p->target != 0;
-	bool is_working_master = (is_final_master && p->origin == (cf_node)0) ||
-			is_acting_master;
+	bool is_working_master = g_config.self_node == p->working_master;
 
 	if (is_working_master) {
 		return g_config.self_node;
 	}
 
 	if (is_final_master) {
-		return p->origin; // acting master elsewhere
+		return p->working_master; // acting master elsewhere
 	}
 
-	if (is_read && is_prole && p->origin == (cf_node)0) {
+	if (is_read && is_prole && p->pending_immigrations == 0) {
 		return g_config.self_node;
 	}
 
@@ -784,14 +781,12 @@ partition_get_replica_self_lockfree(const as_namespace* ns, uint32_t pid)
 	const as_partition* p = &ns->partitions[pid];
 
 	int self_n = find_self_in_replicas(p); // -1 if not
-	bool is_working_master = (self_n == 0 && p->origin == (cf_node)0) ||
-			p->target != (cf_node)0;
 
-	if (is_working_master) {
+	if (g_config.self_node == p->working_master) {
 		return 0;
 	}
 
-	if (self_n > 0 && p->origin == (cf_node)0 &&
+	if (self_n > 0 && p->pending_immigrations == 0 &&
 			// Check self_n < n_repl only because n_repl could be out-of-sync
 			// with (less than) partition's replica list count.
 			self_n < (int)ns->replication_factor) {

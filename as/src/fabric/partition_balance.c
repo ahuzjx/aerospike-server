@@ -437,7 +437,7 @@ as_partition_emigrate_done(as_namespace* ns, uint32_t pid,
 
 	if (! is_self_final_master(p)) {
 		if ((tx_flags & TX_FLAGS_ACTING_MASTER) != 0) {
-			p->target = (cf_node)0;
+			p->working_master = p->replicas[0];
 			p->n_dupl = 0;
 			p->version.master = 0;
 		}
@@ -568,8 +568,6 @@ as_partition_immigrate_done(as_namespace* ns, uint32_t pid,
 	}
 
 	if (! is_self_final_master(p)) {
-		p->origin = (cf_node)0;
-
 		if (client_replica_maps_update(ns, pid)) {
 			cf_atomic32_incr(&g_partition_generation);
 		}
@@ -580,8 +578,8 @@ as_partition_immigrate_done(as_namespace* ns, uint32_t pid,
 
 	// Final master finished an immigration, adjust duplicates.
 
-	if (p->origin == source_node) {
-		p->origin = (cf_node)0;
+	if (source_node == p->working_master) {
+		p->working_master = g_config.self_node;
 
 		if (! as_partition_version_same(&p->version, &p->final_version)) {
 			p->version = p->final_version;
@@ -875,8 +873,7 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		p->pending_immigrations = 0;
 		memset(p->immigrators, 0, sizeof(p->immigrators));
 
-		p->origin = (cf_node)0;
-		p->target = (cf_node)0;
+		p->working_master = (cf_node)0;
 
 		p->n_dupl = 0;
 		memset(p->dupls, 0, sizeof(p->dupls));
@@ -910,9 +907,14 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 			if (self_n < p->n_replicas) {
 				p->version = p->final_version;
+				p->working_master = p->replicas[0];
 			}
 		}
 		else {
+			if (self_n < p->n_replicas) {
+				p->working_master = ns_node_seq[working_master_n];
+			}
+
 			n_dupl = find_duplicates(p, ns_node_seq, ns_sl_ix, ns,
 					(uint32_t)working_master_n, dupls);
 
@@ -1498,7 +1500,6 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 			// Remove self from duplicates.
 			n_dupl = remove_node(dupls, n_dupl, g_config.self_node);
 
-			p->origin = working_master;
 			p->pending_immigrations = (int)n_dupl + 1;
 		}
 
@@ -1539,10 +1540,10 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 			memcpy(p->dupls, dupls, n_dupl * sizeof(cf_node));
 		}
 
-		p->target = p->replicas[0];
 		p->pending_emigrations = 1;
-		pb_task_init(&task, p->target, ns, p->id, as_exchange_cluster_key(),
-				PB_TASK_EMIG_TRANSFER, TX_FLAGS_ACTING_MASTER);
+		pb_task_init(&task, p->replicas[0], ns, p->id,
+				as_exchange_cluster_key(), PB_TASK_EMIG_TRANSFER,
+				TX_FLAGS_ACTING_MASTER);
 		cf_queue_push(mq, &task);
 	}
 	else if (contains_self(dupls, n_dupl)) {
@@ -1554,7 +1555,6 @@ queue_namespace_migrations(as_partition* p, as_namespace* ns, uint32_t self_n,
 	}
 
 	if (self_n < p->n_replicas && p->immigrators[self_n]) {
-		p->origin = p->replicas[0];
 		p->pending_immigrations = 1;
 	}
 }
@@ -1589,18 +1589,19 @@ partition_immigration_is_valid(const as_partition* p, cf_node source_node,
 		failure_reason = "no immigrations expected";
 	}
 	else if (is_self_final_master(p)) {
-		if (p->origin != source_node &&
+		if (source_node != p->working_master &&
 				! contains_node(p->dupls, p->n_dupl, source_node)) {
-			failure_reason = "source not final master's origin or duplicate";
+			failure_reason = "final master's source not acting master or duplicate";
 		}
 	}
-	else if (p->origin != (cf_node)0 && p->origin != source_node) {
-		failure_reason = "source not prole's origin";
+	else if (source_node != p->working_master ||
+			p->working_master != p->replicas[0]) {
+		failure_reason = "prole's source not final working master";
 	}
 
 	if (failure_reason) {
-		cf_warning(AS_PARTITION, "{%s:%u} immigrate_%s - origin %lx source %lx pending-immigrations %d - %s",
-				ns->name, p->id, tag, p->origin, source_node,
+		cf_warning(AS_PARTITION, "{%s:%u} immigrate_%s - source %lx working-master %lx pending-immigrations %d - %s",
+				ns->name, p->id, tag, source_node, p->working_master,
 				p->pending_immigrations, failure_reason);
 
 		return false;

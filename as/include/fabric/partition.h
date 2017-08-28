@@ -98,8 +98,7 @@ typedef struct as_partition_s {
 	int pending_immigrations;
 	bool immigrators[AS_CLUSTER_SZ];
 
-	cf_node origin;
-	cf_node target;
+	cf_node working_master;
 
 	uint32_t n_dupl;
 	cf_node dupls[AS_CLUSTER_SZ];
