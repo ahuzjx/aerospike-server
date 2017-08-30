@@ -3655,7 +3655,7 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&g_config.tls_service, &g_config.service, &g_service_bind,
 				CF_SOCK_OWNER_SERVICE_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("service", g_config.tls_service.tls_our_name);
+		cf_tls_spec* tls_spec = cfg_link_tls("service", &g_config.tls_service.tls_our_name);
 
 		uint32_t n_peer_names = g_config.tls_service.n_tls_peer_names;
 		char **peer_names = g_config.tls_service.tls_peer_names;
@@ -3714,7 +3714,7 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&c->hb_tls_serv_spec, &c->hb_serv_spec, &c->hb_config.bind_cfg,
 				CF_SOCK_OWNER_HEARTBEAT_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("heartbeat", c->hb_tls_serv_spec.tls_our_name);
+		cf_tls_spec* tls_spec = cfg_link_tls("heartbeat", &c->hb_tls_serv_spec.tls_our_name);
 		c->hb_config.tls = tls_config_intra_context(tls_spec, "heartbeat");
 	}
 
@@ -3745,7 +3745,7 @@ as_config_post_process(as_config* c, const char* config_file)
 		cfg_serv_spec_to_bind(&g_config.tls_fabric, &g_config.fabric, &g_fabric_bind,
 				CF_SOCK_OWNER_FABRIC_TLS);
 
-		cf_tls_spec* tls_spec = cfg_link_tls("fabric", g_config.tls_fabric.tls_our_name);
+		cf_tls_spec* tls_spec = cfg_link_tls("fabric", &g_config.tls_fabric.tls_our_name);
 		g_fabric_tls = tls_config_intra_context(tls_spec, "fabric");
 	}
 
@@ -4528,17 +4528,17 @@ cfg_resolve_tls_name(char* tls_name, const char* cluster_name, const char* which
 }
 
 cf_tls_spec*
-cfg_link_tls(const char* which, char* our_name)
+cfg_link_tls(const char* which, char** our_name)
 {
-	if (our_name == NULL) {
+	if (*our_name == NULL) {
 		cf_crash_nostack(AS_CFG, "%s TLS configuration requires tls-name", which);
 	}
 
-	our_name = cfg_resolve_tls_name(our_name, g_config.cluster_name, which);
+	*our_name = cfg_resolve_tls_name(*our_name, g_config.cluster_name, which);
 	cf_tls_spec* tls_spec = NULL;
 
 	for (uint32_t i = 0; i < g_config.n_tls_specs; ++i) {
-		if (strcmp(our_name, g_config.tls_specs[i].name) == 0) {
+		if (strcmp(*our_name, g_config.tls_specs[i].name) == 0) {
 			tls_spec = g_config.tls_specs + i;
 			break;
 		}
@@ -4546,7 +4546,7 @@ cfg_link_tls(const char* which, char* our_name)
 
 	if (tls_spec == NULL) {
 		cf_crash_nostack(AS_CFG, "invalid tls-name in TLS configuration: %s",
-				our_name);
+				*our_name);
 	}
 
 	return tls_spec;
