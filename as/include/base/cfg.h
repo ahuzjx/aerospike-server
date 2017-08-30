@@ -276,4 +276,4 @@ typedef struct cfg_line_s {
 } cfg_line;
 
 void cfg_enterprise_only(const cfg_line* p_line);
-cf_tls_spec* cfg_link_tls(const char* which, char* our_name);
+cf_tls_spec* cfg_link_tls(const char* which, char** our_name);
