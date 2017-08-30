@@ -3245,6 +3245,16 @@ first_used_device(ssd_device_header *headers[], int n_ssds)
 }
 
 
+static bool
+stored_version_has_data(drv_ssds *ssds, uint32_t pid)
+{
+	info_buf *b = (info_buf*)
+			(ssds->header->info_data + (SSD_HEADER_INFO_STRIDE * pid));
+
+	return ! as_partition_version_is_null(&b->version);
+}
+
+
 bool
 ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 {
@@ -3347,11 +3357,8 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 
 	// Cache booleans indicating whether partitions are owned or not.
 	for (uint32_t pid = 0; pid < AS_PARTITIONS; pid++) {
-		as_partition_version version;
-
-		as_storage_info_get(ns, pid, &version);
 		ssds->get_state_from_storage[pid] =
-				! as_partition_version_is_null(&version);
+				stored_version_has_data(ssds, pid);
 	}
 
 	// Warm restart - imitate device loading by reducing resumed index.
@@ -4163,27 +4170,25 @@ as_storage_defrag_sweep_ssd(as_namespace *ns)
 //
 
 void
-as_storage_info_set_ssd(as_namespace *ns, uint32_t pid,
-		const as_partition_version *version)
+as_storage_info_set_ssd(as_namespace *ns, const as_partition *p)
 {
 	drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 	info_buf *b = (info_buf*)
-			(ssds->header->info_data + (SSD_HEADER_INFO_STRIDE * pid));
+			(ssds->header->info_data + (SSD_HEADER_INFO_STRIDE * p->id));
 
 	b->unused = 0;
-	b->version = *version;
+	b->version = p->version;
 }
 
 
 void
-as_storage_info_get_ssd(as_namespace *ns, uint32_t pid,
-		as_partition_version *version)
+as_storage_info_get_ssd(as_namespace *ns, as_partition *p)
 {
 	drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 	info_buf *b = (info_buf*)
-			(ssds->header->info_data + (SSD_HEADER_INFO_STRIDE * pid));
+			(ssds->header->info_data + (SSD_HEADER_INFO_STRIDE * p->id));
 
-	*version = b->version;
+	p->version = b->version;
 }
 
 

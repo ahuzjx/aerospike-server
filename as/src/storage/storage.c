@@ -397,17 +397,17 @@ as_storage_defrag_sweep(as_namespace *ns)
 // as_storage_info_set
 //
 
-typedef void (*as_storage_info_set_fn)(as_namespace *ns, uint32_t pid, const as_partition_version *version);
+typedef void (*as_storage_info_set_fn)(as_namespace *ns, const as_partition *p);
 static const as_storage_info_set_fn as_storage_info_set_table[AS_NUM_STORAGE_ENGINES] = {
 	NULL, // memory doesn't support info
 	as_storage_info_set_ssd
 };
 
 void
-as_storage_info_set(as_namespace *ns, uint32_t pid, const as_partition_version *version)
+as_storage_info_set(as_namespace *ns, const as_partition *p)
 {
 	if (as_storage_info_set_table[ns->storage_type]) {
-		as_storage_info_set_table[ns->storage_type](ns, pid, version);
+		as_storage_info_set_table[ns->storage_type](ns, p);
 	}
 }
 
@@ -415,17 +415,17 @@ as_storage_info_set(as_namespace *ns, uint32_t pid, const as_partition_version *
 // as_storage_info_get
 //
 
-typedef void (*as_storage_info_get_fn)(as_namespace *ns, uint32_t pid, as_partition_version *version);
+typedef void (*as_storage_info_get_fn)(as_namespace *ns, as_partition *p);
 static const as_storage_info_get_fn as_storage_info_get_table[AS_NUM_STORAGE_ENGINES] = {
 	NULL, // memory doesn't support info
 	as_storage_info_get_ssd
 };
 
 void
-as_storage_info_get(as_namespace *ns, uint32_t pid, as_partition_version *version)
+as_storage_info_get(as_namespace *ns, as_partition *p)
 {
 	if (as_storage_info_get_table[ns->storage_type]) {
-		as_storage_info_get_table[ns->storage_type](ns, pid, version);
+		as_storage_info_get_table[ns->storage_type](ns, p);
 	}
 }
 
