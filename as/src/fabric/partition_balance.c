@@ -1589,8 +1589,7 @@ partition_immigration_is_valid(const as_partition* p, cf_node source_node,
 			failure_reason = "final master's source not acting master or duplicate";
 		}
 	}
-	else if (source_node != p->working_master ||
-			p->working_master != p->replicas[0]) {
+	else if (source_node != p->replicas[0]) {
 		failure_reason = "prole's source not final working master";
 	}
 

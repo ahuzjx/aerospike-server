@@ -406,7 +406,7 @@ send_write_response(as_transaction* tr, cf_dyn_buf* db)
 		}
 		else {
 			as_msg_send_reply(tr->from.proto_fd_h, tr->result_code,
-					tr->generation, tr->void_time, NULL, NULL, 0, NULL,
+					tr->generation, tr->void_time, NULL, NULL, 0, tr->rsv.ns,
 					as_transaction_trid(tr), NULL);
 		}
 		BENCHMARK_NEXT_DATA_POINT(tr, write, response);
@@ -422,7 +422,7 @@ send_write_response(as_transaction* tr, cf_dyn_buf* db)
 		else {
 			as_proxy_send_response(tr->from.proxy_node, tr->from_data.proxy_tid,
 					tr->result_code, tr->generation, tr->void_time, NULL, NULL,
-					0, NULL, as_transaction_trid(tr), NULL);
+					0, tr->rsv.ns, as_transaction_trid(tr), NULL);
 		}
 		break;
 	default:
@@ -444,7 +444,7 @@ write_timeout_cb(rw_request* rw)
 	switch (rw->origin) {
 	case FROM_CLIENT:
 		as_msg_send_reply(rw->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT, 0,
-				0, NULL, NULL, 0, NULL, rw_request_trid(rw), NULL);
+				0, NULL, NULL, 0, rw->rsv.ns, rw_request_trid(rw), NULL);
 		// Timeouts aren't included in histograms.
 		client_write_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT,
 				as_msg_is_xdr(&rw->msgp->msg));
