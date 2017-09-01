@@ -1731,7 +1731,7 @@ write_master_bin_ops_loop(as_transaction* tr, as_storage_rd* rd,
 			}
 			else {
 				if ((result = as_bin_cdt_stack_modify_from_client(b, particles_llb, op, &result_bin)) < 0) {
-					cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: failed as_bin_cdt_alloc_modify_from_client() ", ns->name);
+					cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_master: failed as_bin_cdt_stack_modify_from_client() ", ns->name);
 					return -result;
 				}
 			}
