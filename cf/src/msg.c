@@ -1046,23 +1046,30 @@ msg_msgpack_list_get_buf_array(const msg *m, int field_id, cf_vector *v_r,
 
 	for (int64_t i = 0; i < count; i++) {
 		msg_buf_ele ele;
+		bool success;
 
-		ele.ptr = (uint8_t *)as_unpack_str(&pk, &ele.sz);
+		type = as_unpack_peek_type(&pk);
 
-		if (! ele.ptr) {
-			int64_t sz = as_unpack_size(&pk);
+		switch (type) {
+		case AS_STRING:
+			ele.ptr = (uint8_t *)as_unpack_str(&pk, &ele.sz);
+			success = !! ele.ptr;
+			break;
+		default:
+			success = (as_unpack_size(&pk) > 0);
+			ele.ptr = NULL;
+			ele.sz = 0;
+			break;
+		}
 
-			if (sz < 0) {
-				if (init_vec) {
-					cf_vector_destroy(v_r);
-				}
-
-				cf_warning(CF_MSG, "i %ld/%ld invalid msgpack element", i, count);
-
-				return false;
+		if (! success) {
+			if (init_vec) {
+				cf_vector_destroy(v_r);
 			}
 
-			ele.sz = 0;
+			cf_warning(CF_MSG, "i %ld/%ld invalid msgpack element with type %d", i, count, type);
+
+			return false;
 		}
 
 		cf_vector_append(v_r, &ele);
