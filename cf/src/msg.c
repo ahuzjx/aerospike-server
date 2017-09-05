@@ -1053,10 +1053,10 @@ msg_msgpack_list_get_buf_array(const msg *m, int field_id, cf_vector *v_r,
 		switch (type) {
 		case AS_STRING:
 			ele.ptr = (uint8_t *)as_unpack_str(&pk, &ele.sz);
-			success = !! ele.ptr;
+			success = ele.ptr != NULL;
 			break;
 		default:
-			success = (as_unpack_size(&pk) > 0);
+			success = as_unpack_size(&pk) > 0;
 			ele.ptr = NULL;
 			ele.sz = 0;
 			break;
