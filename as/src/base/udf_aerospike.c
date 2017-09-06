@@ -92,14 +92,14 @@ static int udf_aerospike_rec_remove(const as_aerospike *, const as_rec *);
 static int
 udf_aerospike_delbin(udf_record * urecord, const char * bname)
 {
+	as_storage_rd *rd = urecord->rd;
+	as_namespace *ns = rd->ns;
+
 	// Check that bname is not completely invalid
-	if ( !bname || !bname[0] ) {
-		cf_warning(AS_UDF, "udf_aerospike_delbin: Invalid Parameters [No bin name supplied]... Fail");
+	if (bname == NULL || (ns->single_bin && bname[0] != 0) || (! ns->single_bin && bname[0] == 0)) {
+		cf_warning(AS_UDF, "udf_aerospike_delbin: Invalid Parameters: [Invalid bin name supplied]... Fail");
 		return -1;
 	}
-
-	as_storage_rd  *rd      = urecord->rd;
-	as_transaction *tr      = urecord->tr;
 
 	// Check quality of bname -- check that it is proper length, then make sure
 	// that the bin exists.
@@ -115,24 +115,24 @@ udf_aerospike_delbin(udf_record * urecord, const char * bname)
 		return -1;
 	}
 
-	const char * set_name = as_index_get_set_name(rd->r, rd->ns);
+	const char * set_name = as_index_get_set_name(rd->r, ns);
 	
-	bool has_sindex = record_has_sindex(rd->r, rd->ns);
-	SINDEX_BINS_SETUP(sbins, rd->ns->sindex_cnt);
-	as_sindex * si_arr[rd->ns->sindex_cnt];
+	bool has_sindex = record_has_sindex(rd->r, ns);
+	SINDEX_BINS_SETUP(sbins, ns->sindex_cnt);
+	as_sindex * si_arr[ns->sindex_cnt];
 	int si_arr_index = 0;
 	int sbins_populated  = 0;
 	if (has_sindex) {
-		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(rd->ns, set_name, b->id, &si_arr[si_arr_index]);
-		sbins_populated += as_sindex_sbins_from_bin(rd->ns, set_name, b, sbins, AS_SINDEX_OP_DELETE);
+		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name, b->id, &si_arr[si_arr_index]);
+		sbins_populated += as_sindex_sbins_from_bin(ns, set_name, b, sbins, AS_SINDEX_OP_DELETE);
 	}
 
 	int32_t i = as_bin_get_index(rd, bname);
 	if (i != -1) {
 		if (has_sindex) {
 			if (sbins_populated > 0) {	
-				tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
-				as_sindex_update_by_sbin(rd->ns, as_index_get_set_name(rd->r, rd->ns), sbins, sbins_populated, &rd->r->keyd);
+				urecord->tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
+				as_sindex_update_by_sbin(ns, as_index_get_set_name(rd->r, ns), sbins, sbins_populated, &rd->r->keyd);
 			}
 		}
 		as_bin_destroy(rd, i);
@@ -247,8 +247,11 @@ udf__aerospike_get_particle_buf(udf_record *urecord, udf_record_bin *ubin, uint3
 static int
 udf_aerospike_setbin(udf_record * urecord, int offset, const char * bname, const as_val * val)
 {
-	if (bname == NULL || bname[0] == 0 ) {
-		cf_warning(AS_UDF, "udf_aerospike_setbin: Invalid Parameters: [No bin name supplied]... Fail");
+	as_storage_rd *rd = urecord->rd;
+	as_namespace *ns = rd->ns;
+
+	if (bname == NULL || (ns->single_bin && bname[0] != 0) || (! ns->single_bin && bname[0] == 0)) {
+		cf_warning(AS_UDF, "udf_aerospike_setbin: Invalid Parameters: [Invalid bin name supplied]... Fail");
 		return -1;
 	}
 
@@ -259,9 +262,6 @@ udf_aerospike_setbin(udf_record * urecord, int offset, const char * bname, const
 
 	uint8_t type = as_val_type(val);
 
-	as_storage_rd * rd      = urecord->rd;
-	as_transaction *tr      = urecord->tr;
-
 	as_bin * b = as_bin_get_or_create(rd, bname);
 
 	if ( !b ) {
@@ -269,16 +269,16 @@ udf_aerospike_setbin(udf_record * urecord, int offset, const char * bname, const
 		return -1;
 	}
 
-	bool has_sindex = record_has_sindex(rd->r, rd->ns);
-	SINDEX_BINS_SETUP(sbins, 2 * rd->ns->sindex_cnt);
-	as_sindex * si_arr[2 * rd->ns->sindex_cnt];
+	bool has_sindex = record_has_sindex(rd->r, ns);
+	SINDEX_BINS_SETUP(sbins, 2 * ns->sindex_cnt);
+	as_sindex * si_arr[2 * ns->sindex_cnt];
 	int sbins_populated = 0;
 	int si_arr_index = 0;
-	const char * set_name = as_index_get_set_name(rd->r, rd->ns);
+	const char * set_name = as_index_get_set_name(rd->r, ns);
 
 	if (has_sindex ) {
-		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(rd->ns, set_name, b->id, &si_arr[si_arr_index]);
-		sbins_populated += as_sindex_sbins_from_bin(rd->ns, set_name, b, &sbins[sbins_populated], AS_SINDEX_OP_DELETE);
+		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name, b->id, &si_arr[si_arr_index]);
+		sbins_populated += as_sindex_sbins_from_bin(ns, set_name, b, &sbins[sbins_populated], AS_SINDEX_OP_DELETE);
 	}
 
 	// we know we are doing an update now, make sure there is particle data,
@@ -287,7 +287,7 @@ udf_aerospike_setbin(udf_record * urecord, int offset, const char * bname, const
 
 	cf_detail(AS_UDF, "udf_setbin: bin %s type %d ", bname, type );
 
-	if (rd->ns->storage_data_in_memory) {
+	if (ns->storage_data_in_memory) {
 		if (as_bin_particle_replace_from_asval(b, val) != 0) {
 			cf_warning(AS_UDF, "udf_aerospike_setbin: [%s] failed to replace particle", bname);
 			ret = -4;
@@ -316,11 +316,11 @@ udf_aerospike_setbin(udf_record * urecord, int offset, const char * bname, const
 			return ret;
 		}
 
-		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(rd->ns, set_name, b->id, &si_arr[si_arr_index]);
-		sbins_populated += as_sindex_sbins_from_bin(rd->ns, set_name, b, &sbins[sbins_populated], AS_SINDEX_OP_INSERT);
+		si_arr_index += as_sindex_arr_lookup_by_set_binid_lockfree(ns, set_name, b->id, &si_arr[si_arr_index]);
+		sbins_populated += as_sindex_sbins_from_bin(ns, set_name, b, &sbins[sbins_populated], AS_SINDEX_OP_INSERT);
 		if (sbins_populated > 0) {
-			tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
-			as_sindex_update_by_sbin(rd->ns, as_index_get_set_name(rd->r, rd->ns), sbins, sbins_populated, &rd->r->keyd);
+			urecord->tr->flags |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
+			as_sindex_update_by_sbin(ns, as_index_get_set_name(rd->r, ns), sbins, sbins_populated, &rd->r->keyd);
 			as_sindex_sbin_freeall(sbins, sbins_populated);
 		}
 		as_sindex_release_arr(si_arr, si_arr_index);
@@ -344,7 +344,7 @@ udf_aerospike_param_check(const as_aerospike *as, const as_rec *rec, char *fname
 		return UDF_ERR_INTERNAL_PARAMETER;
 	}
 
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, fname, lineno);
+	int ret = udf_record_param_check(rec, fname, lineno);
 	if (ret) {
 		return ret;
 	}
@@ -786,7 +786,10 @@ udf_aerospike_rec_create(const as_aerospike * as, const as_rec * rec)
 	}
 
 	// if multibin storage, we will use urecord->stack_bins, so set the size appropriately
-	if ( ! rd->ns->storage_data_in_memory && ! rd->ns->single_bin ) {
+	if (rd->ns->single_bin) {
+		rd->n_bins = 1;
+	}
+	else if (! rd->ns->storage_data_in_memory) {
 		rd->n_bins = sizeof(urecord->stack_bins) / sizeof(as_bin);
 	}
 

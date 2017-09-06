@@ -40,7 +40,6 @@
 
 // Maximum number of bins that can be updated in a single UDF.
 #define UDF_RECORD_BIN_ULIMIT 512
-#define UDF_BIN_NONAME " "
 
 typedef struct udf_record_bin_s {
 	char				name[AS_ID_BIN_SZ];
@@ -102,7 +101,7 @@ extern as_val * udf_record_storage_get  (const udf_record *, const char *);
 #define UDF_ERR_INTERNAL_PARAMETER   2
 #define UDF_ERR_RECORD_NOT_VALID     3
 #define UDF_ERR_PARAMETER            4
-extern int      udf_record_param_check(const as_rec *rec, const char *bname, char *fname, int lineno);
+extern int      udf_record_param_check(const as_rec *rec, char *fname, int lineno);
 extern bool     udf_record_destroy(as_rec *rec);
 
 //------------------------------------------------

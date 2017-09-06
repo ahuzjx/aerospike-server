@@ -492,6 +492,9 @@ cl_msg *as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 int32_t as_msg_make_response_bufbuilder(cf_buf_builder **bb_r,
 		struct as_storage_rd_s *rd, bool no_bin_data, bool include_key,
 		bool skip_empty_records, cf_vector *select_bins);
+cl_msg *as_msg_make_val_response(bool success, const as_val *val,
+		uint32_t result_code, uint32_t generation, uint32_t void_time,
+		uint64_t trid, size_t *p_msg_sz);
 void as_msg_make_val_response_bufbuilder(const as_val *val,
 		cf_buf_builder **bb_r, uint32_t val_sz, bool);
 

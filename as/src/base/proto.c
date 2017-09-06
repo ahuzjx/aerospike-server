@@ -58,6 +58,9 @@
 #define MSG_STACK_BUFFER_SZ (1024 * 16)
 #define NETIO_MAX_IO_RETRY 5
 
+static const char SUCCESS_BIN_NAME[] = "SUCCESS";
+static const char FAILURE_BIN_NAME[] = "FAILURE";
+
 
 //==========================================================
 // Globals.
@@ -528,15 +531,11 @@ as_msg_make_response_bufbuilder(cf_buf_builder **bb_r, as_storage_rd *rd,
 }
 
 
-// Caller-provided val_sz must be the result of calling
-// as_particle_asval_client_value_size() for same val.
-void
-as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r,
-		uint32_t val_sz, bool success)
+cl_msg *
+as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
+		uint32_t generation, uint32_t void_time, uint64_t trid,
+		size_t *p_msg_sz)
 {
-	static const char SUCCESS_BIN_NAME[] = "SUCCESS";
-	static const char FAILURE_BIN_NAME[] = "FAILURE";
-
 	const char *bin_name;
 	size_t bin_name_len;
 
@@ -549,7 +548,92 @@ as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r,
 		bin_name_len = sizeof(FAILURE_BIN_NAME) - 1;
 	}
 
-	size_t msg_sz = sizeof(as_msg) + sizeof(as_msg_op) + val_sz + bin_name_len;
+	size_t msg_sz = sizeof(cl_msg) + sizeof(as_msg_op) + bin_name_len +
+			as_particle_asval_client_value_size(val);
+
+	if (trid != 0) {
+		msg_sz += sizeof(as_msg_field) + sizeof(trid);
+	}
+
+	uint8_t *buf = cf_malloc(msg_sz);
+
+	cf_assert(buf, AS_PROTO, "alloc failed");
+
+	cl_msg *msgp = (cl_msg *)buf;
+
+	msgp->proto.version = PROTO_VERSION;
+	msgp->proto.type = PROTO_TYPE_AS_MSG;
+	msgp->proto.sz = msg_sz - sizeof(as_proto);
+	as_proto_swap(&msgp->proto);
+
+	as_msg *m = &msgp->msg;
+
+	m->header_sz = sizeof(as_msg);
+	m->info1 = 0;
+	m->info2 = 0;
+	m->info3 = 0;
+	m->unused = 0;
+	m->result_code = result_code;
+	m->generation = generation;
+	m->record_ttl = void_time;
+	m->transaction_ttl = 0;
+	m->n_fields = 0;
+	m->n_ops = 1; // only the one special bin
+
+	buf += sizeof(cl_msg);
+
+	if (trid != 0) {
+		m->n_fields++;
+
+		as_msg_field *trfield = (as_msg_field *)buf;
+
+		trfield->field_sz = 1 + sizeof(uint64_t);
+		trfield->type = AS_MSG_FIELD_TYPE_TRID;
+		*(uint64_t *)trfield->data = cf_swap_to_be64(trid);
+
+		buf += sizeof(as_msg_field) + sizeof(uint64_t);
+		as_msg_swap_field(trfield);
+	}
+
+	as_msg_swap_header(m);
+
+	as_msg_op *op = (as_msg_op *)buf;
+
+	op->op = AS_MSG_OP_READ;
+	op->name_sz = (uint8_t)bin_name_len;
+	memcpy(op->name, bin_name, op->name_sz);
+	op->op_sz = 4 + op->name_sz;
+	op->version = 0;
+
+	as_particle_asval_to_client(val, op);
+
+	as_msg_swap_op(op);
+
+	*p_msg_sz = msg_sz;
+
+	return msgp;
+}
+
+
+// Caller-provided val_sz must be the result of calling
+// as_particle_asval_client_value_size() for same val.
+void
+as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r,
+		uint32_t val_sz, bool success)
+{
+	const char *bin_name;
+	size_t bin_name_len;
+
+	if (success) {
+		bin_name = SUCCESS_BIN_NAME;
+		bin_name_len = sizeof(SUCCESS_BIN_NAME) - 1;
+	}
+	else {
+		bin_name = FAILURE_BIN_NAME;
+		bin_name_len = sizeof(FAILURE_BIN_NAME) - 1;
+	}
+
+	size_t msg_sz = sizeof(as_msg) + sizeof(as_msg_op) + bin_name_len + val_sz;
 
 	uint8_t *buf;
 

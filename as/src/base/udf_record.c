@@ -504,28 +504,67 @@ udf_record_storage_get(const udf_record *urecord, const char *name)
  *
  */
 int
-udf_record_param_check(const as_rec *rec, const char *bname, char *fname, int lineno)
+udf_record_param_check(const as_rec *rec, char *fname, int lineno)
 {
-	if (!rec || !bname) {
-		cf_warning(AS_UDF, "Invalid Paramters: record=%p bname=%p", rec, bname);
+	if (! rec) {
+		cf_warning(AS_UDF, "Invalid Parameter: null record");
 		return UDF_ERR_INTERNAL_PARAMETER;
-	} 
+	}
 
-	udf_record * urecord = (udf_record *) as_rec_source(rec);
+	udf_record *urecord = (udf_record *)as_rec_source(rec);
 	if (!urecord) {
 		return UDF_ERR_INTERNAL_PARAMETER;;
 	}
 
 	if (!(urecord->flag & UDF_RECORD_FLAG_ISVALID)) {
-		cf_debug(AS_UDF, "(%s:%d): Trying to Open Invalid Record ", fname, lineno);
+		cf_debug(AS_UDF, "(%s:%d): Trying to Open Invalid Record", fname, lineno);
 		return UDF_ERR_RECORD_NOT_VALID;
 	}
 
-	as_namespace  * ns = urecord->tr->rsv.ns;
-	if (strlen(bname) >= AS_ID_BIN_SZ || !as_bin_name_within_quota(ns, bname)) {
-		cf_debug(AS_UDF, "Invalid Parameter: bin name %s too big", bname);
+	return 0;
+}
+
+static int
+udf_record_param_check_w_bin(const as_rec *rec, const char *bname, char *fname, int lineno)
+{
+	int rv = udf_record_param_check(rec, fname, lineno);
+
+	if (rv != 0) {
+		return rv;
+	}
+
+	if (! bname) {
+		cf_warning(AS_UDF, "Invalid Parameter: null bin name");
+		return UDF_ERR_INTERNAL_PARAMETER;
+	}
+
+	udf_record *urecord = (udf_record *)as_rec_source(rec);
+	as_namespace *ns = urecord->tr->rsv.ns;
+
+	if (ns->single_bin) {
+		if (*bname != 0) {
+			cf_warning(AS_UDF, "Invalid Parameter: non-empty bin name in single-bin namespace");
+			return UDF_ERR_INTERNAL_PARAMETER;
+		}
+
+		return 0;
+	}
+
+	if (*bname == 0) {
+		cf_warning(AS_UDF, "Invalid Parameter: empty bin name");
+		return UDF_ERR_INTERNAL_PARAMETER;
+	}
+
+	if (strlen(bname) >= AS_ID_BIN_SZ) {
+		cf_warning(AS_UDF, "Invalid Parameter: bin name %s too big", bname);
 		return UDF_ERR_PARAMETER;
 	}
+
+	if (! as_bin_name_within_quota(ns, bname)) {
+		cf_warning(AS_UDF, "{%s} exceeded bin name quota", ns->name);
+		return UDF_ERR_PARAMETER;
+	}
+
 	return 0;
 }
 
@@ -537,7 +576,7 @@ udf_record_param_check(const as_rec *rec, const char *bname, char *fname, int li
 static as_val *
 udf_record_get(const as_rec * rec, const char * name)
 {
-	if (udf_record_param_check(rec, name, __FILE__, __LINE__)) {
+	if (udf_record_param_check_w_bin(rec, name, __FILE__, __LINE__)) {
 		return NULL;
 	}
 	udf_record  *   urecord = (udf_record *) as_rec_source(rec);
@@ -585,7 +624,7 @@ udf_record_get(const as_rec * rec, const char * name)
 static int
 udf_record_set(const as_rec * rec, const char * name, const as_val * value)
 {
-	int ret = udf_record_param_check(rec, name, __FILE__, __LINE__);
+	int ret = udf_record_param_check_w_bin(rec, name, __FILE__, __LINE__);
 	if (ret) {
 		return ret;
 	}
@@ -603,7 +642,7 @@ udf_record_set(const as_rec * rec, const char * name, const as_val * value)
 static int
 udf_record_set_ttl(const as_rec * rec,  uint32_t  ttl)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return ret;
 	}
@@ -622,7 +661,7 @@ udf_record_set_ttl(const as_rec * rec,  uint32_t  ttl)
 static int
 udf_record_drop_key(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return ret;
 	}
@@ -646,7 +685,7 @@ udf_record_drop_key(const as_rec * rec)
 static int
 udf_record_remove(const as_rec * rec, const char * name)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return ret;
 	}
@@ -665,7 +704,7 @@ udf_record_remove(const as_rec * rec, const char * name)
 static uint32_t
 udf_record_ttl(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return 0;
 	}
@@ -688,7 +727,7 @@ udf_record_ttl(const as_rec * rec)
 static uint64_t
 udf_record_last_update_time(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return 0;
 	}
@@ -706,7 +745,7 @@ udf_record_last_update_time(const as_rec * rec)
 static uint16_t
 udf_record_gen(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return 0;
 	}
@@ -767,7 +806,7 @@ as_val_from_flat_key(uint8_t * flat_key, uint32_t size)
 static as_val *
 udf_record_key(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return NULL;
 	}
@@ -789,7 +828,7 @@ udf_record_key(const as_rec * rec)
 static const char *
 udf_record_setname(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return NULL;
 	}
@@ -820,7 +859,7 @@ udf_record_destroy(as_rec *rec)
 static as_bytes *
 udf_record_digest(const as_rec *rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return NULL;
 	}
@@ -841,7 +880,7 @@ udf_record_digest(const as_rec *rec)
 static int
 udf_record_bin_names(const as_rec *rec, as_rec_bin_names_callback callback, void * udata)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return 1;
 	}
@@ -884,7 +923,7 @@ udf_record_bin_names(const as_rec *rec, as_rec_bin_names_callback callback, void
 static uint16_t
 udf_record_numbins(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, __FILE__, __LINE__);
 	if (ret) {
 		return 0;
 	}

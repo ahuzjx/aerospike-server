@@ -126,7 +126,7 @@ void update_lua_complete_stats(uint8_t origin, as_namespace* ns, udf_optype op,
 void process_failure_str(udf_call* call, const char* err_str, size_t len,
 		cf_dyn_buf* db);
 void process_result(const as_result* result, udf_call* call, cf_dyn_buf* db);
-void process_response(udf_call* call, const char* bin_name, const as_val* val,
+void process_response(udf_call* call, bool success, const as_val* val,
 		cf_dyn_buf* db);
 
 
@@ -176,13 +176,13 @@ udf_zero_bins_left(udf_record* urecord)
 static inline void
 process_failure(udf_call* call, const as_val* val, cf_dyn_buf* db)
 {
-	process_response(call, "FAILURE", val, db);
+	process_response(call, false, val, db);
 }
 
 static inline void
 process_success(udf_call* call, const as_val* val, cf_dyn_buf* db)
 {
-	process_response(call, "SUCCESS", val, db);
+	process_response(call, true, val, db);
 }
 
 
@@ -1036,7 +1036,7 @@ process_result(const as_result* result, udf_call* call, cf_dyn_buf* db)
 
 
 void
-process_response(udf_call* call, const char* bin_name, const as_val* val,
+process_response(udf_call* call, bool success, const as_val* val,
 		cf_dyn_buf* db)
 {
 	// No response for background (internal) UDF.
@@ -1049,41 +1049,12 @@ process_response(udf_call* call, const char* bin_name, const as_val* val,
 	// Note - this function quietly handles a null val. The response call will
 	// be given a bin with a name but not 'in use', and it does the right thing.
 
-	as_bin stack_bin;
-	as_bin* bin = &stack_bin;
-
-	uint32_t particle_size = as_particle_size_from_asval(val);
-
-	static const size_t MAX_STACK_SIZE = 32 * 1024;
-	uint8_t stack_particle[particle_size > MAX_STACK_SIZE ? 0 : particle_size];
-	uint8_t* particle_buf = stack_particle;
-
-	if (particle_size > MAX_STACK_SIZE) {
-		particle_buf = (uint8_t*)cf_malloc(particle_size);
-
-		if (! particle_buf) {
-			cf_warning(AS_UDF, "failed alloc particle size %u", particle_size);
-			tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			return;
-		}
-	}
-
-	as_namespace* ns = tr->rsv.ns;
-
-	as_bin_init(ns, bin, bin_name);
-	as_bin_particle_stack_from_asval(bin, particle_buf, val);
-
 	size_t msg_sz = 0;
 
-	db->buf = (uint8_t *)as_msg_make_response_msg(tr->result_code,
-			tr->generation, tr->void_time, NULL, &bin, 1, ns, NULL, &msg_sz,
-			as_transaction_trid(tr), NULL);
+	db->buf = (uint8_t *)as_msg_make_val_response(success, val, tr->result_code,
+			tr->generation, tr->void_time, as_transaction_trid(tr), &msg_sz);
 
 	db->is_stack = false;
 	db->alloc_sz = msg_sz;
 	db->used_sz = msg_sz;
-
-	if (particle_buf != stack_particle) {
-		cf_free(particle_buf);
-	}
 }
