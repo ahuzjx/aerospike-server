@@ -163,7 +163,7 @@ void proxyee_handle_request(cf_node src, msg* m, uint32_t tid);
 static inline void
 error_response(cf_node src, uint32_t tid, uint32_t error)
 {
-	as_proxy_send_response(src, tid, error, 0, 0, NULL, NULL, 0, NULL, 0, NULL);
+	as_proxy_send_response(src, tid, error, 0, 0, NULL, NULL, 0, NULL, 0);
 }
 
 static inline void
@@ -326,8 +326,7 @@ as_proxy_return_to_sender(const as_transaction* tr, as_namespace* ns)
 void
 as_proxy_send_response(cf_node dst, uint32_t proxy_tid, uint32_t result_code,
 		uint32_t generation, uint32_t void_time, as_msg_op** ops, as_bin** bins,
-		uint16_t bin_count, as_namespace* ns, uint64_t trid,
-		const char* set_name)
+		uint16_t bin_count, as_namespace* ns, uint64_t trid)
 {
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
 
@@ -340,7 +339,7 @@ as_proxy_send_response(cf_node dst, uint32_t proxy_tid, uint32_t result_code,
 
 	size_t msg_sz = 0;
 	uint8_t* msgp = (uint8_t*)as_msg_make_response_msg(result_code, generation,
-			void_time, ops, bins, bin_count, ns, 0, &msg_sz, trid, set_name);
+			void_time, ops, bins, bin_count, ns, 0, &msg_sz, trid);
 
 	msg_set_buf(m, PROXY_FIELD_AS_PROTO, msgp, msg_sz, MSG_SET_HANDOFF_MALLOC);
 
@@ -645,7 +644,7 @@ proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
 		case FROM_CLIENT:
 			// TODO - when it becomes important enough, find a way to echo trid.
 			as_msg_send_reply(pr->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT,
-					0, 0, NULL, NULL, 0, pr->ns, 0, NULL);
+					0, 0, NULL, NULL, 0, pr->ns, 0);
 			client_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 			break;
 		case FROM_BATCH:

@@ -61,8 +61,7 @@ bool start_read_dup_res(rw_request* rw, as_transaction* tr);
 bool read_dup_res_cb(rw_request* rw);
 
 void send_read_response(as_transaction* tr, as_msg_op** ops,
-		as_bin** response_bins, uint16_t n_bins, const char* set_name,
-		cf_dyn_buf* db);
+		as_bin** response_bins, uint16_t n_bins, cf_dyn_buf* db);
 void read_timeout_cb(rw_request* rw);
 
 transaction_status read_local(as_transaction* tr);
@@ -140,7 +139,7 @@ as_read_start(as_transaction* tr)
 		rw_request_release(rw);
 
 		if (status != TRANS_WAITING) {
-			send_read_response(tr, NULL, NULL, 0, NULL, NULL);
+			send_read_response(tr, NULL, NULL, 0, NULL);
 		}
 
 		return status;
@@ -150,7 +149,7 @@ as_read_start(as_transaction* tr)
 	if (! start_read_dup_res(rw, tr)) {
 		rw_request_hash_delete(&hkey, rw);
 		tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		send_read_response(tr, NULL, NULL, 0, NULL, NULL);
+		send_read_response(tr, NULL, NULL, 0, NULL);
 		return TRANS_DONE_ERROR;
 	}
 
@@ -193,7 +192,7 @@ read_dup_res_cb(rw_request* rw)
 	as_transaction_init_from_rw(&tr, rw);
 
 	if (tr.result_code != AS_PROTO_RESULT_OK) {
-		send_read_response(&tr, NULL, NULL, 0, NULL, NULL);
+		send_read_response(&tr, NULL, NULL, 0, NULL);
 		return true;
 	}
 
@@ -211,7 +210,7 @@ read_dup_res_cb(rw_request* rw)
 
 void
 send_read_response(as_transaction* tr, as_msg_op** ops, as_bin** response_bins,
-		uint16_t n_bins, const char* set_name, cf_dyn_buf* db)
+		uint16_t n_bins, cf_dyn_buf* db)
 {
 	// Paranoia - shouldn't get here on losing race with timeout.
 	if (! tr->from.any) {
@@ -231,7 +230,7 @@ send_read_response(as_transaction* tr, as_msg_op** ops, as_bin** response_bins,
 		else {
 			as_msg_send_reply(tr->from.proto_fd_h, tr->result_code,
 					tr->generation, tr->void_time, ops, response_bins, n_bins,
-					tr->rsv.ns, as_transaction_trid(tr), set_name);
+					tr->rsv.ns, as_transaction_trid(tr));
 		}
 		BENCHMARK_NEXT_DATA_POINT(tr, read, response);
 		HIST_TRACK_ACTIVATE_INSERT_DATA_POINT(tr, read_hist);
@@ -245,14 +244,12 @@ send_read_response(as_transaction* tr, as_msg_op** ops, as_bin** response_bins,
 		else {
 			as_proxy_send_response(tr->from.proxy_node, tr->from_data.proxy_tid,
 					tr->result_code, tr->generation, tr->void_time, ops,
-					response_bins, n_bins, tr->rsv.ns, as_transaction_trid(tr),
-					set_name);
+					response_bins, n_bins, tr->rsv.ns, as_transaction_trid(tr));
 		}
 		break;
 	case FROM_BATCH:
 		BENCHMARK_NEXT_DATA_POINT(tr, batch_sub, read_local);
-		as_batch_add_result(tr, set_name, tr->generation, tr->void_time, n_bins,
-				response_bins, ops);
+		as_batch_add_result(tr, n_bins, response_bins, ops);
 		BENCHMARK_NEXT_DATA_POINT(tr, batch_sub, response);
 		batch_sub_read_update_stats(tr->rsv.ns, tr->result_code);
 		break;
@@ -275,7 +272,7 @@ read_timeout_cb(rw_request* rw)
 	switch (rw->origin) {
 	case FROM_CLIENT:
 		as_msg_send_reply(rw->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT, 0,
-				0, NULL, NULL, 0, rw->rsv.ns, rw_request_trid(rw), NULL);
+				0, NULL, NULL, 0, rw->rsv.ns, rw_request_trid(rw));
 		// Timeouts aren't included in histograms.
 		client_read_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 		break;
@@ -440,17 +437,13 @@ read_local(as_transaction* tr)
 		}
 	}
 
-	const char* set_name = as_msg_is_xdr(m) ?
-			as_index_get_set_name(r, ns) : NULL;
-
 	cf_dyn_buf_define_size(db, 16 * 1024);
 
 	if (tr->origin != FROM_BATCH) {
 		db.used_sz = db.alloc_sz;
 		db.buf = (uint8_t*)as_msg_make_response_msg(tr->result_code,
 				r->generation, r->void_time, p_ops, response_bins, n_bins, ns,
-				(cl_msg*)dyn_bufdb, &db.used_sz, as_transaction_trid(tr),
-				set_name);
+				(cl_msg*)dyn_bufdb, &db.used_sz, as_transaction_trid(tr));
 
 		db.is_stack = db.buf == dyn_bufdb;
 		// Note - not bothering to correct alloc_sz if buf was allocated.
@@ -462,7 +455,7 @@ read_local(as_transaction* tr)
 
 		// Since as_batch_add_result() constructs response directly in shared
 		// buffer to avoid extra copies, can't use db.
-		send_read_response(tr, p_ops, response_bins, n_bins, set_name, NULL);
+		send_read_response(tr, p_ops, response_bins, n_bins, NULL);
 	}
 
 	destroy_stack_bins(result_bins, n_result_bins);
@@ -471,7 +464,7 @@ read_local(as_transaction* tr)
 
 	// Now that we're not under the record lock, send the message we just built.
 	if (db.used_sz != 0) {
-		send_read_response(tr, NULL, NULL, 0, NULL, &db);
+		send_read_response(tr, NULL, NULL, 0, &db);
 
 		cf_dyn_buf_free(&db);
 		tr->from.proto_fd_h = NULL;
@@ -495,5 +488,5 @@ read_local_done(as_transaction* tr, as_index_ref* r_ref, as_storage_rd* rd,
 
 	tr->result_code = (uint8_t)result_code;
 
-	send_read_response(tr, NULL, NULL, 0, NULL, NULL);
+	send_read_response(tr, NULL, NULL, 0, NULL);
 }

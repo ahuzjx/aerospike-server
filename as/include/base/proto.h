@@ -488,7 +488,7 @@ uint8_t *as_msg_write_fields(uint8_t *buf, const char *ns_name,
 cl_msg *as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		uint32_t void_time, as_msg_op **ops, struct as_bin_s **bins,
 		uint16_t bin_count, struct as_namespace_s *ns, cl_msg *msgp_in,
-		size_t *msg_sz_in, uint64_t trid, const char *set_name);
+		size_t *msg_sz_in, uint64_t trid);
 int32_t as_msg_make_response_bufbuilder(cf_buf_builder **bb_r,
 		struct as_storage_rd_s *rd, bool no_bin_data, bool include_key,
 		bool skip_empty_records, cf_vector *select_bins);
@@ -501,7 +501,7 @@ void as_msg_make_val_response_bufbuilder(const as_val *val,
 int as_msg_send_reply(struct as_file_handle_s *fd_h, uint32_t result_code,
 		uint32_t generation, uint32_t void_time, as_msg_op **ops,
 		struct as_bin_s **bins, uint16_t bin_count, struct as_namespace_s *ns,
-		uint64_t trid, const char *set_name);
+		uint64_t trid);
 int as_msg_send_ops_reply(struct as_file_handle_s *fd_h, cf_dyn_buf *db);
 bool as_msg_send_fin(cf_socket *sock, uint32_t result_code);
 size_t as_msg_send_fin_timeout(cf_socket *sock, uint32_t result_code,

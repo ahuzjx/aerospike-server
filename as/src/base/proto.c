@@ -202,8 +202,7 @@ as_msg_write_fields(uint8_t *buf, const char *ns_name, size_t ns_name_len,
 cl_msg *
 as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		uint32_t void_time, as_msg_op **ops, as_bin **bins, uint16_t bin_count,
-		as_namespace *ns, cl_msg *msgp_in, size_t *msg_sz_in, uint64_t trid,
-		const char *set_name)
+		as_namespace *ns, cl_msg *msgp_in, size_t *msg_sz_in, uint64_t trid)
 {
 	size_t msg_sz = sizeof(cl_msg);
 
@@ -228,13 +227,6 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 
 	if (trid != 0) {
 		msg_sz += sizeof(as_msg_field) + sizeof(trid);
-	}
-
-	uint32_t set_name_len = 0;
-
-	if (set_name) {
-		set_name_len = strlen(set_name);
-		msg_sz += sizeof(as_msg_field) + set_name_len;
 	}
 
 	uint8_t *buf;
@@ -282,19 +274,6 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		*(uint64_t *)trfield->data = cf_swap_to_be64(trid);
 
 		buf += sizeof(as_msg_field) + sizeof(uint64_t);
-		as_msg_swap_field(trfield);
-	}
-
-	if (set_name) {
-		m->n_fields++;
-
-		as_msg_field *trfield = (as_msg_field *)buf;
-
-		trfield->field_sz = 1 + set_name_len;
-		trfield->type = AS_MSG_FIELD_TYPE_SET;
-		memcpy(trfield->data, set_name, set_name_len);
-
-		buf += sizeof(as_msg_field) + set_name_len;
 		as_msg_swap_field(trfield);
 	}
 
@@ -677,14 +656,13 @@ as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r,
 int
 as_msg_send_reply(as_file_handle *fd_h, uint32_t result_code,
 		uint32_t generation, uint32_t void_time, as_msg_op **ops, as_bin **bins,
-		uint16_t bin_count, as_namespace *ns, uint64_t trid,
-		const char *set_name)
+		uint16_t bin_count, as_namespace *ns, uint64_t trid)
 {
 	uint8_t stack_buf[MSG_STACK_BUFFER_SZ];
 	size_t msg_sz = sizeof(stack_buf);
 	uint8_t *msgp = (uint8_t *)as_msg_make_response_msg(result_code, generation,
 			void_time, ops, bins, bin_count, ns, (cl_msg *)stack_buf, &msg_sz,
-			trid, set_name);
+			trid);
 
 	int rv = send_reply_buf(fd_h, msgp, msg_sz);
 

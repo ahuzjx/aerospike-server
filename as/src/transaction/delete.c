@@ -329,13 +329,13 @@ send_delete_response(as_transaction* tr)
 	switch (tr->origin) {
 	case FROM_CLIENT:
 		as_msg_send_reply(tr->from.proto_fd_h, tr->result_code, 0, 0, NULL,
-				NULL, 0, tr->rsv.ns, as_transaction_trid(tr), NULL);
+				NULL, 0, tr->rsv.ns, as_transaction_trid(tr));
 		client_delete_update_stats(tr->rsv.ns, tr->result_code);
 		break;
 	case FROM_PROXY:
 		as_proxy_send_response(tr->from.proxy_node, tr->from_data.proxy_tid,
 				tr->result_code, 0, 0, NULL, NULL, 0, tr->rsv.ns,
-				as_transaction_trid(tr), NULL);
+				as_transaction_trid(tr));
 		break;
 	case FROM_NSUP:
 		break;
@@ -358,7 +358,7 @@ delete_timeout_cb(rw_request* rw)
 	switch (rw->origin) {
 	case FROM_CLIENT:
 		as_msg_send_reply(rw->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT, 0,
-				0, NULL, NULL, 0, rw->rsv.ns, rw_request_trid(rw), NULL);
+				0, NULL, NULL, 0, rw->rsv.ns, rw_request_trid(rw));
 		client_delete_update_stats(rw->rsv.ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
 		break;
 	case FROM_PROXY:

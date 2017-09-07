@@ -888,8 +888,8 @@ TranEnd:
 }
 
 void
-as_batch_add_result(as_transaction* tr, const char* setname, uint32_t generation,
-		uint32_t void_time, uint16_t n_bins, as_bin** bins, as_msg_op** ops)
+as_batch_add_result(as_transaction* tr, uint16_t n_bins, as_bin** bins,
+		as_msg_op** ops)
 {
 	as_namespace* ns = tr->rsv.ns;
 
@@ -898,13 +898,6 @@ as_batch_add_result(as_transaction* tr, const char* setname, uint32_t generation
 	size += sizeof(as_msg_field) + sizeof(cf_digest);
 
 	uint16_t n_fields = 1;
-	uint32_t setname_len = 0;
-
-	if (setname) {
-		setname_len = strlen(setname);
-		size += sizeof(as_msg_field) + setname_len;
-		n_fields++;
-	}
 
 	for (uint16_t i = 0; i < n_bins; i++) {
 		as_bin* bin = bins[i];
@@ -947,8 +940,8 @@ as_batch_add_result(as_transaction* tr, const char* setname, uint32_t generation
 		m->info3 = 0;
 		m->unused = 0;
 		m->result_code = tr->result_code;
-		m->generation = generation;
-		m->record_ttl = void_time;
+		m->generation = tr->generation;
+		m->record_ttl = tr->void_time;
 
 		// Overload transaction_ttl to store batch index.
 		m->transaction_ttl = tr->from_data.batch_index;
@@ -964,15 +957,6 @@ as_batch_add_result(as_transaction* tr, const char* setname, uint32_t generation
 		memcpy(field->data, &tr->keyd, sizeof(cf_digest));
 		as_msg_swap_field(field);
 		p += sizeof(as_msg_field) + sizeof(cf_digest);
-
-		if (setname) {
-			field = (as_msg_field*)p;
-			field->field_sz = setname_len + 1;
-			field->type = AS_MSG_FIELD_TYPE_SET;
-			memcpy(field->data, setname, setname_len);
-			as_msg_swap_field(field);
-			p += sizeof(as_msg_field) + setname_len;
-		}
 
 		for (uint16_t i = 0; i < n_bins; i++) {
 			as_bin* bin = bins[i];

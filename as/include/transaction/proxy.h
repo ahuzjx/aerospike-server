@@ -57,5 +57,5 @@ void as_proxy_return_to_sender(const struct as_transaction_s* tr, struct as_name
 void as_proxy_send_response(cf_node dst, uint32_t proxy_tid,
 		uint32_t result_code, uint32_t generation, uint32_t void_time,
 		struct as_msg_op_s** ops, struct as_bin_s** bins, uint16_t bin_count,
-		struct as_namespace_s* ns, uint64_t trid, const char* set_name);
+		struct as_namespace_s* ns, uint64_t trid);
 void as_proxy_send_ops_response(cf_node dst, uint32_t proxy_tid, cf_dyn_buf* db);
