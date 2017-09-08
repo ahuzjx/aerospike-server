@@ -1033,7 +1033,9 @@ fill_translation(int translation[], const as_namespace* ns)
 {
 	int ns_n = 0;
 
-	for (uint32_t full_n = 0; full_n < g_cluster_size; full_n++) {
+	for (uint32_t full_n = 0;
+			full_n < g_cluster_size && ns_n < ns->cluster_size;
+			full_n++) {
 		translation[full_n] = g_succession[full_n] == ns->succession[ns_n] ?
 				ns_n++ : -1;
 	}
