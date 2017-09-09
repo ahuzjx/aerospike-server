@@ -906,7 +906,7 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 			}
 		}
 		else {
-			if (self_n < p->n_replicas) {
+			if (self_n < p->n_replicas || self_n == working_master_n) {
 				p->working_master = ns_node_seq[working_master_n];
 			}
 
