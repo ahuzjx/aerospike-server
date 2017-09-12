@@ -433,7 +433,7 @@ as_partition_emigrate_done(as_namespace* ns, uint32_t pid,
 
 	if (! is_self_final_master(p)) {
 		if ((tx_flags & TX_FLAGS_ACTING_MASTER) != 0) {
-			p->working_master = p->replicas[0];
+			p->working_master = (cf_node)0;
 			p->n_dupl = 0;
 			p->version.master = 0;
 		}
@@ -902,14 +902,9 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 			if (self_n < p->n_replicas) {
 				p->version = p->final_version;
-				p->working_master = p->replicas[0];
 			}
 		}
 		else {
-			if (self_n < p->n_replicas || self_n == working_master_n) {
-				p->working_master = ns_node_seq[working_master_n];
-			}
-
 			n_dupl = find_duplicates(p, ns_node_seq, ns_sl_ix, ns,
 					(uint32_t)working_master_n, dupls);
 
@@ -947,6 +942,10 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 				set_partition_storage_info(ns, p, false);
 				drop_trees(p, ns);
 			}
+		}
+
+		if (self_n == 0 || self_n == working_master_n) {
+			p->working_master = ns_node_seq[working_master_n];
 		}
 
 		if (! as_partition_version_is_null(&p->version)) {
@@ -1033,11 +1032,9 @@ fill_translation(int translation[], const as_namespace* ns)
 {
 	int ns_n = 0;
 
-	for (uint32_t full_n = 0;
-			full_n < g_cluster_size && ns_n < ns->cluster_size;
-			full_n++) {
-		translation[full_n] = g_succession[full_n] == ns->succession[ns_n] ?
-				ns_n++ : -1;
+	for (uint32_t full_n = 0; full_n < g_cluster_size; full_n++) {
+		translation[full_n] = ns_n < ns->cluster_size &&
+				g_succession[full_n] == ns->succession[ns_n] ? ns_n++ : -1;
 	}
 }
 

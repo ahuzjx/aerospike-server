@@ -686,21 +686,15 @@ client_replica_maps_is_partition_queryable(const as_namespace* ns, uint32_t pid)
 cf_node
 find_best_node(const as_partition* p, bool is_read)
 {
-	int self_n = find_self_in_replicas(p);
-	bool is_final_master = self_n == 0;
-	bool is_prole = self_n > 0; // self_n is -1 if not replica
-	bool is_working_master = g_config.self_node == p->working_master;
-
-	if (is_working_master) {
-		return g_config.self_node;
+	// Working master (final or acting) returns self, eventual master returns
+	// acting master. Others don't have p->working_master set.
+	if (p->working_master != (cf_node)0) {
+		return p->working_master;
 	}
 
-	if (is_final_master) {
-		return p->working_master; // acting master elsewhere
-	}
-
-	if (is_read && is_prole && p->pending_immigrations == 0) {
-		return g_config.self_node;
+	if (is_read && p->pending_immigrations == 0 &&
+			find_self_in_replicas(p) > 0) {
+		return g_config.self_node; // may read from prole that's got everything
 	}
 
 	return p->replicas[0]; // final master as a last resort
