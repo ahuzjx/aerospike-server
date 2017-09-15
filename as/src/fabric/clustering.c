@@ -613,6 +613,15 @@ typedef struct as_clustering_internal_event_s
 	as_clustering_internal_event_type type;
 
 	/*
+	 * ----- Quantum interval start event related fields
+	 */
+	/**
+	 * Indicates if this quantum interval start can be skipped by the event
+	 * handler.
+	 */
+	bool quantum_interval_is_skippable;
+
+	/*
 	 * ----- Message event related fields.
 	 */
 	/**
@@ -2530,10 +2539,11 @@ quantum_interval_generator_timer_event_handle(
 
 	// Fire quantum interval start event if it is time, or if we have skipped
 	// quantum interval start for more that the max skip number of intervals.
+	bool is_skippable = g_quantum_interval_generator.last_quantum_start_time
+			+ (quantum_interval_skip_max() + 1) * quantum_interval() > now;
 	bool fire_quantum_event = earliest_quantum_start_time <= now
-			|| g_quantum_interval_generator.last_quantum_start_time
-					+ (quantum_interval_skip_max() + 1) * quantum_interval()
-					<= now;
+			|| !is_skippable;
+
 	if (fire_quantum_event) {
 		// Update the last quantum event start time.
 		g_quantum_interval_generator.last_quantum_start_time = now;
@@ -2544,6 +2554,7 @@ quantum_interval_generator_timer_event_handle(
 		as_clustering_internal_event timer_event;
 		memset(&timer_event, 0, sizeof(timer_event));
 		timer_event.type = AS_CLUSTERING_INTERNAL_EVENT_QUANTUM_INTERVAL_START;
+		timer_event.quantum_interval_is_skippable = is_skippable;
 		internal_event_dispatch(&timer_event);
 
 		// Reset for next interval generation.
@@ -6466,7 +6477,7 @@ Exit:
  * Handle quantum interval start when self node is the principal of its cluster.
  */
 static void
-clustering_principal_quantum_interval_start_handle()
+clustering_principal_quantum_interval_start_handle(as_clustering_internal_event* event)
 {
 	DETAIL("principal node quantum wakeup");
 
@@ -6510,7 +6521,7 @@ clustering_principal_quantum_interval_start_handle()
 	clustering_succession_list_clique_evict(new_succession_list,
 			"clique based evicted nodes at quantum start:");
 
-	if (cf_vector_size(dead_nodes) != 0
+	if (event->quantum_interval_is_skippable && cf_vector_size(dead_nodes) != 0
 			&& !quantum_interval_is_adjacency_fault_seen()) {
 		// There is an imminent adjacency fault that has not been seen by the
 		// quantum interval generator, lets not take any action.
@@ -6763,7 +6774,7 @@ clustering_non_principal_quantum_interval_start_handle()
  * Handle quantum interval start.
  */
 static void
-clustering_quantum_interval_start_handle()
+clustering_quantum_interval_start_handle(as_clustering_internal_event* event)
 {
 	CLUSTERING_LOCK();
 
@@ -6773,7 +6784,7 @@ clustering_quantum_interval_start_handle()
 		clustering_orphan_quantum_interval_start_handle();
 		break;
 	case AS_CLUSTERING_STATE_PRINCIPAL:
-		clustering_principal_quantum_interval_start_handle();
+		clustering_principal_quantum_interval_start_handle(event);
 		break;
 	case AS_CLUSTERING_STATE_NON_PRINCIPAL:
 		clustering_non_principal_quantum_interval_start_handle();
@@ -7214,7 +7225,7 @@ clustering_event_handle(as_clustering_internal_event* event)
 		clustering_timer_event_handle();
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_QUANTUM_INTERVAL_START:
-		clustering_quantum_interval_start_handle();
+		clustering_quantum_interval_start_handle(event);
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_HB:
 		clustering_hb_event_handle(event);
