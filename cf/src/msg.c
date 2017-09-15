@@ -1296,23 +1296,23 @@ msg_msgpack_list_get_buf_array(const msg *m, int field_id, cf_vector *v_r,
 
 	for (int64_t i = 0; i < count; i++) {
 		msg_buf_ele ele;
+		int saved_offset = pk.offset;
 
 		ele.ptr = (uint8_t *)as_unpack_str(&pk, &ele.sz);
 
 		if (! ele.ptr) {
-			int64_t sz = as_unpack_size(&pk);
+			pk.offset = saved_offset;
+			ele.sz = 0;
 
-			if (sz < 0) {
+			if (as_unpack_size(&pk) <= 0) {
 				if (init_vec) {
 					cf_vector_destroy(v_r);
 				}
 
-				cf_warning(CF_MSG, "i %ld/%ld invalid msgpack element", i, count);
+				cf_warning(CF_MSG, "i %ld/%ld invalid msgpack element with type %d", i, count, type);
 
 				return false;
 			}
-
-			ele.sz = 0;
 		}
 
 		cf_vector_append(v_r, &ele);
