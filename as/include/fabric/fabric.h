@@ -112,6 +112,7 @@ int as_fabric_send(cf_node node_id, msg *m, as_fabric_channel channel);
 int as_fabric_send_list(cf_node *node_ids, int nodes_sz, msg *m, as_fabric_channel channel);
 void as_fabric_register_msg_fn(msg_type type, const msg_template *mt, size_t mt_sz, size_t scratch_sz, as_fabric_msg_fn msg_cb, void *udata_msg);
 void as_fabric_rate_capture(fabric_rate *rate);
+void as_fabric_info_peer_endpoints_get(cf_dyn_buf* db);
 void as_fabric_dump(bool verbose);
 
 

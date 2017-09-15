@@ -483,6 +483,8 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 	info_append_string(db, "fabric.tls-addresses", string);
 	cf_free(string);
 
+	as_fabric_info_peer_endpoints_get(db);
+
 	info_append_int(db, "info.port", g_info_port);
 
 	string = as_info_bind_to_string(&g_info_bind, CF_SOCK_OWNER_INFO);

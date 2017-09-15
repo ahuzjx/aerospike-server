@@ -67,6 +67,16 @@ typedef struct as_endpoint_to_string_udata_s
 	 * Number of endpoints converted.
 	 */
 	uint32_t endpoints_converted;
+
+	/**
+	 * Capabilities of endpoint.
+	 */
+	uint8_t capabilities;
+
+	/**
+	 * Capability mask. Set to 0 to match all the endpoints.
+	 */
+	uint8_t capability_mask;
 } as_endpoint_to_string_udata;
 
 typedef struct as_endpoint_list_overlap_udata_s
@@ -85,7 +95,6 @@ typedef struct as_endpoint_list_overlap_udata_s
 	 * The other list to compare.
 	 */
 	const as_endpoint_list* other;
-
 } as_endpoint_list_overlap_udata;
 
 typedef struct as_endpoint_list_endpoint_find_udata_s
@@ -104,7 +113,6 @@ typedef struct as_endpoint_list_endpoint_find_udata_s
 	 * The other list to compare.
 	 */
 	const as_endpoint* to_find;
-
 } as_endpoint_list_endpoint_find_udata;
 
 /*----------------------------------------------------------------------------
@@ -478,13 +486,32 @@ as_endpoint_lists_are_overlapping(const as_endpoint_list* list1, const as_endpoi
  * Convert an endpoint list to a string.
  * @param endpoint_list the input list. NULL allowed.
  * @param buffer the output buffer.
- * @buffer_capacity the capacity of the output buffer.
+ * @param buffer_capacity the capacity of the output buffer.
  * @return the number of characters printed (excluding the null  byte  used  to
  * end  output to strings)
  */
 int
 as_endpoint_list_to_string(const as_endpoint_list* endpoint_list, char* buffer,
-	size_t buffer_capacity)
+		size_t buffer_capacity)
+{
+	return as_endpoint_list_to_string_match_capabilities(endpoint_list, buffer,
+			buffer_capacity, 0, 0);
+}
+
+/**
+ * Convert an endpoint list to a string matching capabilities.
+ * @param endpoint_list the input list. NULL allowed.
+ * @param buffer the output buffer.
+ * @param buffer_capacity the capacity of the output buffer.
+ * @param capability_mask specifies which bit to match.
+ * @param capabilities specifies capabilities to be match for.
+ * @return the number of characters printed (excluding the null  byte  used  to
+ * end output to strings)
+ */
+int
+as_endpoint_list_to_string_match_capabilities(
+		const as_endpoint_list* endpoint_list, char* buffer,
+		size_t buffer_capacity, uint8_t capability_mask, uint8_t capabilities)
 {
 	if (!endpoint_list) {
 		buffer[0] = 0;
@@ -494,6 +521,8 @@ as_endpoint_list_to_string(const as_endpoint_list* endpoint_list, char* buffer,
 	as_endpoint_to_string_udata udata = { 0 };
 	udata.write_ptr = buffer;
 	udata.buffer_remaining = buffer_capacity;
+	udata.capabilities = capabilities;
+	udata.capability_mask = capability_mask;
 	as_endpoint_list_iterate(endpoint_list, endpoint_to_string_iterate, &udata);
 
 	if (udata.endpoints_converted) {
@@ -502,7 +531,8 @@ as_endpoint_list_to_string(const as_endpoint_list* endpoint_list, char* buffer,
 			if (udata.buffer_remaining > 4) {
 				udata.buffer_remaining -= sprintf(udata.write_ptr, "...");
 			}
-		} else {
+		}
+		else {
 			// Remove the dangling comma from the last endpoint.
 			udata.write_ptr--;
 			udata.buffer_remaining++;
@@ -513,6 +543,41 @@ as_endpoint_list_to_string(const as_endpoint_list* endpoint_list, char* buffer,
 	*udata.write_ptr = 0;
 
 	return buffer_capacity - udata.buffer_remaining;
+}
+
+/**
+ * Populate dyn buf with endpoints info
+ * @param endpoint_list the input list. NULL allowed.
+ * @param db the dynamic buffer.
+ */
+void
+as_endpoint_list_info(const as_endpoint_list* endpoint_list, cf_dyn_buf* db)
+{
+	size_t endpoint_list_size = 0;
+	as_endpoint_list_sizeof(endpoint_list, &endpoint_list_size);
+	// 4 chars for delimiters, 50 chars for ipv6 ip and port, rounded to 64
+	size_t endpoint_list_str_size = 64 * endpoint_list_size;
+
+	char endpoint_list_str[endpoint_list_str_size];
+	as_endpoint_list_to_string_match_capabilities(endpoint_list,
+			endpoint_list_str, sizeof(endpoint_list_str), AS_ENDPOINT_TLS_MASK,
+			0);
+
+	cf_dyn_buf_append_string(db, "endpoint=");
+	if (endpoint_list_str[0] != '\0') {
+		cf_dyn_buf_append_string(db, endpoint_list_str);
+	}
+	cf_dyn_buf_append_string(db, ":");
+
+	as_endpoint_list_to_string_match_capabilities(endpoint_list,
+			endpoint_list_str, sizeof(endpoint_list_str), AS_ENDPOINT_TLS_MASK,
+			AS_ENDPOINT_TLS_MASK);
+
+	cf_dyn_buf_append_string(db, "endpoint-tls=");
+	if (endpoint_list_str[0] != '\0') {
+		cf_dyn_buf_append_string(db, endpoint_list_str);
+	}
+
 }
 
 /*----------------------------------------------------------------------------
@@ -680,18 +745,26 @@ endpoint_collect_iterate_fn(const as_endpoint* endpoint, void* udata)
 static void
 endpoint_to_string_iterate(const as_endpoint* endpoint, void* udata)
 {
-	as_endpoint_to_string_udata* to_string_data = (as_endpoint_to_string_udata*) udata;
+	as_endpoint_to_string_udata* to_string_data =
+			(as_endpoint_to_string_udata*)udata;
+
+	if ((endpoint->capabilities & to_string_data->capability_mask)
+			!= (to_string_data->capabilities & to_string_data->capability_mask)) {
+		// skip as the capabilities do not match
+		to_string_data->endpoints_converted++;
+		return;
+	}
 
 	char address_buffer[1024];
 	int capacity = sizeof(address_buffer);
 	char* endpoint_str_ptr = address_buffer;
 
 	cf_sock_addr temp_addr;
-	if (cf_ip_addr_from_binary(endpoint->addr, endpoint_addr_binary_size(endpoint->addr_type),
-		&temp_addr.addr) <= 0) {
+	if (cf_ip_addr_from_binary(endpoint->addr,
+			endpoint_addr_binary_size(endpoint->addr_type), &temp_addr.addr)
+			<= 0) {
 		return;
 	}
-
 
 	int rv = 0;
 	if (endpoint->port) {
@@ -703,13 +776,9 @@ endpoint_to_string_iterate(const as_endpoint* endpoint, void* udata)
 
 		capacity -= rv;
 		endpoint_str_ptr += rv;
-
-		rv = snprintf(endpoint_str_ptr, capacity, "%s,",
-				as_endpoint_capability_is_supported(
-					endpoint, AS_ENDPOINT_TLS_MASK)
-				? " (tls)"
-				: "");
-	}else {
+		rv = snprintf(endpoint_str_ptr, capacity, ",");
+	}
+	else {
 		// Skip port and tls capabilities.
 		rv = cf_ip_addr_to_string(&temp_addr.addr, endpoint_str_ptr, capacity);
 		if (rv <= 0) {

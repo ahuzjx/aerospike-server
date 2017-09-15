@@ -299,3 +299,26 @@ as_endpoint_lists_are_overlapping(const as_endpoint_list* list1, const as_endpoi
 int
 as_endpoint_list_to_string(const as_endpoint_list* endpoint_list, char* buffer,
 	size_t buffer_capacity);
+
+/**
+ * Convert an endpoint list to a string matching capabilities.
+ * @param endpoint_list the input list. NULL allowed.
+ * @param buffer the output buffer.
+ * @param buffer_capacity the capacity of the output buffer.
+ * @param capability_mask specifies which bit to match.
+ * @param capabilities specifies capabilities to be match for.
+ * @return the number of characters printed (excluding the null  byte  used  to
+ * end output to strings)
+ */
+int
+as_endpoint_list_to_string_match_capabilities(
+		const as_endpoint_list* endpoint_list, char* buffer,
+		size_t buffer_capacity, uint8_t capability_mask, uint8_t capabilities);
+
+/**
+ * Populate dyn buf with endpoints info.
+ * @param endpoint_list the input list. NULL allowed.
+ * @param db the dynamic buffer.
+ */
+void
+as_endpoint_list_info(const as_endpoint_list* endpoint_list, cf_dyn_buf* db);

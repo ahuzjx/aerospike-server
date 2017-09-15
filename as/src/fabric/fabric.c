@@ -577,6 +577,60 @@ as_fabric_register_msg_fn(msg_type type, const msg_template *mt, size_t mt_sz,
 }
 
 void
+as_fabric_info_peer_endpoints_get(cf_dyn_buf *db)
+{
+	as_node_list nl;
+	fabric_get_node_list(&nl);
+
+	for (uint32_t i = 0; i < nl.sz; i++) {
+		if (nl.nodes[i] == g_config.self_node) {
+			continue;
+		}
+
+		fabric_node *node = fabric_node_get(nl.nodes[i]);
+
+		if (! node) {
+			cf_info(AS_FABRIC, "\tnode %lx not found in hash although reported available", nl.nodes[i]);
+			continue;
+		}
+
+		size_t endpoint_list_capacity = 1024;
+		bool retry = true;
+
+		while (true) {
+			uint8_t stack_mem[endpoint_list_capacity];
+			as_endpoint_list *endpoint_list = (as_endpoint_list *)stack_mem;
+
+			if (fabric_endpoint_list_get(node->node_id, endpoint_list,
+					&endpoint_list_capacity) != 0) {
+				if (errno == ENOENT) {
+					// No entry present for this node in heartbeat.
+					cf_detail(AS_FABRIC, "could not get endpoint list for %lx", node->node_id);
+					break;
+				}
+
+				if (! retry) {
+					break;
+				}
+
+				retry = false;
+				continue;
+			}
+
+			cf_dyn_buf_append_string(db, "fabric.peer=");
+			cf_dyn_buf_append_string(db, "node-id=");
+			cf_dyn_buf_append_uint64_x(db, node->node_id);
+			cf_dyn_buf_append_string(db, ":");
+			as_endpoint_list_info(endpoint_list, db);
+			cf_dyn_buf_append_string(db, ";");
+			break;
+		}
+
+		fabric_node_release(node);
+	}
+}
+
+void
 as_fabric_dump(bool verbose)
 {
 	as_node_list nl;

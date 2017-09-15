@@ -672,8 +672,7 @@ typedef struct as_hb_mesh_node_s
 	/**
 	 * Identifies TLS mesh seed hosts.
 	 */
-
-	bool tls;
+	bool seed_tls;
 
 	/**
 	 * The heap allocated end point list for this mesh host. Should be freed
@@ -1644,6 +1643,7 @@ static void mesh_channel_event_process(as_hb_channel_event* event);
 static void mesh_init();
 static int mesh_free_node_data_reduce(const void* key, void* data, void* udata);
 static int mesh_tip_clear_reduce(const void* key, void* data, void* udata);
+static int mesh_peer_endpoint_reduce(const void* key, void* data, void* udata);
 static void mesh_clear();
 static void mesh_listening_sockets_open();
 static void mesh_start();
@@ -2051,34 +2051,39 @@ as_hb_info_endpoints_get(cf_dyn_buf* db)
 	info_append_string(db, "heartbeat.addresses", string);
 	cf_free(string);
 
-	info_append_int(db, "heartbeat.tls-port", g_config.hb_tls_serv_spec.bind_port);
+	info_append_int(db, "heartbeat.tls-port",
+			g_config.hb_tls_serv_spec.bind_port);
 
 	string = as_info_bind_to_string(cfg, CF_SOCK_OWNER_HEARTBEAT_TLS);
 	info_append_string(db, "heartbeat.tls-addresses", string);
 	cf_free(string);
 
 	if (hb_is_mesh()) {
-		return;
+		MESH_LOCK();
+		cf_shash_reduce(g_hb.mode_state.mesh_state.nodeid_to_mesh_node,
+				mesh_peer_endpoint_reduce, db);
+		MESH_UNLOCK();
 	}
-
-	// Output multicast groups.
-	const cf_mserv_cfg* multicast_cfg = config_multicast_group_cfg_get();
-	if (multicast_cfg->n_cfgs == 0) {
-		return;
-	}
-
-	cf_dyn_buf_append_string(db, "heartbeat.multicast-groups=");
-	uint32_t count = 0;
-	for (uint32_t i = 0; i < multicast_cfg->n_cfgs; ++i) {
-		if (count > 0) {
-			cf_dyn_buf_append_char(db, ',');
+	else {
+		// Output multicast groups.
+		const cf_mserv_cfg* multicast_cfg = config_multicast_group_cfg_get();
+		if (multicast_cfg->n_cfgs == 0) {
+			return;
 		}
 
-		cf_dyn_buf_append_string(db,
-				cf_ip_addr_print(&multicast_cfg->cfgs[i].addr));
-		++count;
+		cf_dyn_buf_append_string(db, "heartbeat.multicast-groups=");
+		uint32_t count = 0;
+		for (uint32_t i = 0; i < multicast_cfg->n_cfgs; ++i) {
+			if (count > 0) {
+				cf_dyn_buf_append_char(db, ',');
+			}
+
+			cf_dyn_buf_append_string(db,
+					cf_ip_addr_print(&multicast_cfg->cfgs[i].addr));
+			++count;
+		}
+		cf_dyn_buf_append_char(db, ';');
 	}
-	cf_dyn_buf_append_char(db, ';');
 }
 
 /**
@@ -5502,11 +5507,11 @@ mesh_seed_host_list_reduce(const void* key, void* data, void* udata)
 		(as_hb_seed_host_list_udata*)udata;
 
 	if (!mesh_node->is_seed ||
-		seed_host_list_udata->tls != mesh_node->tls) {
+		seed_host_list_udata->tls != mesh_node->seed_tls) {
 		return CF_SHASH_OK;
 	}
 
-	const char* info_key = mesh_node->tls ?
+	const char* info_key = mesh_node->seed_tls ?
 		"heartbeat.tls-mesh-seed-address-port=" :
 		"heartbeat.mesh-seed-address-port=";
 
@@ -5620,7 +5625,7 @@ mesh_node_endpoint_list_fill(as_hb_mesh_node* mesh_node)
 	cf_serv_cfg_init(&temp_serv_cfg);
 
 	cf_sock_cfg sock_cfg;
-	cf_sock_cfg_init(&sock_cfg, mesh_node->tls ?
+	cf_sock_cfg_init(&sock_cfg, mesh_node->seed_tls ?
 			CF_SOCK_OWNER_HEARTBEAT_TLS :
 			CF_SOCK_OWNER_HEARTBEAT);
 	sock_cfg.port = mesh_node->seed_port;
@@ -6407,6 +6412,21 @@ mesh_node_redundant_entry_delete(as_hb_mesh_node_key *nodeid_matching_key,
 				endpoint_list_str_to_delete, endpoint_list_str_to_retain);
 	}
 
+	if (node_to_delete->seed_tls && !node_to_retain->seed_tls) {
+		// If the node to be deleted is TLS entry retain the TLS information and
+		// discard NON TLS.
+		INFO("updating hostname: %s, port: %d in the mesh entry for node %"PRIx64" to hostname: %s port: %d",
+				node_to_retain->seed_host_name, node_to_retain->seed_port,
+				key_to_retain->nodeid, node_to_delete->seed_host_name,
+				node_to_delete->seed_port);
+		as_endpoint_list* endpoint_list_holder = node_to_retain->endpoint_list;
+		memcpy(node_to_retain, node_to_delete, sizeof(*node_to_delete));
+		node_to_retain->endpoint_list = endpoint_list_holder;
+		endpoint_list_copy(&node_to_retain->endpoint_list,
+				node_to_delete->endpoint_list);
+		mesh_node_add_update(key_to_retain, node_to_retain);
+	}
+
 	if (node_to_delete->is_seed) {
 		INFO("removing duplicate seed entry hostname:%s port:%d for node %"PRIx64,
 				node_to_delete->seed_host_name, node_to_delete->seed_port,
@@ -7096,7 +7116,7 @@ mesh_tip(char* host, int port, bool tls)
 	strncpy(new_node.seed_host_name, host, sizeof(new_node.seed_host_name));
 	new_node.seed_port = port;
 	new_node.is_seed = true;
-	new_node.tls = tls;
+	new_node.seed_tls = tls;
 
 	if (mesh_node_endpoint_list_fill(&new_node) != 0) {
 		WARNING("error resolving ip address for mesh host %s:%d", host, port);
@@ -7130,7 +7150,8 @@ mesh_tip(char* host, int port, bool tls)
 			else {
 				INFO("mesh non seed host %s:%d already in mesh list - promoting to seed node",
 						host, port);
-
+				strncpy(existing_node.seed_host_name, host, sizeof(existing_node.seed_host_name));
+				existing_node.seed_port = port;
 				existing_node.is_seed = true;
 				mesh_node_add_update(&existing_node_key, &existing_node);
 				rv = 0;
@@ -7307,6 +7328,29 @@ Exit:
 			tip_clear_udata->entry_deleted = true;
 		}
 	}
+
+	MESH_UNLOCK();
+	return rv;
+}
+
+/**
+ * Output Heartbeat endpoints of peers.
+ */
+static int
+mesh_peer_endpoint_reduce(const void* key, void* data, void* udata)
+{
+	int rv = CF_SHASH_OK;
+	MESH_LOCK();
+	cf_node nodeid = ((const as_hb_mesh_node_key*)key)->nodeid;
+	as_hb_mesh_node* mesh_node = (as_hb_mesh_node*)data;
+	cf_dyn_buf* db = (cf_dyn_buf*) udata;
+
+	cf_dyn_buf_append_string(db, "heartbeat.peer=");
+	cf_dyn_buf_append_string(db, "node-id=");
+	cf_dyn_buf_append_uint64_x(db, nodeid);
+	cf_dyn_buf_append_string(db, ":");
+	as_endpoint_list_info(mesh_node->endpoint_list, db);
+	cf_dyn_buf_append_string(db, ";");
 
 	MESH_UNLOCK();
 	return rv;
