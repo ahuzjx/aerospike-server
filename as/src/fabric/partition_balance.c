@@ -1641,7 +1641,9 @@ fill_family_versions(const as_partition* p, const uint32_t* ns_sl_ix,
 		}
 	}
 
-	for (uint32_t repl_ix = 1; repl_ix < p->n_replicas; repl_ix++) {
+	for (uint32_t repl_ix = 1;
+			repl_ix < p->n_replicas && n_families < AS_PARTITION_N_FAMILIES;
+			repl_ix++) {
 		if (repl_ix == working_master_n) {
 			continue;
 		}
