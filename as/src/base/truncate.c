@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_clock.h"
@@ -140,6 +141,10 @@ as_truncate_init_smd()
 			truncate_smd_accept_cb, NULL,
 			truncate_smd_can_accept_cb, NULL) != 0) {
 		cf_crash(AS_TRUNCATE, "truncate init - failed smd create module");
+	}
+
+	while (! g_truncate_smd_loaded) {
+		usleep(1000);
 	}
 }
 
