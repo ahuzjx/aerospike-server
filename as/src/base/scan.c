@@ -269,7 +269,8 @@ get_scan_set_id(as_transaction* tr, as_namespace* ns, uint16_t* p_set_id)
 		set_id = as_namespace_get_set_id(ns, set_name);
 
 		if (set_id == INVALID_SET_ID) {
-			cf_warning(AS_SCAN, "scan msg has unrecognized set %s", set_name);
+			cf_warning(AS_SCAN, "scan msg from %s has unrecognized set %s",
+					tr->from.proto_fd_h->client, set_name);
 			return AS_PROTO_RESULT_FAIL_NOT_FOUND;
 		}
 	}
