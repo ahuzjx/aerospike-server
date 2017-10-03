@@ -302,7 +302,7 @@ struct vhash_s {
 	uint32_t ele_size;
 	uint32_t n_rows;
 	uint8_t* table;
-	uint32_t row_counts[];
+	bool row_usage[];
 };
 
 typedef struct vhash_ele_s {
@@ -331,8 +331,8 @@ vhash_set_ele_key(char* ele_key, size_t key_size, const char* zkey,
 vhash*
 vhash_create(uint32_t key_size, uint32_t n_rows)
 {
-	size_t row_counts_size = n_rows * sizeof(uint32_t);
-	vhash* h = (vhash*)cf_malloc(sizeof(vhash) + row_counts_size);
+	size_t row_usage_size = n_rows * sizeof(bool);
+	vhash* h = (vhash*)cf_malloc(sizeof(vhash) + row_usage_size);
 
 	if (! h) {
 		return NULL;
@@ -349,7 +349,7 @@ vhash_create(uint32_t key_size, uint32_t n_rows)
 		return NULL;
 	}
 
-	memset((void*)h->row_counts, 0, row_counts_size);
+	memset((void*)h->row_usage, 0, row_usage_size);
 	memset((void*)h->table, 0, table_size);
 
 	return h;
@@ -394,10 +394,12 @@ vhash_put(vhash* h, const char* zkey, size_t key_len, uint32_t value)
 
 	vhash_ele* e = (vhash_ele*)(h->table + (h->ele_size * row_i));
 
-	if (h->row_counts[row_i] == 0) {
+	if (! h->row_usage[row_i]) {
 		vhash_set_ele_key(VHASH_ELE_KEY_PTR(e), h->key_size, zkey, key_len + 1);
 		*VHASH_ELE_VALUE_PTR(h, e) = value;
-		h->row_counts[row_i]++;
+		// TODO - need barrier?
+
+		h->row_usage[row_i] = true;
 
 		return true;
 	}
@@ -416,12 +418,12 @@ vhash_put(vhash* h, const char* zkey, size_t key_len, uint32_t value)
 		return false;
 	}
 
-	e->next = e_head->next;
-	e_head->next = e;
-
 	vhash_set_ele_key(VHASH_ELE_KEY_PTR(e), h->key_size, zkey, key_len + 1);
 	*VHASH_ELE_VALUE_PTR(h, e) = value;
-	h->row_counts[row_i]++;
+	// TODO - need barrier?
+
+	e->next = e_head->next;
+	e_head->next = e;
 
 	return true;
 }
@@ -435,17 +437,14 @@ vhash_get(const vhash* h, const char* key, size_t key_len, uint32_t* p_value)
 {
 	uint64_t hashed_key = cf_hash_fnv32((const uint8_t*)key, key_len);
 	uint32_t row_i = (uint32_t)(hashed_key % h->n_rows);
-	uint32_t row_count = h->row_counts[row_i];
 
-	if (row_count == 0) {
+	if (! h->row_usage[row_i]) {
 		return false;
 	}
 
 	vhash_ele* e = (vhash_ele*)(h->table + (h->ele_size * row_i));
 
-	// Use row count instead of following pointers to the end, for thread
-	// safety with concurrent put.
-	for (uint32_t j = 0; j < row_count; j++) {
+	while (e) {
 		if (VHASH_ELE_KEY_PTR(e)[key_len] == 0 &&
 				memcmp(VHASH_ELE_KEY_PTR(e), key, key_len) == 0) {
 			if (p_value) {
