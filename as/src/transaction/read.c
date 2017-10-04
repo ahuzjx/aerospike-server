@@ -73,6 +73,13 @@ void read_local_done(as_transaction* tr, as_index_ref* r_ref, as_storage_rd* rd,
 // Inlines & macros.
 //
 
+static inline bool
+read_must_duplicate_resolve(const as_transaction* tr)
+{
+	return tr->rsv.n_dupl != 0 &&
+			TR_READ_CONSISTENCY_LEVEL(tr) == AS_READ_CONSISTENCY_LEVEL_ALL;
+}
+
 static inline void
 client_read_update_stats(as_namespace* ns, uint8_t result_code)
 {
@@ -122,7 +129,7 @@ as_read_start(as_transaction* tr)
 	BENCHMARK_START(tr, read, FROM_CLIENT);
 	BENCHMARK_START(tr, batch_sub, FROM_BATCH);
 
-	if (! as_read_must_duplicate_resolve(tr)) {
+	if (! read_must_duplicate_resolve(tr)) {
 		// No duplicates to resolve, or not configured to duplicate resolve.
 		// Just read local copy - response sent to origin no matter what.
 		return read_local(tr);

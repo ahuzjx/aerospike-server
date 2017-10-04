@@ -222,24 +222,6 @@ as_partition_getid(const cf_digest* d)
 }
 
 static inline int
-index_of_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
-{
-	for (uint32_t n = 0; n < n_nodes; n++) {
-		if (node == nodes[n]) {
-			return (int)n;
-		}
-	}
-
-	return -1;
-}
-
-static inline bool
-contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
-{
-	return index_of_node(nodes, n_nodes, node) != -1;
-}
-
-static inline int
 find_self_in_replicas(const as_partition* p)
 {
 	return index_of_node(p->replicas, p->n_replicas, g_config.self_node);

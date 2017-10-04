@@ -149,18 +149,6 @@ is_family_same(const as_partition_version* v1, const as_partition_version* v2)
 			v1->family != VERSION_FAMILY_UNIQUE;
 }
 
-static inline uint32_t
-remove_node(cf_node* nodes, uint32_t n_nodes, cf_node node)
-{
-	int n = index_of_node(nodes, n_nodes, node);
-
-	if (n != -1) {
-		nodes[n] = nodes[--n_nodes];
-	}
-
-	return n_nodes;
-}
-
 // A comparison_fn_t used with qsort().
 static inline int
 compare_hashed_nodes(const void* pa, const void* pb)
