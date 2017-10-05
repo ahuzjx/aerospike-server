@@ -1189,15 +1189,35 @@ ssd_read_record(as_storage_rd *rd)
 		block = (drv_ssd_block*)(read_buf + record_buf_indent);
 
 		// Sanity checks.
+
 		if (block->magic != SSD_BLOCK_MAGIC) {
 			cf_warning(AS_DRV_SSD, "read: bad block magic offset %"PRIu64,
 					read_offset);
 			cf_free(read_buf);
 			return -1;
 		}
+
+		if (block->length + LENGTH_BASE > read_size) {
+			cf_warning(AS_DRV_SSD, "read: bad block length %u", block->length);
+			cf_free(read_buf);
+			return -1;
+		}
+
 		if (0 != cf_digest_compare(&block->keyd, &r->keyd)) {
 			cf_warning(AS_DRV_SSD, "read: read wrong key: expecting %"PRIx64" got %"PRIx64,
 				*(uint64_t*)&r->keyd, *(uint64_t*)&block->keyd);
+			cf_free(read_buf);
+			return -1;
+		}
+
+		if (block->n_bins > BIN_NAMES_QUOTA) {
+			cf_warning(AS_DRV_SSD, "read: bad block n_bins %u", block->n_bins);
+			cf_free(read_buf);
+			return -1;
+		}
+
+		if (block->bins_offset + offsetof(drv_ssd_block, data) > read_size) {
+			cf_warning(AS_DRV_SSD, "read: bad block bins_offset %u", block->bins_offset);
 			cf_free(read_buf);
 			return -1;
 		}
