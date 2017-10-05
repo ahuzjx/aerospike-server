@@ -775,7 +775,8 @@ thr_demarshal(void *unused)
 
 				// Swap as_msg fields and bin-ops to host order, and flag
 				// which fields are present, to reduce re-parsing.
-				if (! as_transaction_demarshal_prepare(&tr)) {
+				if (! as_transaction_prepare(&tr, true)) {
+					cf_warning(AS_DEMARSHAL, "bad client msg");
 					as_transaction_demarshal_error(&tr, AS_PROTO_RESULT_FAIL_PARAMETER);
 					goto NextEvent;
 				}

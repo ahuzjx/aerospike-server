@@ -204,9 +204,8 @@ as_transaction_set_msg_field_flag(as_transaction *tr, uint8_t type)
 	return true;
 }
 
-// TODO - check m->n_fields against PROTO_NFIELDS_MAX_WARNING?
 bool
-as_transaction_demarshal_prepare(as_transaction *tr)
+as_transaction_prepare(as_transaction *tr, bool swap)
 {
 	uint64_t size = tr->msgp->proto.sz;
 
@@ -218,7 +217,9 @@ as_transaction_demarshal_prepare(as_transaction *tr)
 	// The proto data is not smaller than an as_msg - safe to swap header.
 	as_msg *m = &tr->msgp->msg;
 
-	as_msg_swap_header(m);
+	if (swap) {
+		as_msg_swap_header(m);
+	}
 
 	uint8_t* p_end = (uint8_t*)m + size;
 	uint8_t* p_read = m->data;
@@ -232,7 +233,10 @@ as_transaction_demarshal_prepare(as_transaction *tr)
 
 		as_msg_field* p_field = (as_msg_field*)p_read;
 
-		as_msg_swap_field(p_field);
+		if (swap) {
+			as_msg_swap_field(p_field);
+		}
+
 		p_read = as_msg_field_skip(p_field);
 
 		if (! p_read) {
@@ -260,7 +264,10 @@ as_transaction_demarshal_prepare(as_transaction *tr)
 
 		as_msg_op* op = (as_msg_op*)p_read;
 
-		as_msg_swap_op(op);
+		if (swap) {
+			as_msg_swap_op(op);
+		}
+
 		p_read = as_msg_op_skip(op);
 
 		if (! p_read) {
@@ -274,32 +281,12 @@ as_transaction_demarshal_prepare(as_transaction *tr)
 		}
 	}
 
-	// Temporarily skip the check for extra message bytes, for compatibility
-	// with legacy clients.
-
-//	if (p_read != p_end) {
-//		cf_warning(AS_PROTO, "extra bytes follow fields and bin-ops");
-//		return false;
-//	}
+	if (p_read != p_end) {
+		cf_warning(AS_PROTO, "extra bytes follow fields and bin-ops");
+		return false;
+	}
 
 	return true;
-}
-
-void
-as_transaction_proxyee_prepare(as_transaction *tr)
-{
-	as_msg *m = &tr->msgp->msg;
-	as_msg_field* p_field = (as_msg_field*)m->data;
-
-	// Store which message fields are present - prevents lots of re-parsing.
-	// Proto header, field sizes already swapped to host order by proxyer.
-	for (uint16_t n = 0; n < m->n_fields; n++) {
-		if (! as_transaction_set_msg_field_flag(tr, p_field->type)) {
-			cf_debug(AS_PROTO, "skipping as_msg_field type %u", p_field->type);
-		}
-
-		p_field = as_msg_field_get_next(p_field);
-	}
 }
 
 // Initialize an internal UDF transaction (for a UDF scan/query). Allocates a

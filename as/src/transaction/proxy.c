@@ -594,7 +594,13 @@ proxyee_handle_request(cf_node src, msg* m, uint32_t tid)
 	tr.origin = FROM_PROXY;
 	tr.from.proxy_node = src;
 	tr.from_data.proxy_tid = tid;
-	as_transaction_proxyee_prepare(&tr);
+
+	// Proxyer has already done byte swapping in as_msg.
+	if (! as_transaction_prepare(&tr, false)) {
+		cf_warning(AS_PROXY, "bad proxy msg");
+		error_response(src, tid, AS_PROTO_RESULT_FAIL_UNKNOWN);
+		return;
+	}
 
 	// For batch sub-transactions, make sure we flag them so they're not
 	// mistaken for multi-record transactions (which never proxy).

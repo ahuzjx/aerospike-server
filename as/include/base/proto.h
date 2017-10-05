@@ -157,8 +157,6 @@ struct as_transaction_s;
 
 #define PROTO_SIZE_MAX (128 * 1024 * 1024) // used simply for validation, as we've been corrupting msgp's
 
-#define PROTO_NFIELDS_MAX_WARNING 32
-
 #define PROTO_FIELD_LENGTH_MAX	1024
 #define PROTO_OP_LENGTH_MAX		131072
 
@@ -414,7 +412,8 @@ static inline uint8_t *
 as_msg_op_skip(as_msg_op *op)
 {
 	// At least 4 bytes always follow op_sz.
-	return op->op_sz < 4 ? NULL : (uint8_t*)op + sizeof(op->op_sz) + op->op_sz;
+	return (uint32_t)op->name_sz + 4 > op->op_sz ?
+			NULL : (uint8_t*)op + sizeof(op->op_sz) + op->op_sz;
 }
 
 /* as_msg_field_getnext

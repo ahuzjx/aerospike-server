@@ -222,8 +222,7 @@ void as_transaction_init_from_rw(as_transaction *tr, struct rw_request_s *rw);
 void as_transaction_init_head_from_rw(as_transaction *tr, struct rw_request_s *rw);
 
 bool as_transaction_set_msg_field_flag(as_transaction *tr, uint8_t type);
-bool as_transaction_demarshal_prepare(as_transaction *tr);
-void as_transaction_proxyee_prepare(as_transaction *tr);
+bool as_transaction_prepare(as_transaction *tr, bool swap);
 
 static inline bool
 as_transaction_is_restart(const as_transaction *tr)
