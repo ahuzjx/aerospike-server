@@ -820,6 +820,8 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 	uint32_t ns_pending_emigrations = 0;
 	uint32_t ns_pending_signals = 0;
 
+	uint32_t ns_fresh_partitions = 0;
+
 	for (uint32_t pid = 0; pid < AS_PARTITIONS; pid++) {
 		as_partition* p = &ns->partitions[pid];
 
@@ -891,6 +893,8 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 			if (self_n < p->n_replicas) {
 				p->version = p->final_version;
 			}
+
+			ns_fresh_partitions++;
 		}
 		else {
 			n_dupl = find_duplicates(p, ns_node_seq, ns_sl_ix, ns,
@@ -957,9 +961,9 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		pthread_mutex_unlock(&p->lock);
 	}
 
-	cf_info(AS_PARTITION, "{%s} rebalanced: expected-migrations (%u,%u) expected-signals %u",
+	cf_info(AS_PARTITION, "{%s} rebalanced: expected-migrations (%u,%u) expected-signals %u fresh-partitions %u",
 			ns->name, ns_pending_emigrations, ns_pending_immigrations,
-			ns_pending_signals);
+			ns_pending_signals, ns_fresh_partitions);
 
 	ns->migrate_tx_partitions_initial = ns_pending_emigrations;
 	ns->migrate_tx_partitions_remaining = ns_pending_emigrations;
