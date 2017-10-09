@@ -225,7 +225,7 @@ available_size(drv_ssd *ssd)
 			ssd->file_size;
 
 	// Note - returns 100% available during cold start, to make it irrelevant in
-	// cold-start eviction threshold check.
+	// cold start eviction threshold check.
 }
 
 
@@ -2767,7 +2767,7 @@ apply_rec_props(as_record* r, as_namespace* ns, const as_rec_props* p_props)
 // -2 - serious limit encountered, caller won't continue
 // -3 - couldn't parse this record, but caller will continue
 int
-ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
+ssd_cold_start_add_record(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		uint64_t rblock_id, uint32_t n_rblocks)
 {
 	uint32_t pid = as_partition_getid(&block->keyd);
@@ -2781,7 +2781,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 
 	// If eviction is necessary, evict previously added records closest to
 	// expiration. (If evicting, this call will block for a long time.) This
-	// call may also update the cold-start threshold void-time.
+	// call may also update the cold start threshold void-time.
 	if (! as_cold_start_evict_if_needed(ns)) {
 		return -2;
 	}
@@ -3004,9 +3004,9 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 }
 
 
-// Sweep through storage devices and rebuild the index.
+// Sweep through a storage device to rebuild the index.
 int
-ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
+ssd_cold_start_sweep(drv_ssds *ssds, drv_ssd *ssd)
 {
 	uint8_t *buf = cf_valloc(LOAD_BUF_SIZE);
 
@@ -3033,7 +3033,7 @@ ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
 
 	int error_count = 0;
 
-	ssd->cold_start_block_counter = file_offset / LOAD_BUF_SIZE;
+	ssd->sweep_block_counter = file_offset / LOAD_BUF_SIZE;
 
 	// Loop over all blocks in device.
 	while (true) {
@@ -3096,7 +3096,7 @@ ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
 			}
 
 			// Found a record - try to add it to the index.
-			int add_rv = ssd_record_add(ssds, ssd, block,
+			int add_rv = ssd_cold_start_add_record(ssds, ssd, block,
 					BYTES_TO_RBLOCKS(file_offset + block_offset),
 					(uint32_t)BYTES_TO_RBLOCKS(next_block_offset - block_offset));
 
@@ -3122,12 +3122,12 @@ NextBlock:
 		}
 
 		file_offset += LOAD_BUF_SIZE;
-		ssd->cold_start_block_counter++;
+		ssd->sweep_block_counter++;
 	}
 
 Finished:
 
-	ssd->cold_start_block_counter = ssd->file_size / LOAD_BUF_SIZE;
+	ssd->sweep_block_counter = ssd->file_size / LOAD_BUF_SIZE;
 
 	if (fd != -1) {
 		read_shadow ? ssd_shadow_fd_put(ssd, fd) : ssd_fd_put(ssd, fd);
@@ -3143,50 +3143,44 @@ Finished:
 }
 
 
-typedef struct {
+typedef struct ssd_load_records_info_s {
 	drv_ssds *ssds;
 	drv_ssd *ssd;
 	cf_queue *complete_q;
 	void *complete_udata;
 	void *complete_rc;
-} ssd_load_devices_data;
+} ssd_load_records_info;
 
-// Thread "run" function to read a device and rebuild the index.
+// Thread "run" function to read a storage device and rebuild the index.
 void *
-ssd_load_devices_fn(void *udata)
+run_ssd_cold_start(void *udata)
 {
-	ssd_load_devices_data *ldd = (ssd_load_devices_data*)udata;
-	drv_ssd *ssd = ldd->ssd;
-	drv_ssds *ssds = ldd->ssds;
-	cf_queue *complete_q = ldd->complete_q;
-	void *complete_udata = ldd->complete_udata;
-	void *complete_rc = ldd->complete_rc;
+	ssd_load_records_info *lri = (ssd_load_records_info*)udata;
+	drv_ssd *ssd = lri->ssd;
+	drv_ssds *ssds = lri->ssds;
+	cf_queue *complete_q = lri->complete_q;
+	void *complete_udata = lri->complete_udata;
+	void *complete_rc = lri->complete_rc;
+
+	cf_free(lri);
 
 	as_namespace* ns = ssds->ns;
-
-	cf_free(ldd);
-	ldd = 0;
 
 	cf_info(AS_DRV_SSD, "device %s: reading device to load index", ssd->name);
 
 	CF_ALLOC_SET_NS_ARENA(ns);
 
-	ssd_load_device_sweep(ssds, ssd);
+	ssd_cold_start_sweep(ssds, ssd);
 
 	cf_info(AS_DRV_SSD, "device %s: read complete: UNIQUE %"PRIu64" (REPLACED %"PRIu64") (OLDER %"PRIu64") (EXPIRED %"PRIu64") (MAX-TTL %"PRIu64") records",
 		ssd->name, ssd->record_add_unique_counter,
 		ssd->record_add_replace_counter, ssd->record_add_older_counter,
 		ssd->record_add_expired_counter, ssd->record_add_max_ttl_counter);
 
-	if (ssd->record_add_sigfail_counter) {
-		cf_warning(AS_DRV_SSD, "device %s: WARNING: %"PRIu64" elements could not be read due to signature failure. Possible hardware errors.",
-			ssd->name, ssd->record_add_sigfail_counter);
-	}
-
 	if (0 == cf_rc_release(complete_rc)) {
 		// All drives are done reading.
 
-		ns->cold_start_loading = false;
+		ns->loading_records = false;
 		ssd_cold_start_drop_cenotaphs(ns);
 		ssd_load_wblock_queues(ssds);
 
@@ -3203,14 +3197,14 @@ ssd_load_devices_fn(void *udata)
 		ssd_start_defrag_threads(ssds);
 	}
 
-	return 0;
+	return NULL;
 }
 
 
 void
-ssd_load_devices_load(drv_ssds *ssds, cf_queue *complete_q, void *udata)
+start_loading_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 {
-	ssds->ns->cold_start_loading = true;
+	ssds->ns->loading_records = true;
 
 	void *p = cf_rc_alloc(1);
 
@@ -3218,32 +3212,23 @@ ssd_load_devices_load(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		cf_rc_reserve(p);
 	}
 
+	pthread_t thread;
+	pthread_attr_t attrs;
+
+	pthread_attr_init(&attrs);
+	pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
-		ssd_load_devices_data *ldd = cf_malloc(sizeof(ssd_load_devices_data));
+		ssd_load_records_info *lri = cf_malloc(sizeof(ssd_load_records_info));
 
-		if (! ldd) {
-			cf_crash(AS_DRV_SSD, "memory allocation in device load");
-		}
+		lri->ssds = ssds;
+		lri->ssd = ssd;
+		lri->complete_q = complete_q;
+		lri->complete_udata = udata;
+		lri->complete_rc = p;
 
-		ldd->ssds = ssds;
-		ldd->ssd = ssd;
-		ldd->complete_q = complete_q;
-		ldd->complete_udata = udata;
-		ldd->complete_rc = p;
-
-		pthread_create(&ssd->load_device_thread, 0, ssd_load_devices_fn, ldd);
-	}
-}
-
-
-void
-ssd_load_devices_init_header_length(drv_ssds *ssds)
-{
-	for (int i = 0; i < ssds->n_ssds; i++) {
-		drv_ssd *ssd = &ssds->ssds[i];
-
-		ssd->header_size = ssds->header->header_length;
+		pthread_create(&thread, &attrs, run_ssd_cold_start, lri);
 	}
 }
 
@@ -3265,6 +3250,17 @@ first_used_device(ssd_device_header *headers[], int n_ssds)
 }
 
 
+static void
+init_header_sizes(drv_ssds *ssds)
+{
+	for (int i = 0; i < ssds->n_ssds; i++) {
+		drv_ssd *ssd = &ssds->ssds[i];
+
+		ssd->header_size = ssds->header->header_length;
+	}
+}
+
+
 static bool
 stored_version_has_data(drv_ssds *ssds, uint32_t pid)
 {
@@ -3276,7 +3272,7 @@ stored_version_has_data(drv_ssds *ssds, uint32_t pid)
 
 
 bool
-ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
+ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 {
 	uint64_t random = cf_get_rand64();
 
@@ -3322,7 +3318,7 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		ssds->header->random = random;
 		ssds->header->devices_n = n_ssds;
 		as_storage_info_flush_ssd(ns);
-		ssd_load_devices_init_header_length(ssds);
+		init_header_sizes(ssds);
 
 		as_truncate_list_cenotaphs(ns); // all will show as cenotaph
 		as_truncate_done_startup(ns);
@@ -3373,7 +3369,7 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 	ssds->header->random = random;
 	ssds->header->devices_n = n_ssds; // may have added fresh drives
 	as_storage_info_flush_ssd(ns);
-	ssd_load_devices_init_header_length(ssds);
+	init_header_sizes(ssds);
 
 	// Cache booleans indicating whether partitions are owned or not.
 	for (uint32_t pid = 0; pid < AS_PARTITIONS; pid++) {
@@ -3389,10 +3385,10 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		return true;
 	}
 
-	// Initialize the cold-start eviction machinery.
+	// Initialize the cold start eviction machinery.
 
 	if (0 != pthread_mutex_init(&ns->cold_start_evict_lock, NULL)) {
-		cf_crash(AS_DRV_SSD, "failed cold-start eviction mutex init");
+		cf_crash(AS_DRV_SSD, "failed cold start eviction mutex init");
 	}
 
 	uint32_t now = as_record_void_time_get();
@@ -3422,7 +3418,7 @@ ssd_load_devices(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 
 	// Fire off threads to load in data - will signal completion when threads
 	// are all done.
-	ssd_load_devices_load(ssds, complete_q, udata);
+	start_loading_records(ssds, complete_q, udata);
 
 	// Make sure caller doesn't signal completion.
 	return false;
@@ -3955,7 +3951,7 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 	// asynchronously signal completion via the complete_q, 'true' means it's
 	// finished, signal here.
 
-	if (ssd_load_devices(ssds, complete_q, udata)) {
+	if (ssd_load_records(ssds, complete_q, udata)) {
 		ssd_load_wblock_queues(ssds);
 
 		cf_queue_push(complete_q, &udata);
@@ -3970,19 +3966,19 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 
 
 void
-as_storage_cold_start_ticker_ssd()
+as_storage_loading_records_ticker_ssd()
 {
 	for (uint32_t i = 0; i < g_config.n_namespaces; i++) {
 		as_namespace *ns = g_config.namespaces[i];
 
-		if (ns->cold_start_loading) {
+		if (ns->loading_records) {
 			char buf[2048];
 			int pos = 0;
 			drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 
 			for (int j = 0; j < ssds->n_ssds; j++) {
 				drv_ssd *ssd = &ssds->ssds[j];
-				uint32_t pct = (ssd->cold_start_block_counter * 100) /
+				uint32_t pct = (ssd->sweep_block_counter * 100) /
 						(ssd->file_size / LOAD_BUF_SIZE);
 
 				pos += sprintf(buf + pos, ", %s %u%%", ssd->name, pct);

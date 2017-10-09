@@ -191,20 +191,18 @@ typedef struct drv_ssd_s
 
 	uint64_t		header_size;
 
-	uint32_t		cold_start_block_counter;		// large blocks read
+	uint32_t		sweep_block_counter;			// large blocks read
 	uint64_t		record_add_older_counter;		// records not inserted due to better existing one
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration
 	uint64_t		record_add_max_ttl_counter;		// records not inserted due to max-ttl
 	uint64_t		record_add_replace_counter;		// records reinserted
 	uint64_t		record_add_unique_counter;		// records inserted
-	uint64_t		record_add_sigfail_counter;
 
 	ssd_alloc_table	*alloc_table;
 
 	pthread_t		maintenance_thread;
 	pthread_t		write_worker_thread[MAX_SSD_THREADS];
 	pthread_t		shadow_worker_thread;
-	pthread_t		load_device_thread;
 	pthread_t		defrag_thread;
 
 	histogram		*hist_read;

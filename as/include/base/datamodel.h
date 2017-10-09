@@ -598,16 +598,16 @@ struct as_namespace_s {
 	uint32_t		xmem_flags;
 
 	//--------------------------------------------
-	// Cold-start.
+	// Cold start.
 	//
 
 	// If true, read storage devices to build index at startup.
 	bool			cold_start;
 
-	// Flag for cold-start ticker and eviction threshold check.
-	bool			cold_start_loading;
+	// Flag for ticker during initial loading of records from device.
+	bool			loading_records;
 
-	// For cold-start eviction.
+	// For cold start eviction.
 	pthread_mutex_t	cold_start_evict_lock;
 	uint32_t		cold_start_record_add_count;
 	cf_atomic32		cold_start_threshold_void_time;

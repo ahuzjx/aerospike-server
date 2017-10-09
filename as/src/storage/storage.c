@@ -82,7 +82,7 @@ as_storage_init()
 		void *_t;
 
 		while (CF_QUEUE_OK != cf_queue_pop(complete_q, &_t, 2000)) {
-			as_storage_cold_start_ticker_ssd();
+			as_storage_loading_records_ticker_ssd();
 		}
 	}
 

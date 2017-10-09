@@ -74,7 +74,7 @@ static bool eval_hwm_breached(as_namespace *ns);
 
 
 //==========================================================
-// Eviction during cold-start.
+// Eviction during cold start.
 //
 // No real need for this to be in thr_nsup.c, except maybe
 // for convenient comparison to run-time eviction.
@@ -85,8 +85,8 @@ static bool eval_hwm_breached(as_namespace *ns);
 
 
 //------------------------------------------------
-// Reduce callback prepares for cold-start eviction.
-// - builds cold-start eviction histogram
+// Reduce callback prepares for cold start eviction.
+// - builds cold start eviction histogram
 //
 typedef struct cold_start_evict_prep_info_s {
 	as_namespace*		ns;
@@ -111,7 +111,7 @@ cold_start_evict_prep_reduce_cb(as_index_ref* r_ref, void* udata)
 }
 
 //------------------------------------------------
-// Threads prepare for cold-start eviction.
+// Threads prepare for cold start eviction.
 //
 typedef struct evict_prep_thread_info_s {
 	as_namespace*		ns;
@@ -147,7 +147,7 @@ run_cold_start_evict_prep(void* udata)
 }
 
 //------------------------------------------------
-// Reduce callback evicts records on cold-start.
+// Reduce callback evicts records on cold start.
 // - evicts based on calculated threshold
 //
 typedef struct cold_start_evict_info_s {
@@ -183,7 +183,7 @@ cold_start_evict_reduce_cb(as_index_ref* r_ref, void* udata)
 }
 
 //------------------------------------------------
-// Threads do cold-start eviction.
+// Threads do cold start eviction.
 //
 typedef struct evict_thread_info_s {
 	as_namespace*	ns;
@@ -227,7 +227,7 @@ run_cold_start_evict(void* udata)
 }
 
 //------------------------------------------------
-// Get the cold-start histogram's TTL range.
+// Get the cold start histogram's TTL range.
 //
 // TODO - ttl_range to 32 bits?
 static uint64_t
@@ -250,12 +250,12 @@ get_cold_start_ttl_range(as_namespace* ns, uint32_t now)
 		max_void_time = cap;
 	}
 
-	// Convert to TTL - used for cold-start histogram range.
+	// Convert to TTL - used for cold start histogram range.
 	return max_void_time > now ? max_void_time - now : 0;
 }
 
 //------------------------------------------------
-// Set cold-start eviction threshold.
+// Set cold start eviction threshold.
 //
 static uint64_t
 set_cold_start_threshold(as_namespace* ns, linear_hist* hist)
@@ -266,10 +266,10 @@ set_cold_start_threshold(as_namespace* ns, linear_hist* hist)
 
 	if (subtotal == 0) {
 		if (all_buckets) {
-			cf_warning(AS_NSUP, "{%s} cold-start found no records eligible for eviction", ns->name);
+			cf_warning(AS_NSUP, "{%s} cold start found no records eligible for eviction", ns->name);
 		}
 		else {
-			cf_warning(AS_NSUP, "{%s} cold-start found no records below eviction void-time %u - threshold bucket %u, width %u sec, count %lu > target %lu (%.1f pct)",
+			cf_warning(AS_NSUP, "{%s} cold start found no records below eviction void-time %u - threshold bucket %u, width %u sec, count %lu > target %lu (%.1f pct)",
 					ns->name, threshold.value, threshold.bucket_index,
 					threshold.bucket_width, threshold.bucket_count,
 					threshold.target_count, (float)ns->evict_tenths_pct / 10.0);
@@ -279,7 +279,7 @@ set_cold_start_threshold(as_namespace* ns, linear_hist* hist)
 	}
 
 	if (all_buckets) {
-		cf_warning(AS_NSUP, "{%s} cold-start would evict all %lu records eligible - not evicting!", ns->name, subtotal);
+		cf_warning(AS_NSUP, "{%s} cold start would evict all %lu records eligible - not evicting!", ns->name, subtotal);
 		return 0;
 	}
 
@@ -289,7 +289,7 @@ set_cold_start_threshold(as_namespace* ns, linear_hist* hist)
 }
 
 //------------------------------------------------
-// Cold-start eviction, called by drv_ssd.c.
+// Cold start eviction, called by drv_ssd.c.
 // Returns false if a serious problem occurred and
 // we can't proceed.
 //
@@ -331,8 +331,8 @@ as_cold_start_evict_if_needed(as_namespace* ns)
 		return true;
 	}
 
-	// We may evict - set up the cold-start eviction histogram.
-	cf_info(AS_NSUP, "{%s} cold-start building eviction histogram ...", ns->name);
+	// We may evict - set up the cold start eviction histogram.
+	cf_info(AS_NSUP, "{%s} cold start building eviction histogram ...", ns->name);
 
 	uint32_t ttl_range = (uint32_t)get_cold_start_ttl_range(ns, now);
 	uint32_t n_buckets = MAX(ns->evict_hist_buckets, COLD_START_HIST_MIN_BUCKETS);
@@ -398,7 +398,7 @@ as_cold_start_evict_if_needed(as_namespace* ns)
 		return true;
 	}
 
-	cf_info(AS_NSUP, "{%s} cold-start found %lu records eligible for eviction, evict ttl %u", ns->name, n_evictable, cf_atomic32_get(ns->cold_start_threshold_void_time) - now);
+	cf_info(AS_NSUP, "{%s} cold start found %lu records eligible for eviction, evict ttl %u", ns->name, n_evictable, cf_atomic32_get(ns->cold_start_threshold_void_time) - now);
 
 	// Reduce all partitions to evict based on the thresholds.
 	evict_thread_info thread_info = {
@@ -421,14 +421,14 @@ as_cold_start_evict_if_needed(as_namespace* ns)
 	}
 	// Now we're single-threaded again.
 
-	cf_info(AS_NSUP, "{%s} cold-start evicted %u records, found %u 0-void-time records", ns->name, thread_info.total_evicted, thread_info.total_0_void_time);
+	cf_info(AS_NSUP, "{%s} cold start evicted %u records, found %u 0-void-time records", ns->name, thread_info.total_evicted, thread_info.total_0_void_time);
 
 	pthread_mutex_unlock(&ns->cold_start_evict_lock);
 	return true;
 }
 
 //
-// END - Eviction during cold-start.
+// END - Eviction during cold start.
 //==========================================================
 
 //==========================================================

@@ -148,7 +148,7 @@ extern int as_storage_stats_memory(struct as_namespace_s *ns, int *available_pct
 
 extern int as_storage_namespace_init_ssd(struct as_namespace_s *ns, cf_queue *complete_q, void *udata);
 extern void as_storage_start_tomb_raider_ssd(struct as_namespace_s *ns);
-extern void as_storage_cold_start_ticker_ssd(); // called directly by as_storage_init()
+extern void as_storage_loading_records_ticker_ssd(); // called directly by as_storage_init()
 extern int as_storage_namespace_destroy_ssd(struct as_namespace_s *ns);
 
 extern int as_storage_record_destroy_ssd(struct as_namespace_s *ns, struct as_index_s *r);
