@@ -976,6 +976,7 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 	}
 
 	cf_socket sock;
+	cf_sock_addr addr;
 	const as_endpoint *connected_endpoint = NULL;
 	size_t endpoint_list_capacity = 1024;
 	int tries_remaining = 3;
@@ -1000,6 +1001,13 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 				return NULL;
 			}
 
+			as_endpoint_to_sock_addr(connected_endpoint, &addr);
+
+			if (as_endpoint_capability_is_supported(connected_endpoint,
+					AS_ENDPOINT_TLS_MASK)) {
+				tls_socket_prepare_client(g_fabric_tls, &sock);
+			}
+
 			break; // read success
 		}
 
@@ -1017,14 +1025,6 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 		cf_warning(AS_FABRIC,"fabric_node_connect(%p, %u) List get error for remote node %lx", node, ch, node->node_id);
 		pthread_mutex_unlock(&node->connect_lock);
 		return NULL;
-	}
-
-	cf_sock_addr addr;
-	as_endpoint_to_sock_addr(connected_endpoint, &addr);
-
-	if (as_endpoint_capability_is_supported(connected_endpoint,
-			AS_ENDPOINT_TLS_MASK)) {
-		tls_socket_prepare_client(g_fabric_tls, &sock);
 	}
 
 	msg *m = as_fabric_msg_get(M_TYPE_FABRIC);
