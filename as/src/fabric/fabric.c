@@ -603,8 +603,8 @@ as_fabric_info_peer_endpoints_get(cf_dyn_buf *db)
 			uint8_t stack_mem[endpoint_list_capacity];
 			as_endpoint_list *endpoint_list = (as_endpoint_list *)stack_mem;
 
-			if (fabric_endpoint_list_get(node->node_id, endpoint_list,
-					&endpoint_list_capacity) != 0) {
+			if (! fabric_endpoint_list_get(node->node_id, endpoint_list,
+					&endpoint_list_capacity)) {
 				if (errno == ENOENT) {
 					// No entry present for this node in heartbeat.
 					cf_detail(AS_FABRIC, "could not get endpoint list for %lx", node->node_id);
@@ -766,7 +766,7 @@ fabric_published_endpoints_refresh()
 
 	g_published_endpoint_list_ipv4_only = cf_ip_addr_legacy_only();
 
-	if (! g_published_endpoint_list->n_endpoints) {
+	if (g_published_endpoint_list->n_endpoints == 0) {
 		if (g_published_endpoint_list_ipv4_only) {
 			cf_warning(AS_FABRIC, "no IPv4 addresses configured for fabric");
 		}
@@ -977,7 +977,6 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 
 	cf_socket sock;
 	cf_sock_addr addr;
-	const as_endpoint *connected_endpoint = NULL;
 	size_t endpoint_list_capacity = 1024;
 	int tries_remaining = 3;
 
@@ -994,8 +993,11 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 			cf_detail(AS_FABRIC, "fabric_node_connect(%p, %u) node_id %lx with endpoints {%s}", node, ch, node->node_id, endpoint_list_str);
 
 			// Initiate connect to the remote endpoint.
-			if (! (connected_endpoint = as_endpoint_connect_any(endpoint_list,
-					fabric_connect_endpoint_filter, NULL, 0, &sock))) {
+			const as_endpoint *connected_endpoint = as_endpoint_connect_any(
+					endpoint_list, fabric_connect_endpoint_filter, NULL, 0,
+					&sock);
+
+			if (! connected_endpoint) {
 				cf_detail(AS_FABRIC, "fabric_node_connect(%p, %u) node_id %lx failed for endpoints {%s}", node, ch, node->node_id, endpoint_list_str);
 				pthread_mutex_unlock(&node->connect_lock);
 				return NULL;
