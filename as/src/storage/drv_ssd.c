@@ -463,14 +463,14 @@ static void
 log_bad_record(const char* ns_name, uint32_t n_bins, uint32_t block_bins,
 		const drv_ssd_bin* ssd_bin, const char* tag)
 {
-	cf_info(AS_DRV_SSD, "untrustworthy data from disk [%s], ignoring record", tag);
+	cf_info(AS_DRV_SSD, "untrustworthy data from disk [%s]", tag);
 	cf_info(AS_DRV_SSD, "   ns->name = %s", ns_name);
-	cf_info(AS_DRV_SSD, "   bin %" PRIu32 " [of %" PRIu32 "]", (block_bins - n_bins) + 1, block_bins);
+	cf_info(AS_DRV_SSD, "   bin %u [of %u]", (block_bins - n_bins) + 1, block_bins);
 
 	if (ssd_bin) {
-		cf_info(AS_DRV_SSD, "   ssd_bin->offset = %" PRIu32, ssd_bin->offset);
-		cf_info(AS_DRV_SSD, "   ssd_bin->len = %" PRIu32, ssd_bin->len);
-		cf_info(AS_DRV_SSD, "   ssd_bin->next = %" PRIu32, ssd_bin->next);
+		cf_info(AS_DRV_SSD, "   ssd_bin->offset = %u", ssd_bin->offset);
+		cf_info(AS_DRV_SSD, "   ssd_bin->len = %u", ssd_bin->len);
+		cf_info(AS_DRV_SSD, "   ssd_bin->next = %u", ssd_bin->next);
 	}
 }
 
@@ -762,8 +762,8 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 				BYTES_TO_RBLOCK_BYTES(block->length + LENGTH_BASE);
 
 		if (next_wblock_offset > ssd->write_block_size) {
-			cf_warning(AS_DRV_SSD, "error: block extends over read size: foff %"PRIu64" boff %"PRIu64" blen %"PRIu64,
-				file_offset, wblock_offset, (uint64_t)block->length);
+			cf_warning(AS_DRV_SSD, "error: block extends over read size: foff %lu boff %lu blen %lu",
+					file_offset, wblock_offset, (uint64_t)block->length);
 			break;
 		}
 
@@ -1176,7 +1176,7 @@ ssd_read_record(as_storage_rd *rd)
 		// Sanity checks.
 
 		if (block->magic != SSD_BLOCK_MAGIC) {
-			cf_warning(AS_DRV_SSD, "read: bad block magic offset %"PRIu64,
+			cf_warning(AS_DRV_SSD, "read: bad block magic offset %lu",
 					read_offset);
 			cf_free(read_buf);
 			return -1;
@@ -1189,8 +1189,8 @@ ssd_read_record(as_storage_rd *rd)
 		}
 
 		if (0 != cf_digest_compare(&block->keyd, &r->keyd)) {
-			cf_warning(AS_DRV_SSD, "read: read wrong key: expecting %"PRIx64" got %"PRIx64,
-				*(uint64_t*)&r->keyd, *(uint64_t*)&block->keyd);
+			cf_warning(AS_DRV_SSD, "read: read wrong key: expecting %lx got %lx",
+					*(uint64_t*)&r->keyd, *(uint64_t*)&block->keyd);
 			cf_free(read_buf);
 			return -1;
 		}
@@ -1563,8 +1563,8 @@ ssd_write_bins(as_storage_rd *rd)
 	uint32_t write_size = ssd_write_calculate_size(rd);
 
 	if (write_size > ssd->write_block_size) {
-		cf_warning(AS_DRV_SSD, "write: rejecting %"PRIx64" write size: %u",
-				*(uint64_t*)&r->keyd, write_size);
+		cf_warning_digest(AS_DRV_SSD, &r->keyd, "write: size %u - rejecting ",
+				write_size);
 		return -AS_PROTO_RESULT_FAIL_RECORD_TOO_BIG;
 	}
 
@@ -1777,7 +1777,7 @@ as_storage_show_wblock_stats(as_namespace *ns)
 				}
 				else {
 					if (inuse_sz > ssd->write_block_size || inuse_sz < lwm_size) {
-						cf_info(AS_DRV_SSD, "dev %d, wblock %"PRIu32", inuse_sz %"PRIu32", %s swb",
+						cf_info(AS_DRV_SSD, "dev %d, wblock %u, inuse_sz %u, %s swb",
 								d, i, inuse_sz, wblock_state->swb ? "has" : "no");
 
 						num_defraggable++;
@@ -2501,7 +2501,7 @@ ssd_read_header(drv_ssd *ssd, as_namespace *ns, ssd_device_header **header_r)
 		goto Fail;
 	}
 
-	cf_detail(AS_DRV_SSD, "device %s: header read success: version %d devices %d random %"PRIu64,
+	cf_detail(AS_DRV_SSD, "device %s: header read success: version %d devices %d random %lu",
 			ssd_name, header->version, header->devices_n, header->random);
 
 	// In case we're bumping the version - ensure the new version gets written.
@@ -2773,6 +2773,7 @@ ssd_cold_start_add_record(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 
 	// Sanity-check the record.
 	if (! is_valid_record(block, ns->name)) {
+		cf_warning_digest(AS_DRV_SSD, &block->keyd, "invalid data on device - ignoring record ");
 		return -3;
 	}
 
@@ -2784,10 +2785,7 @@ ssd_cold_start_add_record(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	r_ref.skip_lock = false;
 
 	// Prepare to read rec-props.
-	as_rec_props props;
-
-	props.p_data = block->data;
-	props.size = block->bins_offset;
+	as_rec_props props = { .p_data = block->data, .size = block->bins_offset };
 
 	if (ssd_cold_start_is_record_truncated(ns, block, &props)) {
 		return -1;
@@ -3073,8 +3071,8 @@ ssd_cold_start_sweep(drv_ssds *ssds, drv_ssd *ssd)
 			// Sanity-check for 1M block overruns.
 			// TODO - check write_block_size boundaries!
 			if (next_block_offset > LOAD_BUF_SIZE) {
-				cf_warning(AS_DRV_SSD, "error: block extends over read size: foff %"PRIu64" boff %"PRIu64" blen %"PRIu64,
-					file_offset, block_offset, (uint64_t)block->length);
+				cf_warning(AS_DRV_SSD, "error: block extends over read size: foff %lu boff %lu blen %lu",
+						file_offset, block_offset, (uint64_t)block->length);
 
 				error_count++;
 				goto NextBlock;
@@ -3149,12 +3147,12 @@ run_ssd_cold_start(void *udata)
 
 	ssd_cold_start_sweep(ssds, ssd);
 
-	cf_info(AS_DRV_SSD, "device %s: read complete: UNIQUE %"PRIu64" (REPLACED %"PRIu64") (OLDER %"PRIu64") (EXPIRED %"PRIu64") (MAX-TTL %"PRIu64") records",
-		ssd->name, ssd->record_add_unique_counter,
-		ssd->record_add_replace_counter, ssd->record_add_older_counter,
-		ssd->record_add_expired_counter, ssd->record_add_max_ttl_counter);
+	cf_info(AS_DRV_SSD, "device %s: read complete: UNIQUE %lu (REPLACED %lu) (OLDER %lu) (EXPIRED %lu) (MAX-TTL %lu) records",
+			ssd->name, ssd->record_add_unique_counter,
+			ssd->record_add_replace_counter, ssd->record_add_older_counter,
+			ssd->record_add_expired_counter, ssd->record_add_max_ttl_counter);
 
-	if (0 == cf_rc_release(complete_rc)) {
+	if (cf_rc_release(complete_rc) == 0) {
 		// All drives are done reading.
 
 		ns->loading_records = false;
@@ -3286,7 +3284,7 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 					ns->name, n_ssds, as_namespace_start_mode_str(ns));
 		}
 
-		cf_info(AS_DRV_SSD, "namespace %s: found all %d devices fresh, initializing to random %"PRIu64,
+		cf_info(AS_DRV_SSD, "namespace %s: found all %d devices fresh, initializing to random %lu",
 				ns->name, n_ssds, random);
 
 		ssds->header = headers[0];
@@ -3521,14 +3519,14 @@ check_file_size(off_t file_size, const char *tag)
 		}
 
 		if (file_size > AS_STORAGE_MAX_DEVICE_SIZE) {
-			cf_warning(AS_DRV_SSD, "%s size must be <= %"PRId64", trimming original size %"PRId64,
+			cf_warning(AS_DRV_SSD, "%s size must be <= %ld, trimming original size %ld",
 					tag, AS_STORAGE_MAX_DEVICE_SIZE, file_size);
 			file_size = AS_STORAGE_MAX_DEVICE_SIZE;
 		}
 	}
 
 	if (file_size <= SSD_DEFAULT_HEADER_LENGTH) {
-		cf_crash(AS_DRV_SSD, "%s size %"PRId64" must be greater than header size %d",
+		cf_crash(AS_DRV_SSD, "%s size %ld must be greater than header size %d",
 				tag, file_size, SSD_DEFAULT_HEADER_LENGTH);
 	}
 
