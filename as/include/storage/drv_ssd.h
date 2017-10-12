@@ -36,6 +36,7 @@
 
 #include "hist.h"
 
+#include "base/datamodel.h"
 #include "fabric/partition.h"
 
 
@@ -181,7 +182,7 @@ typedef struct drv_ssd_s
 
 	uint32_t		open_flag;
 	bool			data_in_memory;
-	bool			started_fresh;		// relevant only for warm restart
+	bool			started_fresh;		// relevant only for warm or cool restart
 
 	uint64_t		io_min_size;		// device IO operations are aligned and sized in multiples of this
 
@@ -234,8 +235,19 @@ typedef struct drv_ssds_s
 // Private API - for enterprise separation only
 //
 
+#define MAX_WRITE_BLOCK_SIZE	(1024 * 1024)
+#define LOAD_BUF_SIZE			MAX_WRITE_BLOCK_SIZE // must be multiple of MAX_WRITE_BLOCK_SIZE
+
 #define SSD_BLOCK_MAGIC		0x037AF200
 #define LENGTH_BASE			offsetof(struct drv_ssd_block_s, keyd)
+
+typedef struct ssd_load_records_info_s {
+	drv_ssds *ssds;
+	drv_ssd *ssd;
+	cf_queue *complete_q;
+	void *complete_udata;
+	void *complete_rc;
+} ssd_load_records_info;
 
 // Per-record metadata on device.
 typedef struct drv_ssd_block_s {
@@ -251,8 +263,24 @@ typedef struct drv_ssd_block_s {
 	uint8_t			data[];
 } __attribute__ ((__packed__)) drv_ssd_block;
 
-// Warm restart.
+// Per-bin metadata on device.
+typedef struct drv_ssd_bin_s {
+	char		name[AS_ID_BIN_SZ];	// 15 aligns well
+	uint8_t		version;			// now unused
+	uint32_t	offset;				// offset of bin data within block
+	uint32_t	len;				// size of bin data
+	uint32_t	next;				// location of next bin: block offset
+} __attribute__ ((__packed__)) drv_ssd_bin;
+
+// Warm and cool restart.
 void ssd_resume_devices(drv_ssds *ssds);
+void *run_ssd_cool_start(void *udata);
+void ssd_load_wblock_queues(drv_ssds *ssds);
+void ssd_start_maintenance_threads(drv_ssds *ssds);
+void ssd_start_write_worker_threads(drv_ssds *ssds);
+void ssd_start_defrag_threads(drv_ssds *ssds);
+bool is_valid_record(const drv_ssd_block *block, const char *ns_name);
+void apply_rec_props(struct as_index_s *r, struct as_namespace_s *ns, const struct as_rec_props_s *p_props);
 
 // Tomb raider.
 void ssd_cold_start_adjust_cenotaph(struct as_namespace_s *ns, const drv_ssd_block *block, struct as_index_s *r);

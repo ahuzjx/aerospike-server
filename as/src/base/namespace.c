@@ -129,7 +129,7 @@ as_namespace_create(char *name)
 	ns->jem_arena = cf_alloc_create_arena();
 	cf_info(AS_NAMESPACE, "{%s} uses JEMalloc arena %d", name, ns->jem_arena);
 
-	ns->cold_start = false; // try warm restart unless told not to
+	ns->cold_start = false; // try warm or cool restart unless told not to
 	ns->arena = NULL; // can't create the arena until the configuration has been done
 
 	//--------------------------------------------

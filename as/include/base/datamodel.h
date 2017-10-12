@@ -594,7 +594,7 @@ struct as_namespace_s {
 	as_set*			sets_cfg_array;
 	uint32_t		sets_cfg_count;
 
-	// Configuration flags relevant for warm restart.
+	// Configuration flags relevant for warm or cool restart.
 	uint32_t		xmem_flags;
 
 	//--------------------------------------------
@@ -1027,7 +1027,7 @@ typedef enum {
 	AS_SET_ENABLE_XDR_FALSE = 2
 } as_set_enable_xdr_flag;
 
-// Caution - changing this struct could break warm restart.
+// Caution - changing this struct could break warm or cool restart.
 struct as_set_s {
 	char			name[AS_SET_NAME_MAX_SIZE];
 	cf_atomic64		n_objects;
@@ -1106,6 +1106,18 @@ extern void as_namespace_release_set_id(as_namespace *ns, uint16_t set_id);
 extern void as_namespace_get_bins_info(as_namespace *ns, cf_dyn_buf *db, bool show_ns);
 extern void as_namespace_get_hist_info(as_namespace *ns, char *set_name, char *hist_name,
 		cf_dyn_buf *db, bool show_ns);
+
+static inline bool
+as_namespace_cool_restarts(const as_namespace *ns)
+{
+	return ns->storage_data_in_memory && ! ns->data_in_index;
+}
+
+static inline const char*
+as_namespace_start_mode_str(const as_namespace *ns)
+{
+	return as_namespace_cool_restarts(ns) ? "cool" : "warm";
+}
 
 // Persistent Memory Management
 

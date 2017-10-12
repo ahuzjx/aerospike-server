@@ -76,9 +76,6 @@ extern bool as_cold_start_evict_if_needed(as_namespace* ns);
 // Constants.
 //
 
-#define MAX_WRITE_BLOCK_SIZE	(1024 * 1024)
-#define LOAD_BUF_SIZE			MAX_WRITE_BLOCK_SIZE // must be multiple of MAX_WRITE_BLOCK_SIZE
-
 // We round usable device/file size down to SSD_DEFAULT_HEADER_LENGTH plus a
 // multiple of LOAD_BUF_SIZE. If we ever change SSD_DEFAULT_HEADER_LENGTH we
 // may break backward compatibility since an old header with different size
@@ -100,18 +97,6 @@ typedef struct info_buf_s {
 	uint32_t unused; // used to be len, but was never read
 	as_partition_version version;
 } __attribute__ ((__packed__)) info_buf;
-
-
-//------------------------------------------------
-// Per-bin metadata on device.
-//
-typedef struct drv_ssd_bin_s {
-	char		name[AS_ID_BIN_SZ];	// 15 aligns well
-	uint8_t		version;			// now unused
-	uint32_t	offset;				// offset of bin data within block
-	uint32_t	len;				// size of bin data
-	uint32_t	next;				// location of next bin: block offset
-} __attribute__ ((__packed__)) drv_ssd_bin;
 
 
 //==========================================================
@@ -491,7 +476,7 @@ log_bad_record(const char* ns_name, uint32_t n_bins, uint32_t block_bins,
 
 
 // TODO - sanity-check rec-props?
-static bool
+bool
 is_valid_record(const drv_ssd_block* block, const char* ns_name)
 {
 	uint8_t* block_head = (uint8_t*)block;
@@ -2390,7 +2375,7 @@ run_ssd_maintenance(void *udata)
 }
 
 
-static void
+void
 ssd_start_maintenance_threads(drv_ssds *ssds)
 {
 	cf_info(AS_DRV_SSD, "{%s} starting device maintenance threads",
@@ -3143,14 +3128,6 @@ Finished:
 }
 
 
-typedef struct ssd_load_records_info_s {
-	drv_ssds *ssds;
-	drv_ssd *ssd;
-	cf_queue *complete_q;
-	void *complete_udata;
-	void *complete_rc;
-} ssd_load_records_info;
-
 // Thread "run" function to read a storage device and rebuild the index.
 void *
 run_ssd_cold_start(void *udata)
@@ -3204,7 +3181,9 @@ run_ssd_cold_start(void *udata)
 void
 start_loading_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 {
-	ssds->ns->loading_records = true;
+	as_namespace *ns = ssds->ns;
+
+	ns->loading_records = true;
 
 	void *p = cf_rc_alloc(1);
 
@@ -3228,7 +3207,8 @@ start_loading_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		lri->complete_udata = udata;
 		lri->complete_rc = p;
 
-		pthread_create(&thread, &attrs, run_ssd_cold_start, lri);
+		pthread_create(&thread, &attrs,
+				ns->cold_start ? run_ssd_cold_start : run_ssd_cool_start, lri);
 	}
 }
 
@@ -3299,11 +3279,11 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 	int first_used = first_used_device(headers, n_ssds);
 
 	if (first_used == -1) {
-		// Shouldn't find all fresh headers here during warm restart.
+		// Shouldn't find all fresh headers here during warm or cool restart.
 		if (! ns->cold_start) {
 			// There's no going back to cold start now - do so the harsh way.
-			cf_crash(AS_DRV_SSD, "{%s}: found all %d devices fresh during warm restart",
-					ns->name, n_ssds);
+			cf_crash(AS_DRV_SSD, "{%s}: found all %d devices fresh during %s restart",
+					ns->name, n_ssds, as_namespace_start_mode_str(ns));
 		}
 
 		cf_info(AS_DRV_SSD, "namespace %s: found all %d devices fresh, initializing to random %"PRIu64,
@@ -3333,7 +3313,7 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 
 		// Skip fresh devices.
 		if (headers[i]->random == 0) {
-			ssd->started_fresh = true; // warm restart needs to know
+			ssd->started_fresh = true; // warm or cool restart needs to know
 			continue;
 		}
 
@@ -3377,12 +3357,21 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 				stored_version_has_data(ssds, pid);
 	}
 
-	// Warm restart - imitate device loading by reducing resumed index.
+	// Warm or cool restart.
 	if (! ns->cold_start) {
 		as_truncate_done_startup(ns); // set truncate last-update-times in sets' vmap
 		ssd_resume_devices(ssds);
 
-		return true;
+		if (as_namespace_cool_restarts(ns)) {
+			// Cool restart - fire off threads to load record data - will signal
+			// completion when threads are all done.
+			start_loading_records(ssds, complete_q, udata);
+
+			// Make sure caller doesn't signal completion.
+			return false;
+		}
+
+		return true; // warm restart (done)
 	}
 
 	// Initialize the cold start eviction machinery.
@@ -3416,8 +3405,8 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 
 	ns->cold_start_max_void_time = now + (uint32_t)ns->max_ttl;
 
-	// Fire off threads to load in data - will signal completion when threads
-	// are all done.
+	// Fire off threads to load record data - will signal completion when
+	// threads are all done.
 	start_loading_records(ssds, complete_q, udata);
 
 	// Make sure caller doesn't signal completion.

@@ -22,6 +22,7 @@
 
 #include "storage/drv_ssd.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "fault.h"
 #include "base/datamodel.h"
@@ -34,6 +35,16 @@ ssd_resume_devices(drv_ssds* ssds)
 {
 	// Should not get here - for enterprise version only.
 	cf_crash(AS_DRV_SSD, "cold start called ssd_resume_devices()");
+}
+
+
+void*
+run_ssd_cool_start(void* udata)
+{
+	// Should not get here - for enterprise version only.
+	cf_crash(AS_DRV_SSD, "community edition called run_ssd_cool_start()");
+
+	return NULL;
 }
 
 

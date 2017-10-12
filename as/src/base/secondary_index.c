@@ -1825,15 +1825,14 @@ as_sindex_boot_populateall()
 			continue;
 		}
 
-		// If FAST START
-		// OR (Data not in memory AND COLD START)
-		if (!ns->cold_start
-			|| (!ns->storage_data_in_memory)) {
-			// reserve all sindexes
+		if (! ns->storage_data_in_memory) {
+			// Data-not-in-memory (cold or warm restart) - have not yet built
+			// sindex, build it now.
 			as_sindex_populator_reserve_all(ns);
 			as_sbld_build_all(ns);
 			cf_info(AS_SINDEX, "Queuing namespace %s for sindex population ", ns->name);
 		} else {
+			// Data-in-memory (cold or cool restart) - already built sindex.
 			as_sindex_boot_populateall_done(ns);
 		}
 		ns_cnt++;
@@ -1851,9 +1850,8 @@ as_sindex_boot_populateall()
 			continue;
 		}
 
-		// If FAST START
-		// OR (Data not in memory AND COLD START)
-		if (!ns->cold_start || (!ns->storage_data_in_memory)) {
+		if (! ns->storage_data_in_memory) {
+			// Data-not-in-memory - finished sindex building job.
 			as_sindex_populator_release_all(ns);
 		}
 	}

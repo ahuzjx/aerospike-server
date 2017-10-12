@@ -93,7 +93,7 @@ setup_namespace(as_namespace* ns, uint32_t stage_capacity)
 {
 	ns->cold_start = true;
 
-	cf_info(AS_NAMESPACE, "{%s} beginning COLD start", ns->name);
+	cf_info(AS_NAMESPACE, "{%s} beginning cold start", ns->name);
 
 	//--------------------------------------------
 	// Set up the set name vmap.
