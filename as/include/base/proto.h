@@ -59,7 +59,7 @@ struct as_transaction_s;
 #define AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH	7
 #define AS_PROTO_RESULT_FAIL_OUT_OF_SPACE			8
 #define AS_PROTO_RESULT_FAIL_TIMEOUT				9
-#define AS_PROTO_RESULT_FAIL_UNUSED_10				10	// recycle - was AS_PROTO_RESULT_FAIL_NOXDR
+#define AS_PROTO_RESULT_FAIL_ALWAYS_FORBIDDEN		10	// operation not allowed for current (static) configuration
 #define AS_PROTO_RESULT_FAIL_UNAVAILABLE			11	// error returned during node down and partition isn't available
 #define AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE		12	// op and bin type incompatibility
 #define AS_PROTO_RESULT_FAIL_RECORD_TOO_BIG			13
@@ -71,7 +71,7 @@ struct as_transaction_s;
 #define AS_PROTO_RESULT_FAIL_KEY_MISMATCH			19
 #define AS_PROTO_RESULT_FAIL_NAMESPACE				20
 #define AS_PROTO_RESULT_FAIL_BIN_NAME				21
-#define AS_PROTO_RESULT_FAIL_FORBIDDEN				22	// operation (perhaps temporarily) not possible
+#define AS_PROTO_RESULT_FAIL_FORBIDDEN				22	// operation temporarily not possible
 #define AS_PROTO_RESULT_FAIL_ELEMENT_NOT_FOUND		23
 #define AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS			24
 #define AS_PROTO_RESULT_FAIL_ENTERPRISE_ONLY		25	// attempting enterprise functionality on community build

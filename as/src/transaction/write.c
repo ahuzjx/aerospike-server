@@ -170,7 +170,7 @@ as_write_start(as_transaction* tr)
 
 	// Apply XDR filter.
 	if (! xdr_allows_write(tr)) {
-		tr->result_code = AS_PROTO_RESULT_FAIL_FORBIDDEN;
+		tr->result_code = AS_PROTO_RESULT_FAIL_ALWAYS_FORBIDDEN;
 		send_write_response(tr, NULL);
 		return TRANS_DONE_ERROR;
 	}
