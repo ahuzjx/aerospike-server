@@ -1653,7 +1653,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		return;
 	}
 
-	info_append_uint32(db, "repl-factor", ns->replication_factor);
+	info_append_uint32(db, "replication-factor", ns->cfg_replication_factor);
 	info_append_uint64(db, "memory-size", ns->memory_size);
 	info_append_uint64(db, "default-ttl", ns->default_ttl);
 
@@ -5361,6 +5361,9 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 
 	// Using ns_ prefix to avoid confusion with global cluster_size.
 	info_append_uint32(db, "ns_cluster_size", ns->cluster_size);
+
+	// Using effective_ prefix to avoid confusion with configured value.
+	info_append_uint32(db, "effective_replication_factor", ns->replication_factor);
 
 	// Object counts.
 
