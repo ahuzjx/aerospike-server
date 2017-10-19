@@ -241,11 +241,6 @@ cf_fault_sink_hold(char *path)
 
 	s->path = cf_strdup(path);
 
-	if (! s->path) {
-		cf_warning(CF_MISC, "failed allocation for sink path");
-		return NULL;
-	}
-
 	// If a context is not added, its runtime default will be CF_INFO.
 	for (int i = 0; i < CF_FAULT_CONTEXT_UNDEF; i++) {
 		s->limit[i] = CF_INFO;

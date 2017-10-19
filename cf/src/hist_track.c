@@ -140,10 +140,6 @@ cf_hist_track_create(const char* name, histogram_scale scale)
 
 	cf_hist_track* this = (cf_hist_track*)cf_malloc(sizeof(cf_hist_track));
 
-	if (! this) {
-		return NULL;
-	}
-
 	if (pthread_mutex_init(&this->rows_lock, 0) != 0) {
 		cf_free(this);
 		return NULL;
@@ -242,12 +238,6 @@ cf_hist_track_start(cf_hist_track* this, uint32_t back_sec, uint32_t slice_sec,
 
 	this->row_size = sizeof(row) + (num_cols * sizeof(uint64_t));
 	this->rows = (row*)cf_malloc(num_rows * this->row_size);
-
-	if (! this->rows) {
-		pthread_mutex_unlock(&this->rows_lock);
-		return false;
-	}
-
 	this->num_rows = num_rows;
 	this->write_row_n = 0;
 	this->oldest_row_n = 0;

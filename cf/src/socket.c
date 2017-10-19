@@ -52,18 +52,6 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_digest.h"
 
-static char *
-safe_strdup(const char *string)
-{
-	char *res = cf_strdup(string);
-
-	if (res == NULL) {
-		cf_crash(CF_SOCKET, "Out of memory");
-	}
-
-	return res;
-}
-
 void
 cf_ip_addr_to_string_safe(const cf_ip_addr *addr, char *string, size_t size)
 {
@@ -1664,11 +1652,6 @@ netlink_dump(int32_t type, int32_t filter1, int32_t filter2a, int32_t filter2b, 
 
 	uint8_t *resp = cf_malloc(RESP_SIZE);
 
-	if (resp == NULL) {
-		cf_crash(CF_SOCKET, "Out of memory");
-		goto cleanup1;
-	}
-
 	memset(resp, 0, RESP_SIZE);
 	bool done = false;
 
@@ -2231,7 +2214,7 @@ cf_inter_addr_to_index_and_name(const cf_ip_addr *addr, int32_t *index, char **n
 		for (uint32_t k = 0; k < entry->n_addrs; ++k) {
 			if (cf_ip_addr_compare(&entry->addrs[k], addr) == 0) {
 				if (name != NULL) {
-					*name = safe_strdup(entry->name);
+					*name = cf_strdup(entry->name);
 				}
 
 				if (index != NULL) {
@@ -2266,12 +2249,12 @@ cf_inter_expand_bond(const char *if_name, char **out_names, uint32_t *n_out)
 			cf_crash(CF_SOCKET, "Output buffer overflow");
 		}
 
-		out_names[n] = safe_strdup(entry->name);
+		out_names[n] = cf_strdup(entry->name);
 		++n;
 	}
 
 	if (n == 0) {
-		out_names[0] = safe_strdup(if_name);
+		out_names[0] = cf_strdup(if_name);
 		n = 1;
 	}
 

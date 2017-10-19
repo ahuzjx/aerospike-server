@@ -165,8 +165,6 @@ msg_type_register(msg_type type, const msg_template *mt, size_t mt_sz,
 
 	msg_template *table = cf_calloc(mte->entry_count, sizeof(msg_template));
 
-	cf_assert(table, CF_MSG, "memory");
-
 	for (uint16_t i = 0; i < mt_count; i++) {
 		table[mt[i].id] = mt[i];
 	}
@@ -541,7 +539,6 @@ msg_set_str(msg *m, int field_id, const char *v, msg_set_type type)
 		}
 		else {
 			mf->u.str = cf_strdup(v);
-			cf_assert(mf->u.str, CF_MSG, "malloc");
 			mf->is_free = true;
 		}
 	}
@@ -577,7 +574,6 @@ msg_set_buf(msg *m, int field_id, const uint8_t *v, size_t sz,
 		}
 		else {
 			mf->u.buf = cf_malloc(sz);
-			cf_assert(mf->u.buf, CF_MSG, "malloc");
 			mf->is_free = true;
 		}
 
@@ -607,9 +603,6 @@ msg_set_uint32_array_size(msg *m, int field_id, uint32_t count)
 
 	mf->field_sz = (uint32_t)(count * sizeof(uint32_t));
 	mf->u.ui32_a = cf_malloc(mf->field_sz);
-
-	cf_assert(mf->u.ui32_a, CF_MSG, "malloc");
-
 	mf->is_set = true;
 	mf->is_free = true;
 
@@ -638,9 +631,6 @@ msg_set_uint64_array_size(msg *m, int field_id, uint32_t count)
 
 	mf->field_sz = (uint32_t)(count * sizeof(uint64_t));
 	mf->u.ui64_a = cf_malloc(mf->field_sz);
-
-	cf_assert(mf->u.ui64_a, CF_MSG, "malloc");
-
 	mf->is_set = true;
 	mf->is_free = true;
 
@@ -675,8 +665,6 @@ msg_msgpack_list_set_uint32(msg *m, int field_id, const uint32_t *buf,
 
 	mf->field_sz = a_sz;
 	mf->u.any_buf = cf_malloc(a_sz);
-
-	cf_assert(mf->u.any_buf, CF_MSG, "malloc");
 
 	as_packer pk = {
 			.buffer = mf->u.any_buf,
@@ -719,8 +707,6 @@ msg_msgpack_list_set_buf(msg *m, int field_id, const cf_vector *v)
 
 	mf->field_sz = a_sz;
 	mf->u.any_buf = cf_malloc(a_sz);
-
-	cf_assert(mf->u.any_buf, CF_MSG, "malloc");
 
 	as_packer pk = {
 			.buffer = mf->u.any_buf,
@@ -804,7 +790,6 @@ msg_get_str(const msg *m, int field_id, char **str_r, size_t *sz_r,
 	}
 	else if (type == MSG_GET_COPY_MALLOC) {
 		*str_r = cf_strdup(m->f[field_id].u.str);
-		cf_assert(*str_r, CF_MSG, "malloc");
 	}
 	else {
 		cf_crash(CF_MSG, "msg_get_str: illegal msg_get_type");
@@ -830,7 +815,6 @@ msg_get_buf(const msg *m, int field_id, uint8_t **buf_r, size_t *sz_r,
 	}
 	else if (type == MSG_GET_COPY_MALLOC) {
 		*buf_r = cf_malloc(m->f[field_id].field_sz);
-		cf_assert(*buf_r, CF_MSG, "malloc");
 		memcpy(*buf_r, m->f[field_id].u.buf, m->f[field_id].field_sz);
 	}
 	else {
@@ -962,13 +946,8 @@ msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t **buf_r,
 	bool need_free = false;
 
 	if (! *buf_r) {
+		// FIXME - need a sanity check for this size (count)?
 		*buf_r = cf_malloc(sizeof(uint64_t) * (size_t)count);
-
-		if (! *buf_r) {
-			cf_warning(CF_MSG, "malloc failed - count %ld", count);
-			return false;
-		}
-
 		*count_r = (uint32_t)count;
 		need_free = true;
 	}
@@ -1244,7 +1223,6 @@ msg_field_save(msg *m, msg_field *mf)
 		}
 		else {
 			void *buf = cf_malloc(mf->field_sz);
-			cf_assert(buf, CF_MSG, "malloc");
 
 			memcpy(buf, mf->u.any_buf, mf->field_sz);
 			mf->u.any_buf = buf;

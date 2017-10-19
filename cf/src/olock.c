@@ -86,10 +86,6 @@ olock_create(uint32_t n_locks, bool mutex)
 {
 	olock *ol = cf_malloc(sizeof(olock) + (sizeof(pthread_mutex_t) * n_locks));
 
-	if (! ol) {
-		return 0;
-	}
-
 	uint32_t mask = n_locks - 1;
 
 	if ((mask & n_locks) != 0) {

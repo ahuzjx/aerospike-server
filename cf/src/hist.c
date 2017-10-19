@@ -57,10 +57,6 @@ histogram_create(const char *name, histogram_scale scale)
 
 	histogram *h = cf_malloc(sizeof(histogram));
 
-	if (! h) {
-		return NULL;
-	}
-
 	strcpy(h->name, name);
 	memset((void *)&h->counts, 0, sizeof(h->counts));
 

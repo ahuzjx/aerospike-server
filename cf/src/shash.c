@@ -116,7 +116,6 @@ cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
 	// Note - value_size 0 works, and is used.
 
 	cf_shash *h = cf_malloc(sizeof(cf_shash));
-	cf_assert(h, CF_MISC, "alloc failed");
 
 	h->h_fn = h_fn;
 	h->key_size = key_size;
@@ -131,7 +130,6 @@ cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
 			(flags & CF_SHASH_MANY_LOCK) == 0, CF_MISC, "bad flags param");
 
 	h->table = (cf_shash_ele *)cf_malloc(n_buckets * h->ele_size);
-	cf_assert(h->table, CF_MISC, "alloc failed");
 
 	cf_shash_clear_table(h);
 
@@ -140,7 +138,6 @@ cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
 	}
 	else if ((flags & CF_SHASH_MANY_LOCK) != 0) {
 		h->bucket_locks = cf_malloc(sizeof(pthread_mutex_t) * n_buckets);
-		cf_assert(h->bucket_locks, CF_MISC, "alloc failed");
 
 		for (uint32_t i = 0; i < n_buckets; i++) {
 			pthread_mutex_init(&h->bucket_locks[i], NULL);
@@ -250,7 +247,6 @@ cf_shash_put(cf_shash *h, const void *key, const void *value)
 	}
 
 	e = (cf_shash_ele *)cf_malloc(h->ele_size);
-	cf_assert(e, CF_MISC, "alloc failed");
 
 	cf_shash_fill_element(e, h, key, value);
 
@@ -290,7 +286,6 @@ cf_shash_put_unique(cf_shash *h, const void *key, const void *value)
 	}
 
 	e = (cf_shash_ele *)cf_malloc(h->ele_size);
-	cf_assert(e, CF_MISC, "alloc failed");
 
 	cf_shash_fill_element(e, h, key, value);
 
@@ -345,7 +340,6 @@ cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new,
 	(update_fn)(key, NULL, value_new, udata);
 
 	e = (cf_shash_ele *)cf_malloc(h->ele_size);
-	cf_assert(e, CF_MISC, "alloc failed");
 
 	cf_shash_fill_element(e, h, key, value_new);
 

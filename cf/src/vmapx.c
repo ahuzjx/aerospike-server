@@ -75,11 +75,8 @@ cf_vmapx_create(cf_vmapx* this, uint32_t value_size, uint32_t max_count,
 	this->max_count = max_count;
 	this->count = 0;
 
-	if (! (this->p_hash = vhash_create(max_name_size, hash_size))) {
-		return CF_VMAPX_ERR_UNKNOWN;
-	}
-
 	this->key_size = max_name_size;
+	this->p_hash = vhash_create(max_name_size, hash_size);
 
 	pthread_mutex_init(&this->write_lock, 0);
 
@@ -256,12 +253,7 @@ cf_vmapx_put_unique_w_len(cf_vmapx* this, const char* name, size_t name_len,
 	this->count++;
 
 	// Add to hash.
-	if (! vhash_put(this->p_hash, value_ptr, name_len, count)) {
-		this->count--;
-
-		pthread_mutex_unlock(&this->write_lock);
-		return CF_VMAPX_ERR_UNKNOWN;
-	}
+	vhash_put(this->p_hash, value_ptr, name_len, count);
 
 	pthread_mutex_unlock(&this->write_lock);
 
@@ -334,20 +326,13 @@ vhash_create(uint32_t key_size, uint32_t n_rows)
 	size_t row_usage_size = n_rows * sizeof(bool);
 	vhash* h = (vhash*)cf_malloc(sizeof(vhash) + row_usage_size);
 
-	if (! h) {
-		return NULL;
-	}
-
 	h->key_size = key_size;
 	h->ele_size = sizeof(vhash_ele) + key_size + sizeof(uint32_t);
 	h->n_rows = n_rows;
 
 	size_t table_size = n_rows * h->ele_size;
 
-	if (! (h->table = (uint8_t*)cf_malloc(table_size))) {
-		cf_free(h);
-		return NULL;
-	}
+	h->table = (uint8_t*)cf_malloc(table_size);
 
 	memset((void*)h->row_usage, 0, row_usage_size);
 	memset((void*)h->table, 0, table_size);
@@ -386,7 +371,7 @@ vhash_destroy(vhash* h)
 // Add element. Key must be null-terminated,
 // although its length is known.
 //
-bool
+void
 vhash_put(vhash* h, const char* zkey, size_t key_len, uint32_t value)
 {
 	uint64_t hashed_key = cf_hash_fnv32((const uint8_t*)zkey, key_len);
@@ -398,10 +383,9 @@ vhash_put(vhash* h, const char* zkey, size_t key_len, uint32_t value)
 		vhash_set_ele_key(VHASH_ELE_KEY_PTR(e), h->key_size, zkey, key_len + 1);
 		*VHASH_ELE_VALUE_PTR(h, e) = value;
 		// TODO - need barrier?
-
 		h->row_usage[row_i] = true;
 
-		return true;
+		return;
 	}
 
 	vhash_ele* e_head = e;
@@ -414,18 +398,12 @@ vhash_put(vhash* h, const char* zkey, size_t key_len, uint32_t value)
 
 	e = (vhash_ele*)cf_malloc(h->ele_size);
 
-	if (! e) {
-		return false;
-	}
-
 	vhash_set_ele_key(VHASH_ELE_KEY_PTR(e), h->key_size, zkey, key_len + 1);
 	*VHASH_ELE_VALUE_PTR(h, e) = value;
-	// TODO - need barrier?
 
 	e->next = e_head->next;
+	// TODO - need barrier?
 	e_head->next = e;
-
-	return true;
 }
 
 //------------------------------------------------
@@ -442,6 +420,7 @@ vhash_get(const vhash* h, const char* key, size_t key_len, uint32_t* p_value)
 		return false;
 	}
 
+	// TODO - need barrier?
 	vhash_ele* e = (vhash_ele*)(h->table + (h->ele_size * row_i));
 
 	while (e) {
