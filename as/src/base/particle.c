@@ -428,9 +428,7 @@ as_bin_particle_stack_modify_from_client(as_bin *b, cf_ll_buf *particles_llb, co
 
 		// Instead of allocating, we use the stack buffer provided. (Note that
 		// embedded types like integer will overwrite this with the value.)
-		if (0 > cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle)) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
+		cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle);
 
 		// Load the new particle into the bin.
 		int result = particle_vtable[op_type]->from_wire_fn(op_type, op_value, op_value_size, &b->particle);
@@ -474,9 +472,7 @@ as_bin_particle_stack_modify_from_client(as_bin *b, cf_ll_buf *particles_llb, co
 		if (new_mem_size < 0) {
 			return (int)new_mem_size;
 		}
-		if (0 > cf_ll_buf_reserve(particles_llb, (size_t)new_mem_size, (uint8_t **)&b->particle)) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
+		cf_ll_buf_reserve(particles_llb, (size_t)new_mem_size, (uint8_t **)&b->particle);
 		memcpy(b->particle, old_particle, particle_vtable[existing_type]->size_fn(old_particle));
 		result = particle_vtable[existing_type]->append_from_wire_fn(op_type, op_value, op_value_size, &b->particle);
 		break;
@@ -490,9 +486,7 @@ as_bin_particle_stack_modify_from_client(as_bin *b, cf_ll_buf *particles_llb, co
 		if (new_mem_size < 0) {
 			return (int)new_mem_size;
 		}
-		if (0 > cf_ll_buf_reserve(particles_llb, (size_t)new_mem_size, (uint8_t **)&b->particle)) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
+		cf_ll_buf_reserve(particles_llb, (size_t)new_mem_size, (uint8_t **)&b->particle);
 		memcpy(b->particle, old_particle, particle_vtable[existing_type]->size_fn(old_particle));
 		result = particle_vtable[existing_type]->prepend_from_wire_fn(op_type, op_value, op_value_size, &b->particle);
 		break;
@@ -583,9 +577,7 @@ as_bin_particle_stack_from_client(as_bin *b, cf_ll_buf *particles_llb, const as_
 
 	// Instead of allocating, we use the stack buffer provided. (Note that
 	// embedded types like integer will overwrite this with the value.)
-	if (0 > cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle)) {
-		return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle);
 
 	// Load the new particle into the bin.
 	int result = particle_vtable[type]->from_wire_fn(type, value, value_size, &b->particle);
@@ -708,9 +700,7 @@ as_bin_particle_stack_from_pickled(as_bin *b, cf_ll_buf *particles_llb, const ui
 
 	// Instead of allocating, we use the stack buffer provided. (Note that
 	// embedded types like integer will overwrite this with the value.)
-	if (0 > cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle)) {
-		return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
+	cf_ll_buf_reserve(particles_llb, (size_t)mem_size, (uint8_t **)&b->particle);
 
 	// Load the new particle into the bin.
 	int result = particle_vtable[type]->from_wire_fn(type, value, value_size, &b->particle);
