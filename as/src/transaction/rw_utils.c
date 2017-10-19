@@ -253,9 +253,6 @@ pickle_all(as_storage_rd* rd, rw_request* rw)
 	if (rd->rec_props.p_data) {
 		rw->pickled_rec_props.size = rd->rec_props.size;
 		rw->pickled_rec_props.p_data = cf_malloc(rd->rec_props.size);
-
-		cf_assert(rw->pickled_rec_props.p_data, AS_RW, "alloc failed");
-
 		memcpy(rw->pickled_rec_props.p_data, rd->rec_props.p_data,
 				rd->rec_props.size);
 	}

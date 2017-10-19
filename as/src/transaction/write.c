@@ -1154,13 +1154,6 @@ write_master_dim(as_transaction* tr, const char* set_name, as_storage_rd* rd,
 		new_bins_size = n_new_bins * sizeof(as_bin);
 		new_bin_space = (as_bin_space*)
 				cf_malloc_ns(sizeof(as_bin_space) + new_bins_size);
-
-		if (! new_bin_space) {
-			cf_warning(AS_RW, "write_master: failed alloc new as_bin_space");
-			write_master_index_metadata_unwind(&old_metadata, r);
-			write_master_dim_unwind(old_bins, n_old_bins, new_bins, n_new_bins, cleanup_bins, n_cleanup_bins);
-			return AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
 	}
 	else {
 		if (n_old_bins == 0) {

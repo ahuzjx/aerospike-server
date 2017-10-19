@@ -246,18 +246,7 @@ swb_create(drv_ssd *ssd)
 {
 	ssd_write_buf *swb = (ssd_write_buf*)cf_malloc(sizeof(ssd_write_buf));
 
-	if (! swb) {
-		cf_warning(AS_DRV_SSD, "device %s - swb malloc failed", ssd->name);
-		return NULL;
-	}
-
 	swb->buf = cf_valloc(ssd->write_block_size);
-
-	if (! swb->buf) {
-		cf_warning(AS_DRV_SSD, "device %s - swb buf valloc failed", ssd->name);
-		cf_free(swb);
-		return NULL;
-	}
 
 	return swb;
 }
@@ -346,10 +335,7 @@ swb_get(drv_ssd *ssd)
 	ssd_write_buf *swb;
 
 	if (CF_QUEUE_OK != cf_queue_pop(ssd->swb_free_q, &swb, CF_QUEUE_NOWAIT)) {
-		if (! (swb = swb_create(ssd))) {
-			return NULL;
-		}
-
+		swb = swb_create(ssd);
 		swb->rc = 0;
 		swb->n_writers = 0;
 		swb->skip_post_write_q = false;
@@ -831,10 +817,6 @@ run_defrag(void *pv_data)
 	uint32_t wblock_id;
 	uint8_t *read_buf = cf_valloc(ssd->write_block_size);
 
-	if (! read_buf) {
-		cf_crash(AS_DRV_SSD, "device %s: defrag valloc failed", ssd->name);
-	}
-
 	while (true) {
 		uint32_t q_min = ssd->ns->storage_defrag_queue_min;
 
@@ -1116,11 +1098,6 @@ ssd_read_record(as_storage_rd *rd)
 		cf_atomic32_incr(&ns->n_reads_from_cache);
 
 		read_buf = cf_malloc(record_size);
-
-		if (! read_buf) {
-			return -1;
-		}
-
 		block = (drv_ssd_block*)read_buf;
 
 		int swb_offset = record_offset - WBLOCK_ID_TO_BYTES(ssd, wblock);
@@ -1138,10 +1115,6 @@ ssd_read_record(as_storage_rd *rd)
 		uint64_t record_buf_indent = record_offset - read_offset;
 
 		read_buf = cf_valloc(read_size);
-
-		if (! read_buf) {
-			return -1;
-		}
 
 		int fd = ssd_fd_get(ssd);
 
@@ -1921,11 +1894,6 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 	drv_ssd* ssd = &ssds->ssds[device_index];
 	uint8_t* read_buf = cf_valloc(ssd->write_block_size);
 
-	if (! read_buf) {
-		cf_warning(AS_DRV_SSD, "analyze wblock ERROR: fail valloc");
-		return -1;
-	}
-
 	int fd = ssd_fd_get(ssd);
 	uint64_t file_offset = WBLOCK_ID_TO_BYTES(ssd, wblock_id);
 
@@ -2409,10 +2377,6 @@ ssd_read_header(drv_ssd *ssd, as_namespace *ns, ssd_device_header **header_r)
 	size_t peek_size = BYTES_UP_TO_IO_MIN(ssd, sizeof(ssd_device_header));
 	ssd_device_header *header = cf_valloc(peek_size);
 
-	if (! header) {
-		goto Fail;
-	}
-
 	if (lseek(fd, 0, SEEK_SET) != 0) {
 		cf_warning(AS_DRV_SSD, "%s: seek failed: errno %d (%s)", ssd_name,
 				errno, cf_strerror(errno));
@@ -2479,10 +2443,6 @@ ssd_read_header(drv_ssd *ssd, as_namespace *ns, ssd_device_header **header_r)
 
 	header = cf_valloc(h_len);
 
-	if (! header) {
-		goto Fail;
-	}
-
 	if (lseek(fd, 0, SEEK_SET) != 0) {
 		cf_warning(AS_DRV_SSD, "%s: seek failed: errno %d (%s)", ssd_name,
 				errno, cf_strerror(errno));
@@ -2535,10 +2495,6 @@ ssd_init_header(as_namespace *ns)
 {
 	ssd_device_header *h = cf_valloc(SSD_DEFAULT_HEADER_LENGTH);
 
-	if (! h) {
-		return 0;
-	}
-
 	memset(h, 0, SSD_DEFAULT_HEADER_LENGTH);
 
 	h->magic = SSD_HEADER_MAGIC;
@@ -2561,12 +2517,6 @@ bool
 ssd_empty_header(int fd, const char* device_name)
 {
 	void *h = cf_valloc(SSD_DEFAULT_HEADER_LENGTH);
-
-	if (! h) {
-		cf_warning(AS_DRV_SSD, "device %s: empty header: valloc failed",
-				device_name);
-		return false;
-	}
 
 	memset(h, 0, SSD_DEFAULT_HEADER_LENGTH);
 
@@ -3576,11 +3526,6 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 	size_t ssds_size = sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd));
 	drv_ssds *ssds = cf_malloc(ssds_size);
 
-	if (! ssds) {
-		cf_warning(AS_DRV_SSD, "failed drv_ssds malloc");
-		return -1;
-	}
-
 	memset(ssds, 0, ssds_size);
 	ssds->n_ssds = n_ssds;
 	ssds->ns = ns;
@@ -3725,11 +3670,6 @@ ssd_init_files(as_namespace *ns, drv_ssds **ssds_p)
 
 	size_t ssds_size = sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd));
 	drv_ssds *ssds = cf_malloc(ssds_size);
-
-	if (! ssds) {
-		cf_warning(AS_DRV_SSD, "failed drv_ssds malloc");
-		return -1;
-	}
 
 	memset(ssds, 0, ssds_size);
 	ssds->n_ssds = n_ssds;

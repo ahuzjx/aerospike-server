@@ -180,7 +180,6 @@ void
 rw_request_wait_q_push(rw_request* rw, as_transaction* tr)
 {
 	rw_wait_ele* e = cf_malloc(sizeof(rw_wait_ele));
-	cf_assert(e, AS_RW, "alloc rw_wait_ele");
 
 	as_transaction_copy_head(&e->tr, tr);
 	tr->from.any = NULL;

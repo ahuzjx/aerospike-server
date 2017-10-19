@@ -421,9 +421,6 @@ drop_master(as_transaction* tr, as_index_ref* r_ref, rw_request* rw)
 	// are useless for a drop.
 	rw->pickled_sz = sizeof(uint16_t);
 	rw->pickled_buf = cf_malloc(rw->pickled_sz);
-
-	cf_assert(rw->pickled_buf, AS_RW, "failed pickle allocation");
-
 	*(uint16_t*)rw->pickled_buf = 0;
 
 	// Save the set-ID for XDR.
