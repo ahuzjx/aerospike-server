@@ -28,8 +28,8 @@
 
 
 //------------------------------------------------
-// Create and attach a persistent memory block,
-// and store its pointer in the stages array.
+// Allocate an arena stage, and store its pointer
+// in the stages array.
 //
 cf_arenax_err
 cf_arenax_add_stage(cf_arenax* this)
@@ -40,7 +40,7 @@ cf_arenax_add_stage(cf_arenax* this)
 		return CF_ARENAX_ERR_STAGE_CREATE;
 	}
 
-	uint8_t* p_stage = (uint8_t*)cf_malloc(this->stage_size);
+	uint8_t* p_stage = (uint8_t*)cf_try_malloc(this->stage_size);
 
 	if (! p_stage) {
 		cf_warning(CF_ARENAX, "could not allocate %lu-byte arena stage %u",

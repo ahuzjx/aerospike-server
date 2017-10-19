@@ -44,12 +44,12 @@ check_capacity(uint32_t capacity)
 		as_namespace *ns = g_config.namespaces[i];
 		uint64_t stage_size = (uint64_t)as_index_size_get(ns) * capacity;
 
-		if ((test_index_stages[i] = cf_malloc(stage_size)) == NULL) {
+		if ((test_index_stages[i] = cf_try_malloc(stage_size)) == NULL) {
 			break;
 		}
 
 		// Memory for overhead and data, proportional to (= to) stage size.
-		if ((test_data_blocks[i] = cf_malloc(stage_size)) == NULL) {
+		if ((test_data_blocks[i] = cf_try_malloc(stage_size)) == NULL) {
 			cf_free(test_index_stages[i]);
 			break;
 		}
