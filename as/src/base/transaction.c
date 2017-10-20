@@ -292,7 +292,7 @@ as_transaction_prepare(as_transaction *tr, bool swap)
 // Initialize an internal UDF transaction (for a UDF scan/query). Allocates a
 // message with namespace and digest - no set for now, since these transactions
 // won't get security checked, and they can't create a record.
-int
+void
 as_transaction_init_iudf(as_transaction *tr, as_namespace *ns, cf_digest *keyd,
 		iudf_origin* iudf_orig, bool is_durable_delete)
 {
@@ -303,11 +303,6 @@ as_transaction_init_iudf(as_transaction *tr, as_namespace *ns, cf_digest *keyd,
 	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);
 
 	cl_msg *msgp = (cl_msg *)cf_malloc(msg_sz);
-
-	if (! msgp) {
-		return -1;
-	}
-
 	uint8_t *b = (uint8_t *)msgp;
 	uint8_t info2 = AS_MSG_INFO2_WRITE |
 			(is_durable_delete ? AS_MSG_INFO2_DURABLE_DELETE : 0);
@@ -325,8 +320,6 @@ as_transaction_init_iudf(as_transaction *tr, as_namespace *ns, cf_digest *keyd,
 
 	// Do this last, to exclude the setup time in this function.
 	tr->start_time = cf_getns();
-
-	return 0;
 }
 
 void

@@ -564,11 +564,6 @@ basic_scan_job_start(as_transaction* tr, as_namespace* ns, uint16_t set_id)
 	basic_scan_job* job = cf_malloc(sizeof(basic_scan_job));
 	as_job* _job = (as_job*)job;
 
-	if (! job) {
-		cf_warning(AS_SCAN, "basic scan job failed alloc");
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
-
 	scan_options options = { .sample_pct = 100 };
 	uint32_t timeout = CF_SOCKET_TIMEOUT;
 	predexp_eval_t* predexp = NULL;
@@ -901,11 +896,6 @@ aggr_scan_job_start(as_transaction* tr, as_namespace* ns, uint16_t set_id)
 	aggr_scan_job* job = cf_malloc(sizeof(aggr_scan_job));
 	as_job* _job = (as_job*)job;
 
-	if (! job) {
-		cf_warning(AS_SCAN, "aggregation scan job failed alloc");
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
-
 	scan_options options = { .sample_pct = 100 };
 	uint32_t timeout = CF_SOCKET_TIMEOUT;
 
@@ -1133,10 +1123,7 @@ aggr_scan_add_digest(cf_ll* ll, cf_digest* keyd)
 			return false;
 		}
 
-		if (! (tail_e = cf_malloc(sizeof(as_index_keys_ll_element)))) {
-			cf_free(keys_arr);
-			return false;
-		}
+		tail_e = cf_malloc(sizeof(as_index_keys_ll_element));
 
 		tail_e->keys_arr = keys_arr;
 		cf_ll_append(ll, (cf_ll_element*)tail_e);
@@ -1239,11 +1226,6 @@ udf_bg_scan_job_start(as_transaction* tr, as_namespace* ns, uint16_t set_id)
 {
 	udf_bg_scan_job* job = cf_malloc(sizeof(udf_bg_scan_job));
 	as_job* _job = (as_job*)job;
-
-	if (! job) {
-		cf_warning(AS_SCAN, "udf-bg scan job failed alloc");
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
 
 	scan_options options = { .sample_pct = 100 };
 	predexp_eval_t* predexp = NULL;
@@ -1406,11 +1388,7 @@ udf_bg_scan_job_reduce_cb(as_index_ref* r_ref, void* udata)
 
 	as_transaction tr;
 
-	if (as_transaction_init_iudf(&tr, ns, &d, &job->origin,
-			job->is_durable_delete) != 0) {
-		as_job_manager_abandon_job(_job->mgr, _job, AS_JOB_FAIL_UNKNOWN);
-		return;
-	}
+	as_transaction_init_iudf(&tr, ns, &d, &job->origin, job->is_durable_delete);
 
 	cf_atomic64_incr(&_job->n_records_read);
 	cf_atomic32_incr(&job->n_active_tr);

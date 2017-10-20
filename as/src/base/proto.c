@@ -233,7 +233,6 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 
 	if (! msgp_in || *msg_sz_in < msg_sz) {
 		buf = cf_malloc(msg_sz);
-		cf_assert(buf, AS_PROTO, "alloc failed");
 	}
 	else {
 		buf = (uint8_t *)msgp_in;
@@ -535,9 +534,6 @@ as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 	}
 
 	uint8_t *buf = cf_malloc(msg_sz);
-
-	cf_assert(buf, AS_PROTO, "alloc failed");
-
 	cl_msg *msgp = (cl_msg *)buf;
 
 	msgp->proto.version = PROTO_VERSION;

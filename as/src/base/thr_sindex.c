@@ -649,33 +649,19 @@ as_sbld_build(as_sindex* si)
 
 	sbld_job* job = sbld_job_create(ns, set_id, si);
 
-	if (! job) {
-		cf_warning(AS_SINDEX, "sindex build %s ns %s set %s - job alloc failed", imd->iname, imd->ns_name, imd->set);
-		as_sindex_populate_done(si);
-		AS_SINDEX_RELEASE(si);
-		return -2;
-	}
-
 	// Can't fail for this kind of job.
 	as_job_manager_start_job(&g_sbld_manager, (as_job*)job);
 
 	return 0;
 }
 
-int
+void
 as_sbld_build_all(as_namespace* ns)
 {
 	sbld_job* job = sbld_job_create(ns, INVALID_SET_ID, NULL);
 
-	if (! job) {
-		cf_warning(AS_SINDEX, "sindex build-all ns %s - job alloc failed", ns->name);
-		return -2;
-	}
-
 	// Can't fail for this kind of job.
 	as_job_manager_start_job(&g_sbld_manager, (as_job*)job);
-
-	return 0;
 }
 
 void
@@ -736,10 +722,6 @@ sbld_job*
 sbld_job_create(as_namespace* ns, uint16_t set_id, as_sindex* si)
 {
 	sbld_job* job = cf_malloc(sizeof(sbld_job));
-
-	if (! job) {
-		return NULL;
-	}
 
 	as_job_init((as_job*)job, &sbld_job_vtable, &g_sbld_manager,
 			RSV_MIGRATE, 0, ns, set_id, AS_JOB_PRIORITY_MEDIUM);

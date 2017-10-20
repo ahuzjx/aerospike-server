@@ -521,9 +521,6 @@ qwork_poolrequest()
 	int rv = cf_queue_pop(g_query_qwork_pool, &qwork, CF_QUEUE_NOWAIT);
 	if (rv == CF_QUEUE_EMPTY) {
 		qwork = cf_malloc(sizeof(query_work));
-		if (!qwork) {
-			cf_crash(AS_QUERY, "Allocation Error in Query Work Object Pool !!");
-		}
 		memset(qwork, 0, sizeof(query_work));
 	} else if (rv != CF_QUEUE_OK) {
 		cf_warning(AS_QUERY, "Failed to find query work in the pool");
@@ -1053,9 +1050,6 @@ as_query_pre_reserve_partitions(as_query_transaction * qtr)
 	}
 	if (qtr->qctx.partitions_pre_reserved) {
 		qtr->rsv = cf_malloc(sizeof(as_partition_reservation) * AS_PARTITIONS);
-		if (!qtr->rsv) {
-			cf_crash(AS_QUERY, "Allocation Error in Query Prereserve !!");
-		}
 		as_partition_prereserve_query(qtr->ns, qtr->qctx.can_partition_query, qtr->rsv);
 	} else {
 		qtr->rsv = NULL;
@@ -1887,10 +1881,7 @@ query_udf_bg_tr_start(as_query_transaction *qtr, cf_digest *keyd)
 
 	as_transaction tr;
 
-	if (as_transaction_init_iudf(&tr, qtr->ns, keyd, &qtr->origin, qtr->is_durable_delete)) {
-		qtr_set_err(qtr, AS_PROTO_RESULT_FAIL_QUERY_CBERROR, __FILE__, __LINE__);
-		return AS_QUERY_OK;
-	}
+	as_transaction_init_iudf(&tr, qtr->ns, keyd, &qtr->origin, qtr->is_durable_delete);
 
 	qtr_reserve(qtr, __FILE__, __LINE__);
 	cf_atomic32_incr(&qtr->n_udf_tr_queued);
@@ -2182,9 +2173,6 @@ query_get_nextbatch(as_query_transaction *qtr)
 
 	if (!qctx->recl) {
 		qctx->recl = cf_malloc(sizeof(cf_ll));
-		if (!qctx->recl) {
-			cf_crash(AS_QUERY, "Allocation Error in Query !!");
-		}
 		cf_ll_init(qctx->recl, as_index_keys_ll_destroy_fn, false /*no lock*/);
 		qctx->n_bdigs        = 0;
 	} else {
@@ -3130,10 +3118,6 @@ as_query_get_jobstat(uint64_t trid)
 	}
 	else {
 		stat = cf_malloc(sizeof(as_mon_jobstat));
-		if (!stat) {
-			cf_crash(AS_QUERY, "Allocation Error in job stat !!");
-		}
-
 		as_query_fill_jobstat(qtr, stat);
 		qtr_release(qtr, __FILE__, __LINE__);
 	}
@@ -3165,9 +3149,6 @@ as_query_get_jobstat_all(int * size)
 	query_jobstat     job_pool;
 
 	job_stats          = (as_mon_jobstat *) cf_malloc(sizeof(as_mon_jobstat) * (*size));
-	if (!job_stats) {
-		cf_crash(AS_QUERY, "Allocation Error in job stat all !!");
-	}
 	job_pool.jobstat  = &job_stats;
 	job_pool.index    = 0;
 	job_pool.max_size = *size;

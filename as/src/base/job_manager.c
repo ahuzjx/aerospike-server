@@ -681,10 +681,8 @@ as_job_manager_get_job_info(as_job_manager* mgr, uint64_t trid)
 
 	as_mon_jobstat* stat = cf_malloc(sizeof(as_mon_jobstat));
 
-	if (stat) {
-		memset(stat, 0, sizeof(as_mon_jobstat));
-		as_job_info(_job, stat);
-	}
+	memset(stat, 0, sizeof(as_mon_jobstat));
+	as_job_info(_job, stat);
 
 	pthread_mutex_unlock(&mgr->lock);
 	return stat; // caller must free this
@@ -705,19 +703,14 @@ as_job_manager_get_info(as_job_manager* mgr, int* size)
 		return NULL;
 	}
 
-	size_t stats_size = sizeof(as_mon_jobstat) * n_jobs;
-	as_mon_jobstat* stats = cf_malloc(stats_size);
-
-	if (! stats) {
-		pthread_mutex_unlock(&mgr->lock);
-		return NULL;
-	}
-
 	as_job* _jobs[n_jobs];
 	info_item item = { _jobs };
 
 	cf_queue_reduce_reverse(mgr->active_jobs, as_job_manager_info_cb, &item);
 	cf_queue_reduce_reverse(mgr->finished_jobs, as_job_manager_info_cb, &item);
+
+	size_t stats_size = sizeof(as_mon_jobstat) * n_jobs;
+	as_mon_jobstat* stats = cf_malloc(stats_size);
 
 	memset(stats, 0, stats_size);
 

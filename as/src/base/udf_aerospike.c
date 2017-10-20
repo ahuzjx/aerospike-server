@@ -198,9 +198,7 @@ udf__aerospike_get_particle_buf(udf_record *urecord, udf_record_bin *ubin, uint3
 			// the buffer. After this point the record size check will
 			// trip instead of at the code when bin value is set.
 			ubin->particle_buf = cf_malloc(alloc_size);
-			if (ubin->particle_buf) {
-				buf = ubin->particle_buf;
-			}
+			buf = ubin->particle_buf;
 		}
 	}
 	return buf;

@@ -701,11 +701,6 @@ as_batch_queue_task(as_transaction* btr)
 	// Initialize shared data
 	as_batch_shared* shared = cf_malloc(sizeof(as_batch_shared));
 
-	if (! shared) {
-		cf_warning(AS_BATCH, "Batch shared malloc failed");
-		return as_batch_send_error(btr, AS_PROTO_RESULT_FAIL_UNKNOWN);
-	}
-
 	memset(shared, 0, sizeof(as_batch_shared));
 
 	if (pthread_mutex_init(&shared->lock, NULL)) {

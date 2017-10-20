@@ -415,10 +415,6 @@ as_batch_direct_queue_task(as_transaction* tr, as_namespace *ns)
 
 	// Create the master digest table.
 	btr.digests = (batch_digests*) cf_malloc(sizeof(batch_digests) + (sizeof(batch_digest) * n_digests));
-	if (! btr.digests) {
-		cf_warning(AS_BATCH, "Failed to allocate memory for batch digests.");
-		return AS_PROTO_RESULT_FAIL_UNKNOWN;
-	}
 
 	batch_digests* bmd = btr.digests;
 	bmd->n_digests = n_digests;

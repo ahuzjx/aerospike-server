@@ -723,9 +723,7 @@ static as_smd_event_t *as_smd_create_cmd_event(as_smd_cmd_type_t type, ...)
 	va_end(args);
 
 	// Allocate an event object and initialize it as a command.
-	if (!(evt = (as_smd_event_t *) cf_calloc(1, sizeof(as_smd_event_t)))) {
-		cf_crash(AS_SMD, "failed to allocate a System Metadata cmd event");
-	}
+	evt = (as_smd_event_t *) cf_calloc(1, sizeof(as_smd_event_t));
 	evt->type = AS_SMD_CMD;
 	as_smd_cmd_t *cmd = &(evt->u.cmd);
 	cmd->type = type;
@@ -735,9 +733,7 @@ static as_smd_event_t *as_smd_create_cmd_event(as_smd_cmd_type_t type, ...)
 	if (module) {
 		// Create the metadata item.
 		// [NB: Reference-counted for insertion in metadata "rchash" table.]
-		if (!(item = (as_smd_item_t *) cf_rc_alloc(sizeof(as_smd_item_t)))) {
-			cf_crash(AS_SMD, "failed to allocate a System Metadata metadata item");
-		}
+		item = (as_smd_item_t *) cf_rc_alloc(sizeof(as_smd_item_t));
 		memset(item, 0, sizeof(as_smd_item_t));
 
 		cmd->item = item;
@@ -761,9 +757,7 @@ static as_smd_event_t *as_smd_create_cmd_event(as_smd_cmd_type_t type, ...)
 
 		if (value) {
 			size_t value_len = strlen(value) + 1;
-			if (!(item->value = (char *) cf_malloc(value_len))) {
-				cf_crash(AS_SMD, "failed to allocate a System Metadata cmd event value field of size %zu", value_len);
-			}
+			item->value = (char *) cf_malloc(value_len);
 			strncpy(item->value, value, value_len);
 		}
 
@@ -822,10 +816,7 @@ smd_msg_read_items(as_smd_msg_t *sm, const msg *m, const cf_vector *mod_vec,
 		return false;
 	}
 
-	if (! (sm->items = as_smd_item_list_create(sm->num_items))) {
-		cf_warning(AS_SMD, "as_smd_item_list_create(%u) failed", sm->num_items);
-		return false;
-	}
+	sm->items = as_smd_item_list_create(sm->num_items);
 
 	uint32_t msg_idx = 0;
 
@@ -889,7 +880,6 @@ smd_new_create_msg_event(as_smd_msg_t *sm, cf_node node_id, msg *m)
 			sm->num_items = 1;
 
 			sm->items = as_smd_item_list_create(1);
-			cf_assert(sm->items, AS_SMD, "as_smd_item_list_create(1) failed");
 
 			as_smd_item_t *item = sm->items->item[0];
 
@@ -909,7 +899,6 @@ smd_new_create_msg_event(as_smd_msg_t *sm, cf_node node_id, msg *m)
 		if (! msg_msgpack_container_get_count(m, AS_SMD_MSG_KEY_LIST,
 				&sm->num_items) || sm->num_items == 0) {
 			sm->items = as_smd_item_list_create(0);
-			cf_assert(sm->items, AS_SMD, "as_smd_item_list_create(0) failed");
 			return true;
 		}
 
@@ -925,7 +914,6 @@ smd_new_create_msg_event(as_smd_msg_t *sm, cf_node node_id, msg *m)
 		if (! msg_msgpack_container_get_count(m, AS_SMD_MSG_KEY_LIST,
 				&sm->num_items) || sm->num_items == 0) {
 			sm->items = as_smd_item_list_create(0);
-			cf_assert(sm->items, AS_SMD, "as_smd_item_list_create(0) failed");
 			return true;
 		}
 
@@ -1000,9 +988,7 @@ as_smd_old_create_msg_event(as_smd_msg_op_t op, cf_node node_id, msg *msg)
 	int e = 0;
 
 	// Allocate an event object and initialize it as a msg.
-	if (!(evt = (as_smd_event_t *) cf_calloc(1, sizeof(as_smd_event_t)))) {
-		cf_crash(AS_SMD, "failed to allocate a System Metadata msg event");
-	}
+	evt = (as_smd_event_t *) cf_calloc(1, sizeof(as_smd_event_t));
 	evt->type = AS_SMD_MSG;
 	as_smd_msg_t *smd_msg = &(evt->u.msg);
 
@@ -1056,12 +1042,11 @@ static void as_smd_item_destroy(as_smd_item_t *item)
  */
 static as_smd_item_list_t *as_smd_item_list_alloc(size_t num_items)
 {
-	as_smd_item_list_t *item_list = NULL;
+	as_smd_item_list_t *item_list = (as_smd_item_list_t *)
+			cf_malloc(sizeof(as_smd_item_list_t) + num_items * sizeof(as_smd_item_t *));
 
-	if ((item_list = (as_smd_item_list_t *) cf_malloc(sizeof(as_smd_item_list_t) + num_items * sizeof(as_smd_item_t *)))) {
-		item_list->num_items = num_items;
-		memset(item_list->item, 0, num_items * sizeof(as_smd_item_t *));
-	}
+	item_list->num_items = num_items;
+	memset(item_list->item, 0, num_items * sizeof(as_smd_item_t *));
 
 	return item_list;
 }
@@ -1072,20 +1057,14 @@ static as_smd_item_list_t *as_smd_item_list_alloc(size_t num_items)
  */
 as_smd_item_list_t *as_smd_item_list_create(size_t num_items)
 {
-	as_smd_item_list_t *item_list = NULL;
+	as_smd_item_list_t *item_list = as_smd_item_list_alloc(num_items);
 
-	if ((item_list = as_smd_item_list_alloc(num_items))) {
-		// Use num_items to count the number of successfully allocated items.
-		item_list->num_items = 0;
-		for (int i = 0; i < num_items; i++) {
-			if (!(item_list->item[i] = (as_smd_item_t *) cf_rc_alloc(sizeof(as_smd_item_t)))) {
-				as_smd_item_list_destroy(item_list);
-				item_list = NULL;
-				break;
-			}
-			memset(item_list->item[i], 0, sizeof(as_smd_item_t));
-			item_list->num_items++;
-		}
+	// Use num_items to count the number of successfully allocated items.
+	item_list->num_items = 0;
+	for (int i = 0; i < num_items; i++) {
+		item_list->item[i] = (as_smd_item_t *) cf_rc_alloc(sizeof(as_smd_item_t));
+		memset(item_list->item[i], 0, sizeof(as_smd_item_t));
+		item_list->num_items++;
 	}
 
 	return item_list;
@@ -1232,10 +1211,6 @@ static void as_smd_cluster_state_changed_fn(const as_exchange_cluster_changed_ev
 static as_smd_t *as_smd_create(void)
 {
 	as_smd_t *smd = (as_smd_t *) cf_calloc(1, sizeof(as_smd_t));
-
-	if (! smd) {
-		cf_crash(AS_SMD, "failed to allocate the System Metadata object");
-	}
 
 	// Go to the not yet initialized state.
 	smd->state = AS_SMD_STATE_IDLE;
@@ -1903,9 +1878,7 @@ static int as_smd_module_create(as_smd_t *smd, as_smd_cmd_t *cmd)
 
 	// Create the module object.
 	// [NB:  Reference-counted for insertion in modules "rchash" table.]
-	if (!(module_obj = (as_smd_module_t *) cf_rc_alloc(sizeof(as_smd_module_t)))) {
-		cf_crash(AS_SMD, "failed to allocate module object for System Metadata module \"%s\"", item->module_name);
-	}
+	module_obj = (as_smd_module_t *) cf_rc_alloc(sizeof(as_smd_module_t));
 	memset(module_obj, 0, sizeof(as_smd_module_t));
 
 	// Set the module's name.
@@ -2169,8 +2142,6 @@ smd_create_msg(as_smd_msg_op_t op, as_smd_item_t **items, uint32_t num_items,
 		cf_vector key_vec;
 		cf_vector value_vec;
 		uint32_t *gen_list = cf_malloc(sizeof(uint32_t) * num_items);
-
-		cf_assert(gen_list, AS_SMD, "malloc");
 
 		if (cf_vector_init(&key_vec, sizeof(msg_buf_ele), num_items, 0) != 0) {
 			cf_crash(AS_SMD, "cf_vector_init");
@@ -2497,11 +2468,7 @@ static int as_smd_metadata_get(as_smd_t *smd, as_smd_cmd_t *cmd)
 	cf_rchash_reduce(smd->modules, as_smd_matching_module_reduce_fn, &get_state);
 
 	// Allocate a list of sufficient size for the get result.
-	as_smd_item_list_t *item_list = NULL;
-	if (!(item_list = as_smd_item_list_alloc(get_state.num_items))) {
-		cf_warning(AS_SMD, "failed to allocate metadata item list of length %zu ~~ Not getting metadata!", get_state.num_items);
-		return -1;
-	}
+	as_smd_item_list_t *item_list = as_smd_item_list_alloc(get_state.num_items);
 	get_state.item_list = item_list;
 
 	// (Note:  Use num_items to count the position for each metadata item.)
@@ -2681,10 +2648,7 @@ static void as_smd_cluster_changed(as_smd_t *smd, as_smd_cmd_t *cmd)
 
 	// Copy all reference-counted metadata item pointers from the hash table into an item list.
 	// (Note:  Even if this node has no metadata items, we must still send a message to the principal.)
-	as_smd_item_list_t *item_list;
-	if (!(item_list = as_smd_item_list_alloc(num_items))) {
-		cf_crash(AS_SMD, "failed to create a System Metadata item list of size %zu", num_items);
-	}
+	as_smd_item_list_t *item_list = as_smd_item_list_alloc(num_items);
 	// (Note:  Use num_items to count the position for each serialized metadata item.)
 	item_list->num_items = 0;
 	cf_rchash_reduce(smd->modules, as_smd_module_serialize_reduce_fn, item_list);
@@ -3035,7 +2999,6 @@ static int as_smd_invoke_merge_reduce_fn(const void *key, uint32_t keylen, void 
 		cf_rchash_reduce(module_obj->external_metadata, smd_ext_items_count_fn,
 				&search);
 		item_lists_in[i] = as_smd_item_list_alloc(search.count);
-		cf_assert(item_lists_in[i], AS_SMD, "failed to create merge item list for node %016lX", g_succession[i]);
 
 		if (search.count != 0) {
 			search.item_list = item_lists_in[i];
@@ -3106,9 +3069,7 @@ static int as_smd_invoke_merge_reduce_fn(const void *key, uint32_t keylen, void 
 
 		// Create a merged items list.
 		size_t num_items = cf_rchash_get_size(merge_hash);
-		if (!(item_list_out = as_smd_item_list_alloc(num_items))) {
-			cf_crash(AS_SMD, "failed to create System Metadata items list of size %zu", num_items);
-		}
+		item_list_out = as_smd_item_list_alloc(num_items);
 
 		// Populate the merged items list from the hash table.
 		// (Note:  Use num_items to count the position for each metadata item.)

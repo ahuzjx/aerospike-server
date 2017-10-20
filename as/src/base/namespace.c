@@ -115,7 +115,6 @@ as_namespace_create(char *name)
 	}
 
 	as_namespace *ns = cf_malloc(sizeof(as_namespace));
-	cf_assert(ns, AS_NAMESPACE, "{%s} as_namespace allocation failed", name);
 
 	g_config.namespaces[g_config.n_namespaces++] = ns;
 

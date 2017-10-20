@@ -123,7 +123,6 @@ demarshal_file_handle_init()
 
 		// Initialize the message pointer array and the unread byte counters.
 		g_file_handle_a = cf_calloc(rl.rlim_cur, sizeof(as_proto *));
-		cf_assert(g_file_handle_a, AS_DEMARSHAL, "allocation: %s", cf_strerror(errno));
 		g_file_handle_a_sz = rl.rlim_cur;
 
 		for (int i = 0; i < g_file_handle_a_sz; i++) {
@@ -485,9 +484,6 @@ thr_demarshal(void *unused)
 				// Create as_file_handle and queue it up in epoll_fd for further
 				// communication on one of the demarshal threads.
 				as_file_handle *fd_h = cf_rc_alloc(sizeof(as_file_handle));
-				if (!fd_h) {
-					cf_crash(AS_DEMARSHAL, "malloc");
-				}
 
 				strcpy(fd_h->client, sa_str);
 				cf_socket_copy(&csock, &fd_h->sock);
@@ -643,7 +639,6 @@ thr_demarshal(void *unused)
 					// Allocate the complete message buffer.
 					fd_h->proto = cf_malloc(sizeof(as_proto) + fd_h->proto_hdr.sz);
 
-					cf_assert(fd_h->proto, AS_DEMARSHAL, "allocation: %zu %s", (sizeof(as_proto) + fd_h->proto_hdr.sz), cf_strerror(errno));
 					memcpy(fd_h->proto, &fd_h->proto_hdr, sizeof(as_proto));
 
 					fd_h->proto_unread = fd_h->proto->sz;

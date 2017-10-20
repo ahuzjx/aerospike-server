@@ -1451,28 +1451,15 @@ cfg_not_supported(const cfg_line* p_line, const char* feature)
 }
 
 char*
-cfg_strdup_anyval_no_checks(const cfg_line* p_line, const char* val_tok)
-{
-	char* str = cf_strdup(val_tok);
-
-	if (! str) {
-		cf_crash_nostack(AS_CFG, "line %d :: failed alloc for %s: %s",
-				p_line->num, p_line->name_tok, val_tok);
-	}
-
-	return str;
-}
-
-char*
 cfg_strdup_no_checks(const cfg_line* p_line)
 {
-	return cfg_strdup_anyval_no_checks(p_line, p_line->val_tok_1);
+	return cf_strdup(p_line->val_tok_1);
 }
 
 char*
 cfg_strdup_val2_no_checks(const cfg_line* p_line)
 {
-	return cfg_strdup_anyval_no_checks(p_line, p_line->val_tok_2);
+	return cf_strdup(p_line->val_tok_2);
 }
 
 char*
@@ -1488,7 +1475,7 @@ cfg_strdup_anyval(const cfg_line* p_line, const char* val_tok, bool is_required)
 		return NULL;
 	}
 
-	return cfg_strdup_anyval_no_checks(p_line, val_tok);
+	return cf_strdup(val_tok);
 }
 
 char*
@@ -4078,11 +4065,6 @@ add_addr(const char* name, cf_addr_list* addrs)
 	}
 
 	addrs->addrs[n] = cf_strdup(name);
-
-	if (addrs->addrs[n] == NULL) {
-		cf_crash(CF_SOCKET, "Out of memory");
-	}
-
 	++addrs->n_addrs;
 }
 
@@ -4096,11 +4078,6 @@ add_tls_peer_name(const char* name, cf_serv_spec* spec)
 	}
 
 	spec->tls_peer_names[n] = cf_strdup(name);
-
-	if (spec->tls_peer_names[n] == NULL) {
-		cf_crash(CF_SOCKET, "Out of memory");
-	}
-
 	++spec->n_tls_peer_names;
 }
 
@@ -4584,11 +4561,6 @@ xdr_cfg_add_tls_node(dc_config_opt *dc_cfg, char* addr, char *tls_name, int port
 {
 	// Add the element to the vector.
 	node_addr_port* nap = (node_addr_port*)cf_malloc(sizeof(node_addr_port));
-
-	if (nap == NULL) {
-		cf_warning(AS_XDR, "unable to allocate memory for node details");
-		return;
-	}
 
 	nap->addr = addr;
 	nap->tls_name = tls_name;

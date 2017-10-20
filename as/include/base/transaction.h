@@ -356,7 +356,7 @@ as_transaction_is_nsup_delete(const as_transaction *tr)
 	return tr->origin == FROM_NSUP;
 }
 
-int as_transaction_init_iudf(as_transaction *tr, struct as_namespace_s *ns, cf_digest *keyd, struct iudf_origin_s *iudf_orig, bool is_durable_delete);
+void as_transaction_init_iudf(as_transaction *tr, struct as_namespace_s *ns, cf_digest *keyd, struct iudf_origin_s *iudf_orig, bool is_durable_delete);
 
 void as_transaction_demarshal_error(as_transaction *tr, uint32_t error_code);
 void as_transaction_error(as_transaction *tr, struct as_namespace_s *ns, uint32_t error_code);

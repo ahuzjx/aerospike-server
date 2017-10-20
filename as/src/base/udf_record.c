@@ -776,10 +776,6 @@ as_val_from_flat_key(uint8_t * flat_key, uint32_t size)
 		{
 			// Key length is size - 1, then +1 for null-termination.
 			char * buf = cf_malloc(size);
-			if (! buf) {
-				return NULL;
-			}
-
 			uint32_t len = size - 1;
 			memcpy(buf, key, len);
 			buf[len] = '\0';
@@ -790,9 +786,6 @@ as_val_from_flat_key(uint8_t * flat_key, uint32_t size)
 		{
 			uint32_t blob_size = size - 1;
 			uint8_t *buf = cf_malloc(blob_size);
-			if (! buf) {
-				return NULL;
-			}
 
 			memcpy(buf, key, blob_size);
 
@@ -867,9 +860,6 @@ udf_record_digest(const as_rec *rec)
 	udf_record *urecord = (udf_record *)as_rec_source(rec);
 	if (urecord && urecord->flag & UDF_RECORD_FLAG_OPEN) {
 		cf_digest *keyd = cf_malloc(sizeof(cf_digest));
-		if (!keyd) {
-			return NULL;
-		}
 		memcpy(keyd, &urecord->keyd, CF_DIGEST_KEY_SZ);
 		as_bytes *b = as_bytes_new_wrap(keyd->digest, CF_DIGEST_KEY_SZ, true);
 		return b;

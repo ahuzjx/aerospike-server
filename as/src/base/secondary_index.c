@@ -2659,11 +2659,6 @@ as_sindex_rangep_from_msg(as_namespace *ns, as_msg *msgp, as_sindex_range **sran
 	// first element.  Geospatial queries use one element per region
 	// cell, up to MAX_REGION_CELLS.
 	*srange         = cf_malloc(sizeof(as_sindex_range) * MAX_REGION_CELLS);
-	if (!(*srange)) {
-		cf_warning(AS_SINDEX,
-                 "Could not Allocate memory for range key. Aborting Query ...");
-		return AS_SINDEX_ERR_NO_MEMORY;
-	}
 
 	int ret = as_sindex_range_from_msg(ns, msgp, *srange);
 	if (AS_SINDEX_OK != ret) {
@@ -2912,10 +2907,6 @@ as_sindex_add_sbin_value_in_heap(as_sindex_bin * sbin, void * val)
 		}
 
 		sbin->values  = cf_malloc(data_sz * size);
-		if (!sbin->values) {
-			cf_warning(AS_SINDEX, "malloc failed");
-			return AS_SINDEX_ERR;
-		}
 		sbin->to_free = true;
 		sbin->heap_capacity = size;
 
@@ -2939,11 +2930,6 @@ as_sindex_add_sbin_value_in_heap(as_sindex_bin * sbin, void * val)
 		if (sbin->heap_capacity ==  sbin->num_values) {
 			sbin->heap_capacity = 2 * sbin->heap_capacity;
 			sbin->values = cf_realloc(sbin->values, sbin->heap_capacity * data_sz);
-			if (!sbin->values) {
-				cf_warning(AS_SINDEX, "Realloc failed for size %d", sbin->heap_capacity * data_sz);
-				sbin->heap_capacity = sbin->heap_capacity / 2;
-				return AS_SINDEX_ERR;
-			}
 		}
 	}
 
@@ -4529,11 +4515,6 @@ int
 as_sindex_init(as_namespace *ns)
 {
 	ns->sindex = cf_malloc(sizeof(as_sindex) * AS_SINDEX_MAX);
-
-	if (! ns->sindex) {
-		cf_crash(AS_SINDEX,
-				"Could not allocation memory for secondary index");
-	}
 
 	ns->sindex_cnt = 0;
 	for (int i = 0; i < AS_SINDEX_MAX; i++) {

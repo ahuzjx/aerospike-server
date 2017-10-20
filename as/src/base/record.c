@@ -286,8 +286,6 @@ as_record_allocate_key(as_record *r, const uint8_t *key, uint32_t key_size)
 	as_rec_space *rec_space = (as_rec_space *)
 			cf_malloc_ns(sizeof(as_rec_space) + key_size);
 
-	cf_assert(rec_space, AS_RECORD, "alloc failed");
-
 	rec_space->bin_space = (as_bin_space *)r->dim;
 	rec_space->key_size = key_size;
 	memcpy((void*)rec_space->key, (const void*)key, key_size);
@@ -337,9 +335,6 @@ as_record_pickle(as_storage_rd *rd, size_t *len_r)
 	}
 
 	uint8_t *pickle = cf_malloc(sz);
-
-	cf_assert(pickle, AS_RECORD, "alloc failed");
-
 	uint8_t *buf = pickle;
 
 	(*(uint16_t *)buf) = cf_swap_to_be16(n_bins_in_use); // number of bins
@@ -668,8 +663,6 @@ record_apply_dim(as_remote_record *rr, as_storage_rd *rd, bool skip_sindex,
 	if (n_new_bins != 0) {
 		new_bin_space = (as_bin_space*)
 				cf_malloc_ns(sizeof(as_bin_space) + sizeof(new_bins));
-
-		cf_assert(new_bin_space, AS_RECORD, "alloc failed");
 
 		new_bin_space->n_bins = rd->n_bins;
 		memcpy((void*)new_bin_space->bins, new_bins, sizeof(new_bins));

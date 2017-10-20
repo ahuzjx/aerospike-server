@@ -101,11 +101,6 @@ as_mon_register(const char *module)
 {
 	if (!module) return AS_MON_ERR;
 	as_mon *mon_obj = (as_mon *) cf_rc_alloc(sizeof(as_mon));
-	if (!mon_obj) {
-		cf_warning(AS_MON, "Failed to allocate as job monitor object %s", module);
-		return AS_MON_ERR;
-	}
-
 	as_mon_cb *cb = cf_malloc(sizeof(as_mon_cb));
 	as_mon_module_slot mod;
 

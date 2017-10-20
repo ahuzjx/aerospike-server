@@ -3821,19 +3821,14 @@ as_info_set_dynamic(char *name, as_info_get_value_fn gv_fn, bool def)
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_dynamic));
-		if (!e) goto Cleanup;
 		e->def = def;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->value_fn = gv_fn;
 		e->next = dynamic_head;
 		dynamic_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -3862,18 +3857,13 @@ as_info_set_tree(char *name, as_info_get_tree_fn gv_fn)
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_tree));
-		if (!e) goto Cleanup;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->tree_fn = gv_fn;
 		e->next = tree_head;
 		tree_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -3902,19 +3892,14 @@ as_info_set_command(char *name, as_info_command_fn command_fn, as_sec_perm requi
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_command));
-		if (!e) goto Cleanup;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->command_fn = command_fn;
 		e->required_perm = required_perm;
 		e->next = command_head;
 		command_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -4679,10 +4664,6 @@ convert_legacy_services(const char *legacy)
 	}
 
 	char *res = cf_strdup(legacy);
-
-	if (res == NULL) {
-		cf_crash(AS_INFO, "Out of memory");
-	}
 
 	for (size_t i = 0; res[i] != 0; ++i) {
 		if (res[i] == ';') {

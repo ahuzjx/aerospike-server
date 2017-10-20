@@ -978,8 +978,8 @@ packed_list_op_list_pack(const packed_list_op *op, list_mem *p_list_mem,
 	uint32_t ext_content_sz;
 	uint32_t sz = packed_list_op_list_size(op, has_ext, &ext_content_sz);
 
-	if (! p_list_mem && ! (p_list_mem = cf_malloc_ns(sizeof(list_mem) + sz))) {
-		return NULL;
+	if (! p_list_mem) {
+		p_list_mem = cf_malloc_ns(sizeof(list_mem) + sz);
 	}
 
 	p_list_mem->sz = sz;

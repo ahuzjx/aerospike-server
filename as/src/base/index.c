@@ -186,8 +186,6 @@ as_index_tree_create(as_index_tree_shared *shared, cf_arenax *arena)
 
 	as_index_tree *tree = cf_rc_alloc(tree_size);
 
-	cf_assert(tree, AS_INDEX, "failed to allocate tree (%lu bytes)", tree_size);
-
 	tree->shared = shared;
 	tree->arena = arena;
 
@@ -469,18 +467,7 @@ as_index_sprig_reduce_partial(as_index_sprig *isprig, uint64_t sample_count,
 	as_index_ph_array *v_a;
 	uint8_t buf[MAX_STACK_ARRAY_BYTES];
 
-	if (sz > MAX_STACK_ARRAY_BYTES) {
-		v_a = cf_malloc(sz);
-
-		if (! v_a) {
-			cf_warning(AS_INDEX, "index reduce failed to allocate ref array");
-			pthread_mutex_unlock(&isprig->pair->reduce_lock);
-			return 0;
-		}
-	}
-	else {
-		v_a = (as_index_ph_array*)buf;
-	}
+	v_a = sz > MAX_STACK_ARRAY_BYTES ? cf_malloc(sz) : (as_index_ph_array*)buf;
 
 	v_a->alloc_sz = sample_count;
 	v_a->pos = 0;

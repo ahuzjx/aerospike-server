@@ -1253,10 +1253,6 @@ map_packer_create_particle(map_packer *pk, rollback_alloc *alloc_buf)
 			? rollback_alloc_reserve(alloc_buf, sizeof(map_mem) + sz)
 			: cf_malloc(sizeof(map_mem) + sz)); // response, so not cf_malloc_ns()
 
-	if (! p_map_mem) {
-		return NULL;
-	}
-
 	p_map_mem->type = AS_PARTICLE_TYPE_MAP;
 	p_map_mem->sz = sz;
 	pk->write_ptr = p_map_mem->data;

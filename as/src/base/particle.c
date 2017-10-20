@@ -298,11 +298,6 @@ as_bin_particle_alloc_modify_from_client(as_bin *b, const as_msg_op *op)
 
 		if (mem_size != 0) {
 			b->particle = cf_malloc_ns((size_t)mem_size);
-
-			if (! b->particle) {
-				b->particle = old_particle;
-				return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-			}
 		}
 
 		// Load the new particle into the bin.
@@ -352,9 +347,7 @@ as_bin_particle_alloc_modify_from_client(as_bin *b, const as_msg_op *op)
 		if (new_mem_size < 0) {
 			return new_mem_size;
 		}
-		if (! (new_particle = cf_malloc_ns((size_t)new_mem_size))) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
+		new_particle = cf_malloc_ns((size_t)new_mem_size);
 		memcpy(new_particle, b->particle, particle_vtable[existing_type]->size_fn(b->particle));
 		b->particle = new_particle;
 		result = particle_vtable[existing_type]->append_from_wire_fn(op_type, op_value, op_value_size, &b->particle);
@@ -369,9 +362,7 @@ as_bin_particle_alloc_modify_from_client(as_bin *b, const as_msg_op *op)
 		if (new_mem_size < 0) {
 			return new_mem_size;
 		}
-		if (! (new_particle = cf_malloc_ns((size_t)new_mem_size))) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
+		new_particle = cf_malloc_ns((size_t)new_mem_size);
 		memcpy(new_particle, b->particle, particle_vtable[existing_type]->size_fn(b->particle));
 		b->particle = new_particle;
 		result = particle_vtable[existing_type]->prepend_from_wire_fn(op_type, op_value, op_value_size, &b->particle);
@@ -528,11 +519,6 @@ as_bin_particle_alloc_from_client(as_bin *b, const as_msg_op *op)
 
 	if (mem_size != 0) {
 		b->particle = cf_malloc_ns((size_t)mem_size);
-
-		if (! b->particle) {
-			b->particle = old_particle;
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
 	}
 
 	// Load the new particle into the bin.
@@ -636,8 +622,6 @@ as_bin_particle_alloc_from_pickled(as_bin *b, const uint8_t **p_pickled, const u
 
 	if (mem_size != 0) {
 		b->particle = cf_malloc_ns((size_t)mem_size);
-
-		cf_assert(b->particle, AS_PARTICLE, "alloc failed");
 	}
 
 	// Load the new particle into the bin.
@@ -822,11 +806,6 @@ as_bin_particle_replace_from_asval(as_bin *b, const as_val *val)
 
 	if (new_mem_size != 0) {
 		b->particle = cf_malloc_ns(new_mem_size);
-
-		if (! b->particle) {
-			b->particle = old_particle;
-			return -1;
-		}
 	}
 
 	// Load the new particle into the bin.
@@ -905,10 +884,6 @@ as_bin_particle_alloc_from_msgpack(as_bin *b, const uint8_t *packed, uint32_t pa
 
 	if (mem_size != 0) {
 		b->particle = cf_malloc(mem_size); // response, so not cf_malloc_ns()
-
-		if (! b->particle) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
 	}
 
 	particle_vtable[type]->from_msgpack_fn(packed, packed_size, &b->particle);

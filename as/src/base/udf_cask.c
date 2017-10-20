@@ -410,14 +410,6 @@ int udf_cask_info_put(char *name, char * params, cf_dyn_buf * out) {
 	udf_content_len = atoi(content_len) + 1;
 	udf_content = (char *) cf_malloc(udf_content_len);
 
-	if ( udf_content == NULL ) {
-		cf_info(AS_UDF, "internal allocation error");
-		cf_dyn_buf_append_string(out, "error=internal_error");
-		// As memory is not allocated.
-		// It should not continue.
-		return 0;
-	}
-
 	// cf_info(AS_UDF, "content_len = %s", content_len);
 	// cf_info(AS_UDF, "udf_content_len = %d", udf_content_len);
 
@@ -443,13 +435,6 @@ int udf_cask_info_put(char *name, char * params, cf_dyn_buf * out) {
 	}
 
 	char * decoded_str = cf_malloc(decoded_len);
-
-	if ( ! decoded_str ) {
-		cf_info(AS_UDF, "internal allocation error");
-		cf_dyn_buf_append_string(out, "error=internal_error");
-		cf_free(udf_content);
-		return 0;
-	}
 
 	if ( ! cf_b64_validate_and_decode(udf_content, encoded_len, (uint8_t*)decoded_str, &decoded_len) ) {
 		cf_info(AS_UDF, "invalid base64 content %s", filename);
