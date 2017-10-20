@@ -194,8 +194,6 @@ msg_create(msg_type type)
 	size_t a_sz = u_sz + (size_t)mte->scratch_sz;
 	msg *m = cf_rc_alloc(a_sz);
 
-	cf_assert(m, CF_MSG, "cf_rc_alloc");
-
 	m->n_fields = mt_count;
 	m->bytes_used = (uint32_t)u_sz;
 	m->bytes_alloc = (uint32_t)a_sz;

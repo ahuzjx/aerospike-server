@@ -62,7 +62,6 @@ rw_request*
 rw_request_create(cf_digest* keyd)
 {
 	rw_request* rw = cf_rc_alloc(sizeof(rw_request));
-	cf_assert(rw, AS_RW, "alloc rw_request");
 
 	// as_transaction look-alike:
 	rw->msgp				= NULL;

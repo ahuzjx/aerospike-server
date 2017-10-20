@@ -1075,7 +1075,6 @@ exchange_node_state_init(as_exchange_node_state* node_state)
 	memset(node_state, 0, sizeof(*node_state));
 
 	node_state->data = cf_calloc(1, sizeof(as_exchange_node_data));
-	// FIXME - assert on failure?
 }
 
 /**
@@ -2281,18 +2280,9 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 				goto Exit;
 			}
 
-			as_exchange_ns_vinfos_payload* new_partition_versions = cf_realloc(
+			namespace_data->partition_versions = cf_realloc(
 					namespace_data->partition_versions,
 					partition_versions_element->sz);
-
-			if (!new_partition_versions) {
-				WARNING(
-						"failed malloc partition versions for namespace %s from node %"PRIx64,
-						matching_namespace->name, msg_event->msg_source);
-				goto Exit;
-			}
-
-			namespace_data->partition_versions = new_partition_versions;
 
 			memcpy(namespace_data->partition_versions,
 					partition_versions_element->ptr,

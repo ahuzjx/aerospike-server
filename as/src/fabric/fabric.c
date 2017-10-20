@@ -798,8 +798,6 @@ fabric_node_create(cf_node node_id)
 			(sizeof(uint8_t) * g_config.n_fabric_send_threads);
 	fabric_node *node = cf_rc_alloc(size);
 
-	cf_assert(node, AS_FABRIC, "fabric_node_create(%lx) failed alloc", node_id);
-
 	memset(node, 0, size);
 
 	node->node_id = node_id;
@@ -1346,7 +1344,6 @@ fabric_buffer_resize(fabric_buffer *fb, size_t sz)
 		size_t old_sz = fb->progress - fb->membuf;
 
 		fb->buf = (uint8_t *)cf_malloc(sz);
-		cf_assert(fb->buf, AS_FABRIC, "cf_malloc failed");
 
 		memcpy(fb->buf, fb->membuf, old_sz);
 		fb->progress = fb->buf + old_sz;
@@ -2455,7 +2452,6 @@ fabric_hb_plugin_parse_data_fn(msg *m, cf_node source,
 
 		// Reallocate since we have outgrown existing capacity.
 		plugin_data->data = cf_realloc(plugin_data->data, data_capacity);
-		cf_assert(plugin_data->data, AS_FABRIC, "Error allocating space for storing fabric published endpoints for node %lx", source);
 
 		plugin_data->data_capacity = data_capacity;
 	}
@@ -2625,12 +2621,6 @@ as_fabric_transact_start(cf_node dest, msg *m, int timeout_ms,
 	}
 
 	fabric_transact_xmit *ft = cf_rc_alloc(sizeof(fabric_transact_xmit));
-
-	if (! ft) {
-		cf_warning(AS_FABRIC, "as_fabric_transact: can't malloc");
-		(cb)(NULL, udata, AS_FABRIC_ERR_UNKNOWN);
-		return;
-	}
 
 	ft->tid = cf_atomic64_incr(&g_fabric_transact_tid);
 	ft->node_id = dest;

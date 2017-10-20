@@ -414,7 +414,7 @@
 #define MSG_BUFF_ALLOC(size) (										\
 		(size) <= MSG_BUFFER_MAX_SIZE ?								\
 				(((size) > STACK_ALLOC_LIMIT) ?						\
-						hb_malloc(size) : alloca(size)) : NULL)
+						cf_malloc(size) : alloca(size)) : NULL)
 
 /**
  * Allocate a buffer for heart beat messages. Larger buffers are heap allocated
@@ -434,7 +434,7 @@
  * Free the buffer allocated by MSG_BUFF_ALLOC
  */
 #define MSG_BUFF_FREE(buffer, size)								\
-if (((size) > STACK_ALLOC_LIMIT) && buffer) {hb_free(buffer);}
+if (((size) > STACK_ALLOC_LIMIT) && buffer) {cf_free(buffer);}
 
 /**
  * Acquire a lock on the entire config sub module.
@@ -2446,28 +2446,6 @@ as_hb_maximal_clique_evict(cf_vector* nodes, cf_vector* nodes_to_evict)
  */
 
 /**
- * Indirection to cf_malloc. ASM instrumentation in CPPMallocations fails if the
- * malloc call is not on separate line. Macro preprocessor does not preserve
- * newlines.
- */
-static void*
-hb_malloc(size_t size)
-{
-	return cf_malloc(size);
-}
-
-/**
- * Indirection to cf_free. ASM instrumentation in CPPMallocations fails if the
- * free call is not on separate line. Macro preprocessor does not preserve
- * newlines.
- */
-static void
-hb_free(void* buff)
-{
-	cf_free(buff);
-}
-
-/**
  * Round up input int to the nearest power of two.
  */
 static uint32_t
@@ -2585,10 +2563,6 @@ endpoint_list_copy(as_endpoint_list** dest, as_endpoint_list* src)
 	}
 
 	*dest = cf_realloc(*dest, src_size);
-
-	if (!*dest) {
-		CRASH("error allocating space for destination list");
-	}
 
 	memcpy(*dest, src, src_size);
 }
@@ -5412,10 +5386,6 @@ mesh_tend_udata_capacity_ensure(as_hb_mesh_tend_reduce_udata* tend_reduce_udata,
 		tend_reduce_udata->to_connect =
 				cf_realloc(tend_reduce_udata->to_connect, alloc_size);
 
-		if (tend_reduce_udata->to_connect == NULL) {
-			CRASH("error allocating endpoint space for mesh tender");
-		}
-
 		// NULL out newly allocated elements.
 		for (int i = old_capacity; i < tend_reduce_udata->to_connect_capacity;
 				i++) {
@@ -7999,11 +7969,6 @@ hb_plugin_parse_data_fn(msg* msg, cf_node source,
 
 		// Reallocate since we have outgrown existing capacity.
 		plugin_data->data = cf_realloc(plugin_data->data, data_capacity);
-
-		if (plugin_data->data == NULL) {
-			CRASH("error allocating space for storing adjacency list for node %" PRIx64,
-					source);
-		}
 		plugin_data->data_capacity = data_capacity;
 	}
 
@@ -8090,11 +8055,7 @@ hb_plugin_msg_parse(msg* msg, as_hb_adjacent_node* adjacent_node,
 			// Ensure there is a preallocated data pointer.
 			if (curr_data->data == NULL) {
 				curr_data->data = cf_malloc(HB_PLUGIN_DATA_DEFAULT_SIZE);
-				if (curr_data->data == NULL) {
-					CRASH("error allocating plugin data");
-				}
-				curr_data->data_capacity =
-				HB_PLUGIN_DATA_DEFAULT_SIZE;
+				curr_data->data_capacity = HB_PLUGIN_DATA_DEFAULT_SIZE;
 				curr_data->data_size = 0;
 			}
 

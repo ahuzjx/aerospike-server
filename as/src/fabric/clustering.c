@@ -1235,17 +1235,6 @@ clustering_orphan_timeout()
  */
 
 /**
- * A lame wrapper called from macros to prevent asm build from failing. The asm
- * processor assumes the cf_malloc call is on its own line, which is not true
- * for macros.
- */
-static void*
-clustering_malloc(size_t size)
-{
-	return cf_malloc(size);
-}
-
-/**
  * Maximum memory size allocated on the call stack.
  */
 #define STACK_ALLOC_LIMIT() (16 * 1024)
@@ -1254,21 +1243,9 @@ clustering_malloc(size_t size)
  * Allocate a buffer on stack if possible. Larger buffers are heap allocated to
  * prevent stack overflows.
  */
-#define BUFFER_ALLOC(size) (								\
+#define BUFFER_ALLOC_OR_DIE(size) (							\
 		((size) > STACK_ALLOC_LIMIT()) ?					\
-				clustering_malloc(size) : alloca(size))
-
-/**
- * Allocate a buffer is possible on the stack.
- */
-#define BUFFER_ALLOC_OR_DIE(size, crash_msg, ...)	\
-({													\
-	uint8_t* retval = BUFFER_ALLOC((size));			\
-	if (!retval) {									\
-		CRASH(crash_msg, ##__VA_ARGS__);			\
-	}												\
-	retval;											\
-})
+				cf_malloc(size) : alloca(size))
 
 /**
  * Free the buffer allocated by BUFFER_ALLOC
@@ -1526,8 +1503,7 @@ vector_sort_unique(cf_vector* src, int
 	int element_count = cf_vector_size(src);
 	size_t value_len = VECTOR_ELEM_SZ(src);
 	size_t array_size = element_count * value_len;
-	void* element_array = BUFFER_ALLOC_OR_DIE(array_size,
-			"cannnot allocate space for sorting elements");
+	void* element_array = BUFFER_ALLOC_OR_DIE(array_size);
 
 	// A lame approach to sorting. Copying the elements to an array and invoking
 	// qsort.
@@ -2390,12 +2366,6 @@ clustering_hb_plugin_parse_data_fn(msg* msg, cf_node source,
 
 		// Reallocate since we have outgrown existing capacity.
 		plugin_data->data = cf_realloc(plugin_data->data, data_capacity);
-
-		if (plugin_data->data == NULL) {
-			CRASH(
-					"error allocating space for storing succession list for node %"PRIx64,
-					source);
-		}
 		plugin_data->data_capacity = data_capacity;
 	}
 
@@ -3550,8 +3520,7 @@ msg_succession_list_set(msg* msg, cf_vector* succession_list)
 	}
 
 	size_t buffer_size = num_elements * sizeof(cf_node);
-	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size,
-			"cannot allocate memory for succession list buffer");
+	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size);
 
 	for (int i = 0; i < num_elements; i++) {
 		cf_vector_get(succession_list, i, &succession_buffer[i]);
@@ -3714,8 +3683,7 @@ msg_nodes_send(msg* msg, cf_vector* nodes)
 	}
 
 	int alloc_size = node_count * sizeof(cf_node);
-	cf_node* send_list = (cf_node*)BUFFER_ALLOC_OR_DIE(alloc_size,
-			"cannot allocate memory for node list while sending");
+	cf_node* send_list = (cf_node*)BUFFER_ALLOC_OR_DIE(alloc_size);
 
 	vector_array_cpy(send_list, nodes, node_count);
 

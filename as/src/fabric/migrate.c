@@ -267,8 +267,6 @@ as_migrate_emigrate(const pb_task *task)
 {
 	emigration *emig = cf_rc_alloc(sizeof(emigration));
 
-	cf_assert(emig, AS_MIGRATE, "failed emigration malloc");
-
 	emig->dest = task->dest;
 	emig->cluster_key = task->cluster_key;
 	emig->id = cf_atomic32_incr(&g_emigration_id);
@@ -1298,8 +1296,6 @@ immigration_handle_start_request(cf_node src, msg *m)
 	msg_preserve_fields(m, 1, MIG_FIELD_EMIG_ID);
 
 	immigration *immig = cf_rc_alloc(sizeof(immigration));
-
-	cf_assert(immig, AS_MIGRATE, "malloc");
 
 	cf_atomic_int_incr(&ns->migrate_rx_instance_count);
 
