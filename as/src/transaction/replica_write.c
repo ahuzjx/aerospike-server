@@ -70,14 +70,14 @@ int drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 // Public API.
 //
 
-bool
+void
 repl_write_make_message(rw_request* rw, as_transaction* tr)
 {
 	if (rw->dest_msg) {
 		msg_reset(rw->dest_msg);
 	}
-	else if (! (rw->dest_msg = as_fabric_msg_get(M_TYPE_RW))) {
-		return false;
+	else {
+		rw->dest_msg = as_fabric_msg_get(M_TYPE_RW);
 	}
 
 	// TODO - remove this when we're comfortable:
@@ -134,8 +134,6 @@ repl_write_make_message(rw_request* rw, as_transaction* tr)
 	if (info != 0) {
 		msg_set_uint32(m, RW_FIELD_INFO, info);
 	}
-
-	return true;
 }
 
 

@@ -676,11 +676,6 @@ emigrate_signal(emigration *emig)
 	as_namespace *ns = emig->rsv.ns;
 	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
 
-	if (! m) {
-		cf_warning(AS_MIGRATE, "signal: failed to get fabric msg");
-		return;
-	}
-
 	switch (emig->type) {
 	case PB_TASK_EMIG_SIGNAL_ALL_DONE:
 		msg_set_uint32(m, MIG_FIELD_OP, OPERATION_ALL_DONE);
@@ -740,11 +735,6 @@ emigration_send_start(emigration *emig)
 {
 	as_namespace *ns = emig->rsv.ns;
 	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "failed to get fabric msg");
-		return EMIG_START_RESULT_ERROR;
-	}
 
 	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_START);
 	msg_set_uint32(m, MIG_FIELD_FEATURES, MY_MIG_FEATURES);
@@ -837,14 +827,7 @@ emigrate_tree(emigration *emig)
 bool
 emigration_send_done(emigration *emig)
 {
-	as_namespace *ns = emig->rsv.ns;
 	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "imbalance: failed to get fabric msg");
-		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
-		return false;
-	}
 
 	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_DONE);
 	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);
@@ -985,15 +968,6 @@ emigrate_tree_reduce_fn(as_index_ref *r_ref, void *udata)
 	//
 
 	msg *m = as_fabric_msg_get(M_TYPE_MIGRATE);
-
-	if (! m) {
-		cf_warning(AS_MIGRATE, "imbalance: failed to get fabric msg");
-		cf_atomic_int_incr(&ns->migrate_tx_partitions_imbalance);
-		pickled_record_destroy(&pr);
-		emig->aborted = true;
-		cf_atomic32_set(&emig->state, EMIG_STATE_ABORTED);
-		return;
-	}
 
 	msg_set_uint32(m, MIG_FIELD_OP, OPERATION_INSERT);
 	msg_set_uint32(m, MIG_FIELD_EMIG_ID, emig->id);

@@ -67,12 +67,10 @@ void apply_winner(rw_request* rw);
 // Public API.
 //
 
-bool
+void
 dup_res_make_message(rw_request* rw, as_transaction* tr)
 {
-	if (! (rw->dest_msg = as_fabric_msg_get(M_TYPE_RW))) {
-		return false;
-	}
+	rw->dest_msg = as_fabric_msg_get(M_TYPE_RW);
 
 	as_namespace* ns = tr->rsv.ns;
 	msg* m = rw->dest_msg;
@@ -99,8 +97,6 @@ dup_res_make_message(rw_request* rw, as_transaction* tr)
 
 		as_record_done(&r_ref, ns);
 	}
-
-	return true;
 }
 
 

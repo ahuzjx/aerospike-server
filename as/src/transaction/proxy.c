@@ -232,7 +232,7 @@ as_proxy_hash_count()
 
 
 // Proxyer - divert a transaction request to another node.
-bool
+void
 as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 {
 	uint32_t pid = as_partition_getid(&tr->keyd);
@@ -240,11 +240,6 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 	// Get a fabric message and fill it out.
 
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
-
-	if (! m) {
-		cf_warning(AS_PROXY, "failed to get fabric msg");
-		return false;
-	}
 
 	uint32_t tid = cf_atomic32_incr(&g_proxy_tid);
 
@@ -292,8 +287,6 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 	if (as_fabric_send(dst, m, AS_FABRIC_CHANNEL_RW) != AS_FABRIC_SUCCESS) {
 		as_fabric_msg_put(m);
 	}
-
-	return true;
 }
 
 
@@ -302,11 +295,6 @@ void
 as_proxy_return_to_sender(const as_transaction* tr, as_namespace* ns)
 {
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
-
-	if (! m) {
-		return;
-	}
-
 	uint32_t pid = as_partition_getid(&tr->keyd);
 	cf_node redirect_node = as_partition_proxyee_redirect(ns, pid);
 
@@ -330,10 +318,6 @@ as_proxy_send_response(cf_node dst, uint32_t proxy_tid, uint32_t result_code,
 {
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
 
-	if (! m) {
-		return;
-	}
-
 	msg_set_uint32(m, PROXY_FIELD_OP, PROXY_OP_RESPONSE);
 	msg_set_uint32(m, PROXY_FIELD_TID, proxy_tid);
 
@@ -354,10 +338,6 @@ void
 as_proxy_send_ops_response(cf_node dst, uint32_t proxy_tid, cf_dyn_buf* db)
 {
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
-
-	if (! m) {
-		return;
-	}
 
 	msg_set_uint32(m, PROXY_FIELD_OP, PROXY_OP_RESPONSE);
 	msg_set_uint32(m, PROXY_FIELD_TID, proxy_tid);

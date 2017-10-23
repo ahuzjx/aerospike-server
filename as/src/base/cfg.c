@@ -167,7 +167,6 @@ cfg_set_defaults()
 	c->work_directory = "/opt/aerospike";
 	c->debug_allocations = CF_ALLOC_DEBUG_NONE;
 	c->fabric_dump_msgs = false;
-	c->max_msgs_per_type = -1; // by default, the maximum number of "msg" objects per type is unlimited
 
 	// Network heartbeat defaults.
 	c->hb_config.mode = AS_HB_MODE_UNDEF;
@@ -320,7 +319,6 @@ typedef enum {
 	// For special debugging or bug-related repair:
 	CASE_SERVICE_DEBUG_ALLOCATIONS,
 	CASE_SERVICE_FABRIC_DUMP_MSGS,
-	CASE_SERVICE_MAX_MSGS_PER_TYPE,
 	CASE_SERVICE_PROLE_EXTRA_TTL,
 	// Obsoleted:
 	CASE_SERVICE_ALLOW_INLINE_TRANSACTIONS,
@@ -342,6 +340,7 @@ typedef enum {
 	CASE_SERVICE_FB_HEALTH_MSG_PER_BURST,
 	CASE_SERVICE_FB_HEALTH_MSG_TIMEOUT,
 	CASE_SERVICE_GENERATION_DISABLE,
+	CASE_SERVICE_MAX_MSGS_PER_TYPE,
 	CASE_SERVICE_MIGRATE_READ_PRIORITY,
 	CASE_SERVICE_MIGRATE_READ_SLEEP,
 	CASE_SERVICE_MIGRATE_RX_LIFETIME_MS,
@@ -806,7 +805,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "work-directory",					CASE_SERVICE_WORK_DIRECTORY },
 		{ "debug-allocations",				CASE_SERVICE_DEBUG_ALLOCATIONS },
 		{ "fabric-dump-msgs",				CASE_SERVICE_FABRIC_DUMP_MSGS },
-		{ "max-msgs-per-type",				CASE_SERVICE_MAX_MSGS_PER_TYPE },
 		{ "prole-extra-ttl",				CASE_SERVICE_PROLE_EXTRA_TTL },
 		{ "allow-inline-transactions",		CASE_SERVICE_ALLOW_INLINE_TRANSACTIONS },
 		{ "respond-client-on-master-completion", CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION },
@@ -826,6 +824,7 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "fb-health-msg-per-burst",		CASE_SERVICE_FB_HEALTH_MSG_PER_BURST },
 		{ "fb-health-msg-timeout",			CASE_SERVICE_FB_HEALTH_MSG_TIMEOUT },
 		{ "generation-disable",				CASE_SERVICE_GENERATION_DISABLE },
+		{ "max-msgs-per-type",				CASE_SERVICE_MAX_MSGS_PER_TYPE },
 		{ "migrate-read-priority",			CASE_SERVICE_MIGRATE_READ_PRIORITY },
 		{ "migrate-read-sleep",				CASE_SERVICE_MIGRATE_READ_SLEEP },
 		{ "migrate-rx-lifetime-ms",			CASE_SERVICE_MIGRATE_RX_LIFETIME_MS },
@@ -2290,10 +2289,6 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_FABRIC_DUMP_MSGS:
 				c->fabric_dump_msgs = cfg_bool(&line);
 				break;
-			case CASE_SERVICE_MAX_MSGS_PER_TYPE:
-				c->max_msgs_per_type = cfg_i64_no_checks(&line);
-				msg_set_max_msgs_per_type(c->max_msgs_per_type = c->max_msgs_per_type >= 0 ? c->max_msgs_per_type : -1);
-				break;
 			case CASE_SERVICE_PROLE_EXTRA_TTL:
 				c->prole_extra_ttl = cfg_u32_no_checks(&line);
 				break;
@@ -2321,6 +2316,7 @@ as_config_init(const char* config_file)
 			case CASE_SERVICE_FB_HEALTH_MSG_PER_BURST:
 			case CASE_SERVICE_FB_HEALTH_MSG_TIMEOUT:
 			case CASE_SERVICE_GENERATION_DISABLE:
+			case CASE_SERVICE_MAX_MSGS_PER_TYPE:
 			case CASE_SERVICE_MIGRATE_READ_PRIORITY:
 			case CASE_SERVICE_MIGRATE_READ_SLEEP:
 			case CASE_SERVICE_MIGRATE_RX_LIFETIME_MS:

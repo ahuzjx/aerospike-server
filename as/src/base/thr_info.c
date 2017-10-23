@@ -1541,7 +1541,6 @@ info_service_config_get(cf_dyn_buf *db)
 
 	info_append_string(db, "debug-allocations", debug_allocations_string());
 	info_append_bool(db, "fabric-dump-msgs", g_config.fabric_dump_msgs);
-	info_append_int(db, "max-msgs-per-type", (int)g_config.max_msgs_per_type);
 	info_append_uint32(db, "prole-extra-ttl", g_config.prole_extra_ttl);
 }
 
@@ -2048,12 +2047,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			}
 			cf_info(AS_INFO, "Changing value of prole-extra-ttl from %d to %d ", g_config.prole_extra_ttl, val);
 			g_config.prole_extra_ttl = val;
-		}
-		else if (0 == as_info_parameter_get(params, "max-msgs-per-type", context, &context_len)) {
-			if ((0 != cf_str_atoi(context, &val)) || (val == 0))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of max-msgs-per-type from %"PRId64" to %d ", g_config.max_msgs_per_type, val);
-			msg_set_max_msgs_per_type(g_config.max_msgs_per_type = (val >= 0 ? val : -1));
 		}
 		else if (0 == as_info_parameter_get(params, "query-buf-size", context, &context_len)) {
 			uint64_t val = atoll(context);
@@ -4592,12 +4585,6 @@ info_node_info_reduce_fn(const void *key, void *data, void *udata)
 		pthread_mutex_lock(&g_serv_lock);
 
 		msg *m = as_fabric_msg_get(M_TYPE_INFO);
-		if (0 == m) {
-			pthread_mutex_unlock(&g_serv_lock);
-
-			cf_debug(AS_INFO, " could not get fabric message");
-			return(-1);
-		}
 
 		// If we don't have the remote node's service address, request it via our update info. msg.
 		msg_set_uint32(m, INFO_FIELD_OP, infop->service_addr && infop->services_clear_std ?

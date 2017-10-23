@@ -160,7 +160,6 @@ typedef struct as_config_s {
 
 	cf_alloc_debug	debug_allocations; // how to instrument the memory allocation API
 	PAD_BOOL		fabric_dump_msgs; // whether to log information about existing "msg" objects and queues
-	int64_t			max_msgs_per_type; // maximum number of "msg" objects permitted per type
 	uint32_t		prole_extra_ttl; // seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
 
 	//--------------------------------------------

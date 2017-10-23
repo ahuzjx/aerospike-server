@@ -71,10 +71,6 @@ cf_atomic_int g_num_msgs = 0;
 // Total number of "msg" objects allocated per type:
 cf_atomic_int g_num_msgs_by_type[M_TYPE_MAX] = { 0 };
 
-// Number of "msg" objects per type that can be allocated. (Default to -1,
-// meaning there is no limit on allowed number of "msg" objects per type.)
-static int64_t g_max_msgs_per_type = -1;
-
 static msg_type_entry g_mte[M_TYPE_MAX];
 
 
@@ -114,13 +110,6 @@ mf_destroy(msg_field *mf)
 //==========================================================
 // Public API - object accounting.
 //
-
-// Limit the maximum number of "msg" objects per type (-1 means unlimited.)
-void
-msg_set_max_msgs_per_type(int64_t max_msgs)
-{
-	g_max_msgs_per_type = max_msgs;
-}
 
 // Call this instead of freeing msg directly, to keep track of all msgs.
 void
@@ -176,15 +165,8 @@ msg_type_register(msg_type type, const msg_template *mt, size_t mt_sz,
 msg *
 msg_create(msg_type type)
 {
-	if (type >= M_TYPE_MAX || ! g_mte[type].mt) {
-		return NULL;
-	}
-
-	// Place a limit on the number of "msg" objects of each type that may be
-	// allocated at a given time. (The default value of -1 means no limit.)
-	if (g_max_msgs_per_type > 0 &&
-			(int64_t)g_num_msgs_by_type[type] >= g_max_msgs_per_type) {
-		cf_warning(CF_MSG, "refusing to allocate more than %ld msg of type %d", g_max_msgs_per_type, type);
+	// Caller validates type is in range - this validates it's not unused.
+	if (! g_mte[type].mt) {
 		return NULL;
 	}
 

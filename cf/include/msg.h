@@ -150,9 +150,6 @@ extern cf_atomic_int g_num_msgs_by_type[M_TYPE_MAX];
 // Object accounting.
 //
 
-// Limit the maximum number of "msg" objects per type (-1 means unlimited.)
-void msg_set_max_msgs_per_type(int64_t max_msgs);
-
 // Free up a "msg" object. Call this function instead of freeing the msg
 // directly in order to keep track of all msgs.
 void msg_put(msg *m);

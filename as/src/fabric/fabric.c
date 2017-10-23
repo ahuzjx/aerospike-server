@@ -1025,11 +1025,6 @@ fabric_node_connect(fabric_node *node, uint32_t ch)
 
 	msg *m = as_fabric_msg_get(M_TYPE_FABRIC);
 
-	if (! m) {
-		pthread_mutex_unlock(&node->connect_lock);
-		return NULL;
-	}
-
 	cf_atomic64_incr(&g_stats.fabric_connections_opened);
 	msg_set_uint64(m, FS_FIELD_NODE, g_config.self_node);
 	msg_set_uint32(m, FS_CHANNEL, ch);
@@ -1873,12 +1868,7 @@ fabric_connection_read_fabric_msg(fabric_connection *fc)
 			return false;
 		}
 
-		msg *m = as_fabric_msg_get(fc->r_type);
-
-		if (! m) {
-			cf_warning(AS_FABRIC, "Failed to create message for type %d (max %d)", fc->r_type, M_TYPE_MAX);
-			return false;
-		}
+		msg *m = as_fabric_msg_get(M_TYPE_FABRIC);
 
 		if (msg_parse(m, fb->buf, fc->r_msg_size) != 0) {
 			cf_warning(AS_FABRIC, "msg_parse failed for fc %p fb %p", fc, fb);

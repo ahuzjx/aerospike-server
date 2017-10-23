@@ -2040,11 +2040,6 @@ smd_create_msg(as_smd_msg_op_t op, as_smd_item_t **items, uint32_t num_items,
 {
 	msg *m = as_fabric_msg_get(M_TYPE_SMD);
 
-	if (! m) {
-		cf_warning(AS_SMD, "failed to get a System Metadata msg");
-		return NULL;
-	}
-
 	msg_set_uint32(m, AS_SMD_MSG_ID, AS_SMD_MSG_V2_IDENTIFIER);
 	msg_set_uint64(m, AS_SMD_MSG_CLUSTER_KEY, g_cluster_key);
 

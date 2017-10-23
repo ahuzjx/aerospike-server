@@ -26,9 +26,6 @@
 // Includes.
 //
 
-#include <stdbool.h>
-#include <stdint.h>
-
 #include "msg.h"
 #include "node.h"
 
@@ -47,7 +44,7 @@ struct rw_request_s;
 // Public API.
 //
 
-bool repl_write_make_message(struct rw_request_s* rw, struct as_transaction_s* tr);
+void repl_write_make_message(struct rw_request_s* rw, struct as_transaction_s* tr);
 void repl_write_setup_rw(struct rw_request_s* rw, struct as_transaction_s* tr, repl_write_done_cb repl_write_cb, timeout_done_cb timeout_cb);
 void repl_write_reset_rw(struct rw_request_s* rw, struct as_transaction_s* tr, repl_write_done_cb cb);
 void repl_write_handle_op(cf_node node, msg* m);

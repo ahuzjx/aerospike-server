@@ -57,7 +57,7 @@
 // Forward declarations.
 //
 
-bool start_read_dup_res(rw_request* rw, as_transaction* tr);
+void start_read_dup_res(rw_request* rw, as_transaction* tr);
 bool read_dup_res_cb(rw_request* rw);
 
 void send_read_response(as_transaction* tr, as_msg_op** ops,
@@ -153,12 +153,7 @@ as_read_start(as_transaction* tr)
 	}
 	// else - rw_request is now in hash, continue...
 
-	if (! start_read_dup_res(rw, tr)) {
-		rw_request_hash_delete(&hkey, rw);
-		tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		send_read_response(tr, NULL, NULL, 0, NULL);
-		return TRANS_DONE_ERROR;
-	}
+	start_read_dup_res(rw, tr);
 
 	// Started duplicate resolution.
 	return TRANS_IN_PROGRESS;
@@ -169,14 +164,12 @@ as_read_start(as_transaction* tr)
 // Local helpers - transaction flow.
 //
 
-bool
+void
 start_read_dup_res(rw_request* rw, as_transaction* tr)
 {
 	// Finish initializing rw_request, construct and send dup-res message.
 
-	if (! dup_res_make_message(rw, tr)) {
-		return false;
-	}
+	dup_res_make_message(rw, tr);
 
 	pthread_mutex_lock(&rw->lock);
 
@@ -184,8 +177,6 @@ start_read_dup_res(rw_request* rw, as_transaction* tr)
 	send_rw_messages(rw);
 
 	pthread_mutex_unlock(&rw->lock);
-
-	return true;
 }
 
 

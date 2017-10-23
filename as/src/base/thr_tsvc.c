@@ -447,13 +447,9 @@ as_tsvc_process_transaction(as_transaction *tr)
 		switch (tr->origin) {
 		case FROM_CLIENT:
 		case FROM_BATCH:
-			if (! as_proxy_divert(dest, tr, ns)) {
-				as_transaction_error(tr, ns, AS_PROTO_RESULT_FAIL_UNKNOWN);
-			}
-			else {
-				// CLIENT: fabric owns msgp, BATCH: it's shared, don't free it.
-				free_msgp = false;
-			}
+			as_proxy_divert(dest, tr, ns);
+			// CLIENT: fabric owns msgp, BATCH: it's shared, don't free it.
+			free_msgp = false;
 			break;
 		case FROM_PROXY:
 			as_proxy_return_to_sender(tr, ns);

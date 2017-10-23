@@ -60,10 +60,10 @@
 // Forward declarations.
 //
 
-bool start_delete_dup_res(rw_request* rw, as_transaction* tr);
-bool start_delete_repl_write(rw_request* rw, as_transaction* tr);
+void start_delete_dup_res(rw_request* rw, as_transaction* tr);
+void start_delete_repl_write(rw_request* rw, as_transaction* tr);
 bool delete_dup_res_cb(rw_request* rw);
-bool delete_repl_write_after_dup_res(rw_request* rw, as_transaction* tr);
+void delete_repl_write_after_dup_res(rw_request* rw, as_transaction* tr);
 void delete_repl_write_cb(rw_request* rw);
 
 void send_delete_response(as_transaction* tr);
@@ -140,12 +140,7 @@ as_delete_start(as_transaction* tr)
 	// If there are duplicates to resolve, start doing so.
 	// TODO - should we bother if there's no generation check?
 	if (tr->rsv.n_dupl != 0) {
-		if (! start_delete_dup_res(rw, tr)) {
-			rw_request_hash_delete(&hkey, rw);
-			tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-			send_delete_response(tr);
-			return TRANS_DONE_ERROR;
-		}
+		start_delete_dup_res(rw, tr);
 
 		// Started duplicate resolution.
 		return TRANS_IN_PROGRESS;
@@ -170,12 +165,7 @@ as_delete_start(as_transaction* tr)
 		return TRANS_DONE_SUCCESS;
 	}
 
-	if (! start_delete_repl_write(rw, tr)) {
-		rw_request_hash_delete(&hkey, rw);
-		tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		send_delete_response(tr);
-		return TRANS_DONE_ERROR;
-	}
+	start_delete_repl_write(rw, tr);
 
 	// Started replica write.
 	return TRANS_IN_PROGRESS;
@@ -186,14 +176,12 @@ as_delete_start(as_transaction* tr)
 // Local helpers - transaction flow.
 //
 
-bool
+void
 start_delete_dup_res(rw_request* rw, as_transaction* tr)
 {
 	// Finish initializing rw, construct and send dup-res message.
 
-	if (! dup_res_make_message(rw, tr)) {
-		return false;
-	}
+	dup_res_make_message(rw, tr);
 
 	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
 
@@ -203,19 +191,15 @@ start_delete_dup_res(rw_request* rw, as_transaction* tr)
 	send_rw_messages(rw);
 
 	pthread_mutex_unlock(&rw->lock);
-
-	return true;
 }
 
 
-bool
+void
 start_delete_repl_write(rw_request* rw, as_transaction* tr)
 {
 	// Finish initializing rw, construct and send repl-delete message.
 
-	if (! repl_write_make_message(rw, tr)) {
-		return false;
-	}
+	repl_write_make_message(rw, tr);
 
 	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
 
@@ -231,8 +215,6 @@ start_delete_repl_write(rw_request* rw, as_transaction* tr)
 	send_rw_messages(rw);
 
 	pthread_mutex_unlock(&rw->lock);
-
-	return true;
 }
 
 
@@ -264,26 +246,20 @@ delete_dup_res_cb(rw_request* rw)
 		return true;
 	}
 
-	if (! delete_repl_write_after_dup_res(rw, &tr)) {
-		tr.result_code = AS_PROTO_RESULT_FAIL_UNKNOWN;
-		send_delete_response(&tr);
-		return true;
-	}
+	delete_repl_write_after_dup_res(rw, &tr);
 
 	// Started replica write - don't delete rw_request from hash.
 	return false;
 }
 
 
-bool
+void
 delete_repl_write_after_dup_res(rw_request* rw, as_transaction* tr)
 {
 	// Recycle rw_request that was just used for duplicate resolution to now do
 	// replica writes. Note - we are under the rw_request lock here!
 
-	if (! repl_write_make_message(rw, tr)) {
-		return false;
-	}
+	repl_write_make_message(rw, tr);
 
 	if (rw->respond_client_on_master_completion) {
 		// Don't wait for replication. When replication is complete, we won't
@@ -293,8 +269,6 @@ delete_repl_write_after_dup_res(rw_request* rw, as_transaction* tr)
 
 	repl_write_reset_rw(rw, tr, delete_repl_write_cb);
 	send_rw_messages(rw);
-
-	return true;
 }
 
 
