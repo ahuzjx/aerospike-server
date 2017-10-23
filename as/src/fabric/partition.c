@@ -527,9 +527,9 @@ as_partition_getinfo_str(cf_dyn_buf* db)
 {
 	size_t db_sz = db->used_sz;
 
-	cf_dyn_buf_append_string(db, "namespace:partition:state:replica:n_dupl:"
-			"working_master:emigrates:immigrates:records:tombstones:version:"
-			"final_version;");
+	cf_dyn_buf_append_string(db, "namespace:partition:state:n_replicas:replica:"
+			"n_dupl:working_master:emigrates:immigrates:records:tombstones:"
+			"version:final_version;");
 
 	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
 		as_namespace* ns = g_config.namespaces[ns_ix];
@@ -539,17 +539,15 @@ as_partition_getinfo_str(cf_dyn_buf* db)
 
 			pthread_mutex_lock(&p->lock);
 
-			char state_c = partition_descriptor(p);
-			int self_n = find_self_in_replicas(p);
-
 			cf_dyn_buf_append_string(db, ns->name);
 			cf_dyn_buf_append_char(db, ':');
 			cf_dyn_buf_append_uint32(db, pid);
 			cf_dyn_buf_append_char(db, ':');
-			cf_dyn_buf_append_char(db, state_c);
+			cf_dyn_buf_append_char(db, partition_descriptor(p));
 			cf_dyn_buf_append_char(db, ':');
-			cf_dyn_buf_append_int(db, self_n == -1 ?
-					(int)p->n_replicas : self_n);
+			cf_dyn_buf_append_uint32(db, p->n_replicas);
+			cf_dyn_buf_append_char(db, ':');
+			cf_dyn_buf_append_int(db, find_self_in_replicas(p));
 			cf_dyn_buf_append_char(db, ':');
 			cf_dyn_buf_append_uint32(db, p->n_dupl);
 			cf_dyn_buf_append_char(db, ':');
