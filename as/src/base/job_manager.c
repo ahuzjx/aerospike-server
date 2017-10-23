@@ -484,13 +484,8 @@ as_job_manager_init(as_job_manager* mgr, uint32_t max_active, uint32_t max_done,
 		cf_crash(AS_JOB, "job manager failed mutex init");
 	}
 
-	if (! (mgr->active_jobs = cf_queue_create(sizeof(as_job*), false))) {
-		cf_crash(AS_JOB, "job manager failed active jobs queue create");
-	}
-
-	if (! (mgr->finished_jobs = cf_queue_create(sizeof(as_job*), false))) {
-		cf_crash(AS_JOB, "job manager failed finished jobs queue create");
-	}
+	mgr->active_jobs = cf_queue_create(sizeof(as_job*), false);
+	mgr->finished_jobs = cf_queue_create(sizeof(as_job*), false);
 
 	if (! as_priority_thread_pool_init(&mgr->thread_pool, n_threads)) {
 		cf_crash(AS_JOB, "job manager failed thread pool init");

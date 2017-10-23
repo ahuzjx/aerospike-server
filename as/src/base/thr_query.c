@@ -461,9 +461,7 @@ bb_poolrelease(cf_buf_builder *bb_r)
 		cf_buf_builder_free(bb_r);
 	} else {
 		cf_detail(AS_QUERY, "Pushed %p %"PRIu64" %d ", bb_r, g_config.query_buf_size, cf_buf_builder_size(bb_r));
-		if (cf_queue_push(g_query_response_bb_pool, &bb_r) != CF_QUEUE_OK) {
-			cf_crash(AS_QUERY, "Failed to push into bb pool queue !!");
-		}
+		cf_queue_push(g_query_response_bb_pool, &bb_r);
 	}
 	return ret;
 }
@@ -503,9 +501,7 @@ qwork_poolrelease(query_work *qwork)
 	int ret = AS_QUERY_OK;
 	if (cf_queue_sz(g_query_qwork_pool) < AS_QUERY_MAX_QREQ) {
 		cf_detail(AS_QUERY, "Pushed qwork %p", qwork);
-		if (cf_queue_push(g_query_qwork_pool, &qwork) != CF_QUEUE_OK) {
-			cf_crash(AS_QUERY, "Failed to push into query work object pool Queue !!");
-		}
+		cf_queue_push(g_query_qwork_pool, &qwork);
 	} else {
 		cf_detail(AS_QUERY, "Freed qwork %p", qwork);
 		cf_free(qwork);
@@ -2316,9 +2312,8 @@ query_qtr_enqueue(as_query_transaction *qtr, bool is_requeue)
 	if (!is_requeue && (size > limit)) {
 		cf_atomic64_incr(queue_full_err);
 		return AS_QUERY_ERR;
-	} else if (cf_queue_push(q, &qtr) != CF_QUEUE_OK) {
-		cf_crash(AS_QUERY, "Failed to push into Query Queue !!");
 	} else {
+		cf_queue_push(q, &qtr);
 		cf_detail(AS_QUERY, "Logged query ");
 	}
 
@@ -2465,10 +2460,7 @@ qtr_process(as_query_transaction *qtr)
 		// Successfully queued
 		cf_atomic32_incr(&qtr->n_qwork_active);
 		qwork_setup(qworkp, qtr);
-
-		if (cf_queue_push(g_query_work_queue, &qworkp)) {
-			cf_crash(AS_QUERY, "Push into Query Work Queue fail ... !!!");
-		}
+		cf_queue_push(g_query_work_queue, &qworkp);
 
 	}
 	return AS_QUERY_OK;
@@ -3231,17 +3223,8 @@ as_query_init()
 
 	// I/O threads
 	g_query_qwork_pool = cf_queue_create(sizeof(query_work *), true);
-	if (!g_query_qwork_pool)
-		cf_crash(AS_QUERY, "Failed to create query io queue");
-
 	g_query_response_bb_pool = cf_queue_create(sizeof(void *), true);
-	if (!g_query_response_bb_pool)
-		cf_crash(AS_QUERY, "Failed to create response buffer query");
-
-
 	g_query_work_queue = cf_queue_create(sizeof(query_work *), true);
-	if (!g_query_work_queue)
-		cf_crash(AS_QUERY, "Failed to create query io queue");
 
 	// Create the query worker threads detached so we don't need to join with them.
 	if (pthread_attr_init(&g_query_worker_th_attr)) {
@@ -3257,12 +3240,7 @@ as_query_init()
 	}
 
 	g_query_short_queue = cf_queue_create(sizeof(as_query_transaction *), true);
-	if (!g_query_short_queue)
-		cf_crash(AS_QUERY, "Failed to create short query transaction queue");
-
 	g_query_long_queue = cf_queue_create(sizeof(as_query_transaction *), true);
-	if (!g_query_long_queue)
-		cf_crash(AS_QUERY, "Failed to create long query transaction queue");
 
 	// Create the query threads detached so we don't need to join with them.
 	if (pthread_attr_init(&g_query_th_attr)) {

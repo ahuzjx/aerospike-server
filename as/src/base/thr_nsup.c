@@ -615,9 +615,7 @@ queue_for_delete(as_namespace* ns, cf_digest* p_digest)
 	q_item.ns = ns; // not bothering with namespace reservation
 	q_item.digest = *p_digest;
 
-	if (CF_QUEUE_OK != cf_queue_push(g_p_nsup_delete_q, (void*)&q_item)) {
-		cf_crash(AS_NSUP, "nsup delete queue push failed");
-	}
+	cf_queue_push(g_p_nsup_delete_q, (void*)&q_item);
 }
 
 //------------------------------------------------
@@ -1157,9 +1155,7 @@ as_nsup_start()
 	srand(time(NULL));
 
 	// Create queue for nsup-generated deletions.
-	if (NULL == (g_p_nsup_delete_q = cf_queue_create(sizeof(record_delete_info), true))) {
-		cf_crash(AS_NSUP, "nsup delete queue create failed");
-	}
+	g_p_nsup_delete_q = cf_queue_create(sizeof(record_delete_info), true);
 
 	cf_info(AS_NSUP, "starting namespace supervisor threads");
 

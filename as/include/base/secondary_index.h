@@ -583,7 +583,7 @@ extern void        as_index_keys_destroy_fn(cf_ll_element *ele);
 #define AS_SINDEX_RELEASE(si) \
 	as_sindex_release((si), __FILE__, __LINE__);
 extern int  as_sindex_reserve(as_sindex *si, char *fname, int lineno);
-extern int  as_sindex_release(as_sindex *si, char *fname, int lineno);
+extern void as_sindex_release(as_sindex *si, char *fname, int lineno);
 extern int  as_sindex_imd_free(as_sindex_metadata *imd);
 extern int  as_sindex_sbin_free(as_sindex_bin *sbin);
 extern int  as_sindex_sbin_freeall(as_sindex_bin *sbin, int numval);

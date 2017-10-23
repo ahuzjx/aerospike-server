@@ -728,13 +728,8 @@ as_msg_send_fin_timeout(cf_socket *sock, uint32_t result_code, int32_t timeout)
 void 
 as_netio_init()
 {
-	if (! cf_queue_init(&g_netio_queue, sizeof(as_netio), 64, true)) {
-		cf_crash(AS_PROTO, "failed to create netio queue");
-	}
-
-	if (! cf_queue_init(&g_netio_slow_queue, sizeof(as_netio), 64, true)) {
-		cf_crash(AS_PROTO, "failed to create netio queue");
-	}
+	cf_queue_init(&g_netio_queue, sizeof(as_netio), 64, true);
+	cf_queue_init(&g_netio_slow_queue, sizeof(as_netio), 64, true);
 
 	pthread_t thread;
 	pthread_attr_t attrs;

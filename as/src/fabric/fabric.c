@@ -808,15 +808,11 @@ fabric_node_create(cf_node node_id)
 	}
 
 	for (int i = 0; i < AS_FABRIC_N_CHANNELS; i++) {
-		bool res;
+		cf_queue_init(&node->send_idle_fc_queue[i], sizeof(fabric_connection *),
+				CF_QUEUE_ALLOCSZ, false);
 
-		res = cf_queue_init(&node->send_idle_fc_queue[i],
-				sizeof(fabric_connection *), CF_QUEUE_ALLOCSZ, false);
-		cf_assert(res, AS_FABRIC, "fabric_node_create(%lx) failed to create send_idle_fc_queue", node_id);
-
-		res = cf_queue_init(&node->send_queue[i], sizeof(msg *),
-				CF_QUEUE_ALLOCSZ, true);
-		cf_assert(res, AS_FABRIC, "fabric_node_create(%lx)", node_id);
+		cf_queue_init(&node->send_queue[i], sizeof(msg *), CF_QUEUE_ALLOCSZ,
+				true);
 	}
 
 	if (pthread_mutex_init(&node->connect_lock, NULL) != 0) {

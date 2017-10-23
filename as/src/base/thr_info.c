@@ -3781,13 +3781,7 @@ thr_info_fn(void *unused)
 void
 as_info(as_info_transaction *it)
 {
-	if (0 != cf_queue_push(g_info_work_q, it)) {
-		cf_warning(AS_INFO, "failed info queue push");
-
-		// TODO - bother "handling" this?
-		as_end_of_transaction_force_close(it->fd_h);
-		cf_free(it->proto);
-	}
+	cf_queue_push(g_info_work_q, it);
 }
 
 // Return the number of pending Info requests in the queue.

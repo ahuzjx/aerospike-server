@@ -1127,20 +1127,15 @@ static void as_smd_destroy_event(as_smd_event_t *evt)
  */
 static int as_smd_send_event(as_smd_t *smd, as_smd_event_t *evt)
 {
-	int retval = 0;
-
 	if (!smd) {
 		cf_warning(AS_SMD, "System Metadata is not initialized ~~ Not sending event!");
 		as_smd_destroy_event(evt);
 		return -1;
 	}
 
-	if ((retval = cf_queue_push(smd->msgq, &evt))) {
-		cf_crash(AS_SMD, "failed to send %s event to the System Metadata thread (retval %d)",
-				 (AS_SMD_CMD == evt->type ? AS_SMD_CMD_TYPE_NAME(evt->u.cmd.type) : AS_SMD_MSG_OP_NAME(evt->u.msg.op)), retval);
-	}
+	cf_queue_push(smd->msgq, &evt);
 
-	return retval;
+	return 0;
 }
 
 
@@ -1224,14 +1219,9 @@ static as_smd_t *as_smd_create(void)
 	smd->scoreboard = cf_shash_create(cf_shash_fn_ptr, sizeof(cf_node), sizeof(cf_shash *), 127, CF_SHASH_BIG_LOCK);
 
 	// Create the System Metadata message queue.
-	if (!(smd->msgq = cf_queue_create(sizeof(as_smd_event_t *), true))) {
-		cf_crash(AS_SMD, "failed to create the System Metadata message queue");
-	}
+	smd->msgq = cf_queue_create(sizeof(as_smd_event_t *), true);
 
-	if (! cf_queue_init(&smd->pending_merge_queue, sizeof(smd_pending_merge),
-			128, false)) {
-		cf_crash(AS_SMD, "failed to create the System Metadata pending_merge queue");
-	}
+	cf_queue_init(&smd->pending_merge_queue, sizeof(smd_pending_merge), 128, false);
 
 	// Create the System Metadata thread.
 

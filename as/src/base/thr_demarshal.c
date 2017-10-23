@@ -871,10 +871,6 @@ as_demarshal_start()
 
 	g_freeslot = cf_queue_create(sizeof(int), true);
 
-	if (!g_freeslot) {
-		cf_crash(AS_DEMARSHAL, "Couldn't create reaper free list");
-	}
-
 	add_local(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	add_local(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
 

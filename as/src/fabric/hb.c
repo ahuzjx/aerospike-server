@@ -3371,10 +3371,7 @@ channel_event_queue(as_hb_channel_event* event)
 
 	DETAIL("queuing channel event of type %d for node %" PRIx64, event->type,
 			event->nodeid);
-	if (cf_queue_push(&g_hb.channel_state.events_queue, event) != 0) {
-		CRASH("error queuing up external heartbeat event for node %" PRIx64,
-				event->nodeid);
-	}
+	cf_queue_push(&g_hb.channel_state.events_queue, event);
 }
 
 /**
@@ -3591,10 +3588,7 @@ channel_socket_close_queue(cf_socket* socket, bool is_remote_close,
 		is_remote_close,
 		raise_close_event };
 	DETAIL("queuing close of fd %d", CSFD(socket));
-	if (cf_queue_push(&g_hb.channel_state.socket_close_queue, &close_entry)
-			!= 0) {
-		CRASH("error queuing up close of fd %d", CSFD(socket));
-	}
+	cf_queue_push(&g_hb.channel_state.socket_close_queue, &close_entry);
 }
 
 /**
@@ -4792,18 +4786,14 @@ channel_init()
 	channel_events_enabled_set(false);
 
 	// Initialize unpublished event queue.
-	if (!cf_queue_init(&g_hb.channel_state.events_queue,
+	cf_queue_init(&g_hb.channel_state.events_queue,
 			sizeof(as_hb_channel_event),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, true)) {
-		CRASH("error creating channel event queue");
-	}
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, true);
 
 	// Initialize sockets to close queue.
-	if (!cf_queue_init(&g_hb.channel_state.socket_close_queue,
+	cf_queue_init(&g_hb.channel_state.socket_close_queue,
 			sizeof(as_hb_channel_socket_close_entry),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, true)) {
-		CRASH("error creating fd close queue");
-	}
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, true);
 
 	// Initialize the nodeid to socket hash.
 	g_hb.channel_state.nodeid_to_socket = cf_shash_create(cf_nodeid_shash_fn,
@@ -7790,11 +7780,7 @@ hb_event_queue(as_hb_internal_event_type event_type, const cf_node* nodes,
 
 		DEBUG("queuing event of type %d for node %" PRIx64, event.evt,
 				event.nodeid);
-		if (cf_queue_push(&g_hb_event_listeners.external_events_queue, &event)
-				!= 0) {
-			CRASH("error queuing up external heartbeat event for node %" PRIx64,
-					nodes[i]);
-		}
+		cf_queue_push(&g_hb_event_listeners.external_events_queue, &event);
 	}
 }
 
@@ -8418,11 +8404,9 @@ hb_init()
 			sizeof(int), AS_HB_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	// Initialize unpublished event queue.
-	if (!cf_queue_init(&g_hb_event_listeners.external_events_queue,
+	cf_queue_init(&g_hb_event_listeners.external_events_queue,
 			sizeof(as_hb_event_node),
-			AS_HB_CLUSTER_MAX_SIZE_SOFT, true)) {
-		CRASH("error creating heartbeat event queue");
-	}
+			AS_HB_CLUSTER_MAX_SIZE_SOFT, true);
 
 	g_hb_event_listeners.external_events_published_last = 0;
 

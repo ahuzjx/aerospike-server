@@ -1283,22 +1283,19 @@ as_sindex_reserve(as_sindex *si, char *fname, int lineno)
  * Release, queue up the request for the destroy to clean up Aerospike Index thread,
  * Not done inline because main write thread could release the last reference.
  */
-int
+void
 as_sindex_release(as_sindex *si, char *fname, int lineno)
 {
 	if (! si) {
-	   	return AS_SINDEX_OK;
+	   	return;
 	}
 
 	uint64_t val = cf_rc_release(si->imd);
 
 	if (val == 0) {
 		si->flag |= AS_SINDEX_FLAG_DESTROY_CLEANUP;
-		if (CF_QUEUE_OK != cf_queue_push(g_sindex_destroy_q, &si)) {
-			return AS_SINDEX_ERR;
-		}
+		cf_queue_push(g_sindex_destroy_q, &si);
 	}
-	return AS_SINDEX_OK;
 }
 
 as_sindex_status
@@ -1533,12 +1530,7 @@ sindex_create_lockless(as_namespace *ns, as_sindex_metadata *imd)
 	if (g_sindex_boot_done) {
 		// Reserve for ref in queue
 		AS_SINDEX_RESERVE(si);
-		int rv = cf_queue_push(g_sindex_populate_q, &si);
-		if (CF_QUEUE_OK != rv) {
-			cf_warning(AS_SINDEX, "Failed to queue up for population... index=%s "
-					"Internal Queue Error rv=%d, try dropping and recreating",
-					si->imd->iname, rv);
-		}
+		cf_queue_push(g_sindex_populate_q, &si);
 	}
 
 	return AS_SINDEX_OK;

@@ -121,8 +121,6 @@ as_tsvc_init()
 	for (uint32_t qid = 0; qid < g_config.n_transaction_queues; qid++) {
 		g_transaction_queues[qid] =
 				cf_queue_create(AS_TRANSACTION_HEAD_SIZE, true);
-
-		cf_assert(g_transaction_queues[qid], AS_TSVC, "failed to create queue");
 	}
 
 	// Start all the transaction threads.
@@ -149,9 +147,7 @@ as_tsvc_enqueue(as_transaction *tr)
 		cf_debug(AS_TSVC, "transaction on CPU %u", qid);
 	}
 
-	if (cf_queue_push(g_transaction_queues[qid], tr) != CF_QUEUE_OK) {
-		cf_crash(AS_TSVC, "transaction queue push failed - out of memory?");
-	}
+	cf_queue_push(g_transaction_queues[qid], tr);
 }
 
 
@@ -516,13 +512,8 @@ tsvc_remove_threads(uint32_t qid, uint32_t n_threads)
 
 	for (uint32_t n = 0; n < n_threads; n++) {
 		// Send terminator (transaction with NULL msgp).
-		if (cf_queue_push(g_transaction_queues[qid], &death_tr) ==
-				CF_QUEUE_OK) {
-			g_queues_n_threads[qid]--;
-		}
-		else {
-			cf_warning(AS_TSVC, "tsvc queue %u failed thread termination", qid);
-		}
+		cf_queue_push(g_transaction_queues[qid], &death_tr);
+		g_queues_n_threads[qid]--;
 	}
 }
 

@@ -220,9 +220,7 @@ as_index_tree_release(as_index_tree *tree)
 
 	// TODO - call as_index_tree_destroy() directly if tree is empty?
 
-	if (cf_queue_push(&g_gc_queue, &tree) != CF_QUEUE_OK) {
-		cf_crash(AS_INDEX, "failed push to garbage collection queue");
-	}
+	cf_queue_push(&g_gc_queue, &tree);
 
 	return 0;
 }

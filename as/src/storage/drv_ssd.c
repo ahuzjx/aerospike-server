@@ -963,13 +963,8 @@ run_load_queues(void *pv_data)
 	drv_ssd *ssd = (drv_ssd*)pv_data;
 
 	// TODO - would be nice to have a queue create of specified capacity.
-	if (! (ssd->free_wblock_q = cf_queue_create(sizeof(uint32_t), true))) {
-		cf_crash(AS_DRV_SSD, "%s free wblock queue create failed", ssd->name);
-	}
-
-	if (! (ssd->defrag_wblock_q = cf_queue_create(sizeof(uint32_t), true))) {
-		cf_crash(AS_DRV_SSD, "%s defrag queue create failed", ssd->name);
-	}
+	ssd->free_wblock_q = cf_queue_create(sizeof(uint32_t), true);
+	ssd->defrag_wblock_q = cf_queue_create(sizeof(uint32_t), true);
 
 	as_namespace *ns = ssd->ns;
 	uint32_t lwm_pct = ns->storage_defrag_lwm_pct;
@@ -3811,32 +3806,22 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 
 		// Note: free_wblock_q, defrag_wblock_q created after loading devices.
 
-		if (! (ssd->fd_q = cf_queue_create(sizeof(int), true))) {
-			cf_crash(AS_DRV_SSD, "can't create fd queue");
+		ssd->fd_q = cf_queue_create(sizeof(int), true);
+
+		if (ssd->shadow_name) {
+			ssd->shadow_fd_q = cf_queue_create(sizeof(int), true);
 		}
 
-		if (ssd->shadow_name &&
-				! (ssd->shadow_fd_q = cf_queue_create(sizeof(int), true))) {
-			cf_crash(AS_DRV_SSD, "can't create shadow fd queue");
+		ssd->swb_write_q = cf_queue_create(sizeof(void*), true);
+
+		if (ssd->shadow_name) {
+			ssd->swb_shadow_q = cf_queue_create(sizeof(void*), true);
 		}
 
-		if (! (ssd->swb_write_q = cf_queue_create(sizeof(void*), true))) {
-			cf_crash(AS_DRV_SSD, "can't create swb-write queue");
-		}
-
-		if (ssd->shadow_name &&
-				! (ssd->swb_shadow_q = cf_queue_create(sizeof(void*), true))) {
-			cf_crash(AS_DRV_SSD, "can't create swb-shadow queue");
-		}
-
-		if (! (ssd->swb_free_q = cf_queue_create(sizeof(void*), true))) {
-			cf_crash(AS_DRV_SSD, "can't create swb-free queue");
-		}
+		ssd->swb_free_q = cf_queue_create(sizeof(void*), true);
 
 		if (! ns->storage_data_in_memory) {
-			if (! (ssd->post_write_q = cf_queue_create(sizeof(void*), false))) {
-				cf_crash(AS_DRV_SSD, "can't create post-write queue");
-			}
+			ssd->post_write_q = cf_queue_create(sizeof(void*), false);
 		}
 
 		snprintf(histname, sizeof(histname), "{%s}-%s-read", ns->name, ssd->name);

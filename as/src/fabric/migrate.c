@@ -286,9 +286,7 @@ as_migrate_emigrate(const pb_task *task)
 
 	cf_atomic_int_incr(&emig->rsv.ns->migrate_tx_instance_count);
 
-	if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
-		cf_crash(AS_MIGRATE, "failed emigration queue push");
-	}
+	cf_queue_push(&g_emigration_q, &emig);
 }
 
 
@@ -302,11 +300,7 @@ as_migrate_set_num_xmit_threads(uint32_t n_threads)
 			void *death_msg = NULL;
 
 			// Send terminator (NULL message).
-			if (cf_queue_push(&g_emigration_q, &death_msg) != CF_QUEUE_OK) {
-				cf_warning(AS_MIGRATE, "failed to queue thread terminator");
-				return;
-			}
-
+			cf_queue_push(&g_emigration_q, &death_msg);
 			g_config.n_migrate_threads--;
 		}
 	}
@@ -378,9 +372,6 @@ emigration_init(emigration *emig)
 	emig->reinsert_hash = cf_shash_create(cf_shash_fn_u32, sizeof(uint64_t),
 			sizeof(emigration_reinsert_ctrl), 16 * 1024, CF_SHASH_MANY_LOCK);
 	emig->ctrl_q = cf_queue_create(sizeof(int), true);
-
-	cf_assert(emig->ctrl_q, AS_MIGRATE, "failed to create queue");
-
 	emig->meta_q = meta_in_q_create();
 }
 
@@ -537,9 +528,7 @@ run_emigration_slow(void *arg)
 			usleep(1000 * (emig->wait_until_ms - now_ms));
 		}
 
-		if (cf_queue_push(&g_emigration_q, &emig) != CF_QUEUE_OK) {
-			cf_crash(AS_MIGRATE, "failed emigration re-queue push");
-		}
+		cf_queue_push(&g_emigration_q, &emig);
 	}
 
 	return NULL;
@@ -651,9 +640,7 @@ emigrate_transfer(emigration *emig)
 		// Remote node refused migration, requeue and fetch another.
 		emig->wait_until_ms = cf_getms() + EMIGRATION_SLOW_Q_WAIT_MS;
 
-		if (cf_queue_push(&g_emigration_slow_q, &emig) != CF_QUEUE_OK) {
-			cf_crash(AS_MIGRATE, "failed emigration slow queue push");
-		}
+		cf_queue_push(&g_emigration_slow_q, &emig);
 
 		return true; // requeued
 	}
