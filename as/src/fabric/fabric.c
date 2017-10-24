@@ -2628,15 +2628,7 @@ as_fabric_transact_start(cf_node dest, msg *m, int timeout_ms,
 
 	// Put will take the reference, need to keep one around for the send.
 	cf_rc_reserve(ft);
-
-	if (cf_rchash_put(g_fabric_transact_xmit_hash, &ft->tid, sizeof(ft->tid),
-			ft) != CF_RCHASH_OK) {
-		cf_warning(AS_FABRIC, "as_fabric_transact: can't put in hash");
-		cf_rc_release(ft);
-		fabric_transact_xmit_release(ft);
-
-		return;
-	}
+	cf_rchash_put(g_fabric_transact_xmit_hash, &ft->tid, sizeof(ft->tid), ft);
 
 	// Transmit the initial message.
 	msg_incr_ref(m);

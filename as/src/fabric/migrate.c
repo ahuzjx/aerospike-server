@@ -222,17 +222,12 @@ as_migrate_init()
 	cf_queue_init(&g_emigration_q, sizeof(emigration*), 4096, true);
 	cf_queue_init(&g_emigration_slow_q, sizeof(emigration*), 4096, true);
 
-	if (cf_rchash_create(&g_emigration_hash, cf_rchash_fn_u32,
-			emigration_destroy, sizeof(uint32_t), 64,
-			CF_RCHASH_MANY_LOCK) != CF_RCHASH_OK) {
-		cf_crash(AS_MIGRATE, "couldn't create emigration hash");
-	}
+	cf_rchash_create(&g_emigration_hash, cf_rchash_fn_u32, emigration_destroy,
+			sizeof(uint32_t), 64, CF_RCHASH_MANY_LOCK);
 
-	if (cf_rchash_create(&g_immigration_hash, immigration_hashfn,
+	cf_rchash_create(&g_immigration_hash, immigration_hashfn,
 			immigration_destroy, sizeof(immigration_hkey), 64,
-			CF_RCHASH_BIG_LOCK) != CF_RCHASH_OK) {
-		cf_crash(AS_MIGRATE, "couldn't create immigration hash");
-	}
+			CF_RCHASH_BIG_LOCK);
 
 	// Looks like an as_priority_thread_pool, but the reduce-pop is different.
 

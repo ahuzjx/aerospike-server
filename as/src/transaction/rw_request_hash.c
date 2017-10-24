@@ -148,12 +148,8 @@ rw_request_hash_insert(rw_request_hkey* hkey, rw_request* rw,
 
 	while ((insert_rv = cf_rchash_put_unique(g_rw_request_hash, hkey,
 			sizeof(*hkey), rw)) != CF_RCHASH_OK) {
-
-		if (insert_rv != CF_RCHASH_ERR_FOUND) {
-			tr->result_code = AS_PROTO_RESULT_FAIL_UNKNOWN; // malloc failure
-			return TRANS_DONE_ERROR;
-		}
-		// else - rw_request with this digest already in hash - get it.
+		cf_assert(insert_rv == CF_RCHASH_ERR_FOUND, AS_RW, "put-unique error");
+		// rw_request with this digest already in hash - get it.
 
 		rw_request* rw0;
 		int get_rv = cf_rchash_get(g_rw_request_hash, hkey, sizeof(*hkey),

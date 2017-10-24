@@ -1211,9 +1211,7 @@ static as_smd_t *as_smd_create(void)
 	smd->state = AS_SMD_STATE_IDLE;
 
 	// Create the System Metadata modules hash table.
-	if (CF_RCHASH_OK != cf_rchash_create(&(smd->modules), cf_rchash_fn_fnv32, modules_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK)) {
-		cf_crash(AS_SMD, "failed to create the System Metadata modules hash table");
-	}
+	cf_rchash_create(&(smd->modules), cf_rchash_fn_fnv32, modules_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK);
 
 	// Create the scoreboard hash table.
 	smd->scoreboard = cf_shash_create(cf_shash_fn_ptr, sizeof(cf_node), sizeof(cf_shash *), 127, CF_SHASH_BIG_LOCK);
@@ -1875,14 +1873,10 @@ static int as_smd_module_create(as_smd_t *smd, as_smd_cmd_t *cmd)
 	module_obj->module = cf_strdup(item->module_name);
 
 	// Create the module's local metadata hash table.
-	if (CF_RCHASH_OK != cf_rchash_create(&(module_obj->my_metadata), cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK)) {
-		cf_crash(AS_SMD, "failed to create the local metadata hash table for System Metadata module \"%s\"", item->module_name);
-	}
+	cf_rchash_create(&(module_obj->my_metadata), cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK);
 
 	// Create the module's external metadata hash table.
-	if (CF_RCHASH_OK != cf_rchash_create(&(module_obj->external_metadata), cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK)) {
-		cf_crash(AS_SMD, "failed to create the external metadata hash table for System Metadata module \"%s\"", item->module_name);
-	}
+	cf_rchash_create(&(module_obj->external_metadata), cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, CF_RCHASH_BIG_LOCK);
 
 	// Add the module to the modules hash table.
 	if (CF_RCHASH_OK != (retval = cf_rchash_put_unique(smd->modules, item->module_name, strlen(item->module_name) + 1, module_obj))) {
@@ -2283,10 +2277,7 @@ static int as_smd_metadata_change_local(as_smd_t *smd, as_smd_msg_op_t op, as_sm
 			// Add reference to item for storage in the hash table.
 			// (Note:  One reference to the item will be released by the thread when it releases the containing command.)
 			cf_rc_reserve(item);
-
-			if (CF_RCHASH_OK != (retval = cf_rchash_put(metadata_hash, key, key_len, item))) {
-				cf_crash(AS_SMD, "failed to set metadata for key \"%s\" for System Metadata module \"%s\" (retval %d)", item->key, item->module_name, retval);
-			}
+			cf_rchash_put(metadata_hash, key, key_len, item);
 		}
 	} else {
 		cf_debug(AS_SMD, "(not setting empty metadata item for module \"%s\")", module_obj->module);
@@ -2888,9 +2879,7 @@ static cf_shash *as_smd_store_metadata_by_module(as_smd_t *smd, as_smd_msg_t *sm
 		cf_rc_reserve(item);
 
 		// Insert the new metadata into the module's external metadata hash table, replacing any previous contents.
-		if (CF_RCHASH_OK != cf_rchash_put(metadata_hash, stack_key, stack_key_len, item)) {
-			cf_warning(AS_SMD, "failed to insert metadata for key \"%s\" for System Metadata module \"%s\"", item->key, item->module_name);
-		}
+		cf_rchash_put(metadata_hash, stack_key, stack_key_len, item);
 
 		cf_debug(AS_SMD, "Stored metadata by module for item %d: module \"%s\" ; key \"%s\"", i, module_obj->module, stack_key->key);
 		// Increment the number of items for this module in this node's hash table.
@@ -3002,9 +2991,7 @@ static int as_smd_invoke_merge_reduce_fn(const void *key, uint32_t keylen, void 
 
 		// No merge policy registered ~~ Default to union.
 		cf_rchash *merge_hash = NULL;
-		if (CF_RCHASH_OK != cf_rchash_create(&merge_hash, cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, 0)) {
-			cf_crash(AS_SMD, "failed to create merge hash table for module \"%s\"", module_obj->module);
-		}
+		cf_rchash_create(&merge_hash, cf_rchash_fn_fnv32, metadata_rchash_destructor_fn, 0, 127, 0);
 
 		// Run through all metadata items in all node's lists.
 		for (int i = 0; i < list_num; i++) {
@@ -3018,10 +3005,7 @@ static int as_smd_invoke_merge_reduce_fn(const void *key, uint32_t keylen, void 
 					if (CF_RCHASH_OK != cf_rchash_get(merge_hash, new_item->key, key_len, (void **) &existing_item)) {
 						// If not found, insert this item.
 						cf_rc_reserve(new_item);
-
-						if (CF_RCHASH_OK != cf_rchash_put(merge_hash, new_item->key, key_len, new_item)) {
-							cf_crash(AS_SMD, "failed to insert item into merge hash");
-						}
+						cf_rchash_put(merge_hash, new_item->key, key_len, new_item);
 					} else {
 						// Otherwise, choose a winner.
 						bool existing_wins;
@@ -3040,10 +3024,7 @@ static int as_smd_invoke_merge_reduce_fn(const void *key, uint32_t keylen, void 
 						// with new item (put releases existing item).
 						if (! existing_wins) {
 							cf_rc_reserve(new_item);
-
-							if (CF_RCHASH_OK != cf_rchash_put(merge_hash, new_item->key, key_len, new_item)) {
-								cf_crash(AS_SMD, "failed to insert item into merge hash");
-							}
+							cf_rchash_put(merge_hash, new_item->key, key_len, new_item);
 						}
 
 						as_smd_item_destroy(existing_item); // for cf_rchash_get
