@@ -136,7 +136,7 @@ as_namespace_create(char *name)
 	//
 
 	ns->cfg_replication_factor = 2;
-	ns->replication_factor = 1; // not 0 in case clients get map before initial rebalance
+	ns->replication_factor = 0; // gets set on rebalance
 	ns->memory_size = 1024LL * 1024LL * 1024LL * 4LL; // default memory limit is 4G per namespace
 
 	ns->sets_enable_xdr = true; // ship all the sets by default

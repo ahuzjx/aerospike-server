@@ -251,6 +251,11 @@ as_partition_get_replicas_all_str(cf_dyn_buf* db)
 
 		uint32_t repl_factor = ns->replication_factor;
 
+		// If we haven't rebalanced yet, report 1 column with no ownership.
+		if (repl_factor == 0) {
+			repl_factor = 1;
+		}
+
 		cf_dyn_buf_append_uint32(db, repl_factor);
 
 		for (uint32_t repl_ix = 0; repl_ix < repl_factor; repl_ix++) {
