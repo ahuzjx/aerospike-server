@@ -124,7 +124,7 @@ scan_type get_scan_type(as_transaction* tr);
 bool get_scan_options(as_transaction* tr, scan_options* options);
 bool get_scan_socket_timeout(as_transaction* tr, uint32_t* timeout);
 bool get_scan_predexp(as_transaction* tr, predexp_eval_t** p_predexp);
-size_t send_blocking_response_chunk(cf_socket* sock, uint8_t* buf, size_t size, int32_t timeout);
+size_t send_blocking_response_chunk(as_file_handle* fd_h, uint8_t* buf, size_t size, int32_t timeout);
 static inline bool excluded_set(as_index* r, uint16_t set_id);
 
 
@@ -360,9 +360,10 @@ get_scan_predexp(as_transaction* tr, predexp_eval_t** p_predexp)
 }
 
 size_t
-send_blocking_response_chunk(cf_socket* sock, uint8_t* buf, size_t size,
+send_blocking_response_chunk(as_file_handle* fd_h, uint8_t* buf, size_t size,
 		int32_t timeout)
 {
+	cf_socket* sock = &fd_h->sock;
 	as_proto proto;
 
 	proto.version = PROTO_VERSION;
@@ -372,14 +373,14 @@ send_blocking_response_chunk(cf_socket* sock, uint8_t* buf, size_t size,
 
 	if (cf_socket_send_all(sock, (uint8_t*)&proto, sizeof(as_proto),
 			MSG_NOSIGNAL | MSG_MORE, timeout) < 0) {
-		cf_warning(AS_SCAN, "send error - fd %d %s", CSFD(sock),
-				cf_strerror(errno));
+		cf_warning(AS_SCAN, "error sending to %s - fd %d %s", fd_h->client,
+				CSFD(sock), cf_strerror(errno));
 		return 0;
 	}
 
 	if (cf_socket_send_all(sock, buf, size, MSG_NOSIGNAL, timeout) < 0) {
-		cf_warning(AS_SCAN, "send error - fd %d sz %lu %s", CSFD(sock),
-				size, cf_strerror(errno));
+		cf_warning(AS_SCAN, "error sending to %s - fd %d sz %lu %s",
+				fd_h->client, CSFD(sock), size, cf_strerror(errno));
 		return 0;
 	}
 
@@ -477,8 +478,8 @@ conn_scan_job_send_response(conn_scan_job* job, uint8_t* buf, size_t size)
 		return false;
 	}
 
-	size_t size_sent = send_blocking_response_chunk(&job->fd_h->sock, buf,
-			size, job->fd_timeout);
+	size_t size_sent = send_blocking_response_chunk(job->fd_h, buf, size,
+			job->fd_timeout);
 
 	if (size_sent == 0) {
 		int reason = errno == ETIMEDOUT ?
