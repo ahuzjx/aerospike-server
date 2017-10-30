@@ -101,11 +101,7 @@ setup_namespace(as_namespace* ns, uint32_t stage_capacity)
 
 	ns->p_sets_vmap = (cf_vmapx*)cf_malloc(cf_vmapx_sizeof(sizeof(as_set), AS_SET_MAX_COUNT));
 
-	cf_vmapx_err vmap_result = cf_vmapx_create(ns->p_sets_vmap, sizeof(as_set), AS_SET_MAX_COUNT, 1024, AS_SET_NAME_MAX_SIZE);
-
-	if (vmap_result != CF_VMAPX_OK) {
-		cf_crash(AS_NAMESPACE, "{%s} can't create sets vmap: %d", ns->name, vmap_result);
-	}
+	cf_vmapx_init(ns->p_sets_vmap, sizeof(as_set), AS_SET_MAX_COUNT, 1024, AS_SET_NAME_MAX_SIZE);
 
 	// Transfer configuration file information about sets.
 	if (! as_namespace_configure_sets(ns)) {
@@ -119,11 +115,7 @@ setup_namespace(as_namespace* ns, uint32_t stage_capacity)
 	if (! ns->single_bin) {
 		ns->p_bin_name_vmap = (cf_vmapx*)cf_malloc(cf_vmapx_sizeof(VMAP_BIN_NAME_MAX_SZ, MAX_BIN_NAMES));
 
-		vmap_result = cf_vmapx_create(ns->p_bin_name_vmap, VMAP_BIN_NAME_MAX_SZ, MAX_BIN_NAMES, 4096, VMAP_BIN_NAME_MAX_SZ);
-
-		if (vmap_result != CF_VMAPX_OK) {
-			cf_crash(AS_NAMESPACE, "{%s} can't create bins vmap: %d", ns->name, vmap_result);
-		}
+		cf_vmapx_init(ns->p_bin_name_vmap, VMAP_BIN_NAME_MAX_SZ, MAX_BIN_NAMES, 4096, VMAP_BIN_NAME_MAX_SZ);
 	}
 
 	//--------------------------------------------

@@ -153,6 +153,7 @@ typedef enum {
 	CF_RBUFFER,
 	CF_SOCKET,
 	CF_TLS,
+	CF_VMAPX,
 
 	AS_AGGR,
 	AS_AS,
