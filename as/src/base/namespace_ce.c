@@ -124,11 +124,7 @@ setup_namespace(as_namespace* ns, uint32_t stage_capacity)
 
 	ns->arena = (cf_arenax*)cf_malloc(cf_arenax_sizeof());
 
-	cf_arenax_err arena_result = cf_arenax_create(ns->arena, 0, as_index_size_get(ns), stage_capacity, 0, CF_ARENAX_BIGLOCK);
-
-	if (arena_result != CF_ARENAX_OK) {
-		cf_crash(AS_NAMESPACE, "{%s} can't create arena: %s", ns->name, cf_arenax_errstr(arena_result));
-	}
+	cf_arenax_init(ns->arena, 0, as_index_size_get(ns), stage_capacity, 0, CF_ARENAX_BIGLOCK);
 }
 
 void
