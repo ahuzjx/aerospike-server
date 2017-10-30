@@ -3776,16 +3776,10 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 	char histname[HISTOGRAM_NAME_SIZE];
 
 	snprintf(histname, sizeof(histname), "{%s}-device-read-size", ns->name);
-
-	if (! (ns->device_read_size_hist = histogram_create(histname, HIST_SIZE))) {
-		cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-	}
+	ns->device_read_size_hist = histogram_create(histname, HIST_SIZE);
 
 	snprintf(histname, sizeof(histname), "{%s}-device-write-size", ns->name);
-
-	if (! (ns->device_write_size_hist = histogram_create(histname, HIST_SIZE))) {
-		cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-	}
+	ns->device_write_size_hist = histogram_create(histname, HIST_SIZE);
 
 	// Finish initializing drv_ssd structures (non-zero-value members).
 	for (int i = 0; i < ssds->n_ssds; i++) {
@@ -3825,36 +3819,21 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		}
 
 		snprintf(histname, sizeof(histname), "{%s}-%s-read", ns->name, ssd->name);
-
-		if (! (ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS))) {
-			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-		}
+		ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		snprintf(histname, sizeof(histname), "{%s}-%s-large-block-read", ns->name, ssd->name);
-
-		if (! (ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS))) {
-			cf_crash(AS_DRV_SSD,"cannot create histogram %s", histname);
-		}
+		ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		snprintf(histname, sizeof(histname), "{%s}-%s-write", ns->name, ssd->name);
-
-		if (! (ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS))) {
-			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-		}
+		ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (ssd->shadow_name) {
 			snprintf(histname, sizeof(histname), "{%s}-%s-shadow-write", ns->name, ssd->name);
-
-			if (! (ssd->hist_shadow_write = histogram_create(histname, HIST_MILLISECONDS))) {
-				cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-			}
+			ssd->hist_shadow_write = histogram_create(histname, HIST_MILLISECONDS);
 		}
 
 		snprintf(histname, sizeof(histname), "{%s}-%s-fsync", ns->name, ssd->name);
-
-		if (! (ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS))) {
-			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
-		}
+		ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS);
 	}
 
 	// Attempt to load the data.

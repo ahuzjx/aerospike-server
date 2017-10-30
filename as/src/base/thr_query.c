@@ -3256,36 +3256,26 @@ as_query_init()
 			cf_crash(AS_QUERY, "Failed to create query transaction threads for query short queue");
 		}
 	}
+
 	char hist_name[64];
+
 	sprintf(hist_name, "query_txn_q_wait_us");
-	if (NULL == (query_txn_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for the time spent in transaction queue by queries.");
-	}
+	query_txn_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "query_query_q_wait_us");
-	if (NULL == (query_query_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for time spent waiting for batch creation phase");
-	}
+	query_query_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "query_prepare_batch_us");
-	if (NULL == (query_prepare_batch_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for query batch creation phase");
-	}
+	query_prepare_batch_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "query_batch_io_q_wait_us");
-	if (NULL == (query_batch_io_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for i/o response time for query batches");
-	}
+	query_batch_io_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "query_batch_io_us");
-	if (NULL == (query_batch_io_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for i/o of query batches");
-	}
+	query_batch_io_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "query_net_io_us");
-	if (NULL == (query_net_io_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
-		cf_warning(AS_SINDEX, "couldn't create histogram for query net-i/o");
-	}
+	query_net_io_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	g_config.query_enable_histogram	 = false;
 }

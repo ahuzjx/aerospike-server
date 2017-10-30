@@ -104,7 +104,6 @@ void cfg_add_storage_device(as_namespace* ns, char* device_name, char* shadow_na
 uint32_t cfg_obj_size_hist_max(uint32_t hist_max);
 void cfg_set_cluster_name(char* cluster_name);
 void create_and_check_hist_track(cf_hist_track** h, const char* name, histogram_scale scale);
-void create_and_check_hist(histogram** h, const char* name, histogram_scale scale);
 void cfg_create_all_histograms();
 void cfg_init_serv_spec(cf_serv_spec* spec_p);
 cf_tls_spec* cfg_create_tls_spec(as_config* cfg, char* name);
@@ -3780,73 +3779,73 @@ as_config_post_process(as_config* c, const char* config_file)
 		create_and_check_hist_track(&ns->query_hist, hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-query-rec-count", ns->name);
-		create_and_check_hist(&ns->query_rec_count_hist, hist_name, HIST_COUNT);
+		ns->query_rec_count_hist = histogram_create(hist_name, HIST_COUNT);
 
 		// Activate-by-config histograms (can't be tracked histograms).
 
 		sprintf(hist_name, "{%s}-proxy", ns->name);
-		create_and_check_hist(&ns->proxy_hist, hist_name, HIST_MILLISECONDS);
+		ns->proxy_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-read-start", ns->name);
-		create_and_check_hist(&ns->read_start_hist, hist_name, HIST_MILLISECONDS);
+		ns->read_start_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-read-restart", ns->name);
-		create_and_check_hist(&ns->read_restart_hist, hist_name, HIST_MILLISECONDS);
+		ns->read_restart_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-read-dup-res", ns->name);
-		create_and_check_hist(&ns->read_dup_res_hist, hist_name, HIST_MILLISECONDS);
+		ns->read_dup_res_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-read-local", ns->name);
-		create_and_check_hist(&ns->read_local_hist, hist_name, HIST_MILLISECONDS);
+		ns->read_local_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-read-response", ns->name);
-		create_and_check_hist(&ns->read_response_hist, hist_name, HIST_MILLISECONDS);
+		ns->read_response_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-write-start", ns->name);
-		create_and_check_hist(&ns->write_start_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_start_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-write-restart", ns->name);
-		create_and_check_hist(&ns->write_restart_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_restart_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-write-dup-res", ns->name);
-		create_and_check_hist(&ns->write_dup_res_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_dup_res_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-write-master", ns->name);
-		create_and_check_hist(&ns->write_master_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_master_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-write-repl-write", ns->name);
-		create_and_check_hist(&ns->write_repl_write_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_repl_write_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-write-response", ns->name);
-		create_and_check_hist(&ns->write_response_hist, hist_name, HIST_MILLISECONDS);
+		ns->write_response_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-udf-start", ns->name);
-		create_and_check_hist(&ns->udf_start_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_start_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-restart", ns->name);
-		create_and_check_hist(&ns->udf_restart_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_restart_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-dup-res", ns->name);
-		create_and_check_hist(&ns->udf_dup_res_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_dup_res_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-master", ns->name);
-		create_and_check_hist(&ns->udf_master_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_master_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-repl-write", ns->name);
-		create_and_check_hist(&ns->udf_repl_write_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_repl_write_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-response", ns->name);
-		create_and_check_hist(&ns->udf_response_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_response_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-batch-sub-start", ns->name);
-		create_and_check_hist(&ns->batch_sub_start_hist, hist_name, HIST_MILLISECONDS);
+		ns->batch_sub_start_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-batch-sub-restart", ns->name);
-		create_and_check_hist(&ns->batch_sub_restart_hist, hist_name, HIST_MILLISECONDS);
+		ns->batch_sub_restart_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-batch-sub-dup-res", ns->name);
-		create_and_check_hist(&ns->batch_sub_dup_res_hist, hist_name, HIST_MILLISECONDS);
+		ns->batch_sub_dup_res_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-batch-sub-read-local", ns->name);
-		create_and_check_hist(&ns->batch_sub_read_local_hist, hist_name, HIST_MILLISECONDS);
+		ns->batch_sub_read_local_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-batch-sub-response", ns->name);
-		create_and_check_hist(&ns->batch_sub_response_hist, hist_name, HIST_MILLISECONDS);
+		ns->batch_sub_response_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 		sprintf(hist_name, "{%s}-udf-sub-start", ns->name);
-		create_and_check_hist(&ns->udf_sub_start_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_start_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-sub-restart", ns->name);
-		create_and_check_hist(&ns->udf_sub_restart_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_restart_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-sub-dup-res", ns->name);
-		create_and_check_hist(&ns->udf_sub_dup_res_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_dup_res_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-sub-master", ns->name);
-		create_and_check_hist(&ns->udf_sub_master_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_master_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-sub-repl-write", ns->name);
-		create_and_check_hist(&ns->udf_sub_repl_write_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_repl_write_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 		sprintf(hist_name, "{%s}-udf-sub-response", ns->name);
-		create_and_check_hist(&ns->udf_sub_response_hist, hist_name, HIST_MILLISECONDS);
+		ns->udf_sub_response_hist =  histogram_create(hist_name, HIST_MILLISECONDS);
 
 		// Linear 'nsup' histograms.
 		// Note - histograms' ranges MUST be set before use.
@@ -4391,9 +4390,7 @@ void
 create_and_check_hist_track(cf_hist_track** h, const char* name,
 		histogram_scale scale)
 {
-	if (NULL == (*h = cf_hist_track_create(name, scale))) {
-		cf_crash(AS_AS, "couldn't create histogram: %s", name);
-	}
+	*h = cf_hist_track_create(name, scale);
 
 	as_config* c = &g_config;
 
@@ -4403,39 +4400,31 @@ create_and_check_hist_track(cf_hist_track** h, const char* name,
 	}
 }
 
-void
-create_and_check_hist(histogram** h, const char* name, histogram_scale scale)
-{
-	if (NULL == (*h = histogram_create(name, scale))) {
-		cf_crash(AS_AS, "couldn't create histogram: %s", name);
-	}
-}
-
 // TODO - not really a config method any more, reorg needed.
 void
 cfg_create_all_histograms()
 {
-	create_and_check_hist(&g_stats.batch_index_hist, "batch-index", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.info_hist, "info", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.svc_demarshal_hist, "svc-demarshal", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.svc_queue_hist, "svc-queue", HIST_MILLISECONDS);
+	g_stats.batch_index_hist = histogram_create("batch-index", HIST_MILLISECONDS);
+	g_stats.info_hist = histogram_create("info", HIST_MILLISECONDS);
+	g_stats.svc_demarshal_hist = histogram_create("svc-demarshal", HIST_MILLISECONDS);
+	g_stats.svc_queue_hist = histogram_create("svc-queue", HIST_MILLISECONDS);
 
-	create_and_check_hist(&g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_BULK], "fabric-bulk-send-init", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_BULK], "fabric-bulk-send-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_BULK], "fabric-bulk-recv-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_BULK], "fabric-bulk-recv-cb", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_CTRL], "fabric-ctrl-send-init", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_CTRL], "fabric-ctrl-send-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_CTRL], "fabric-ctrl-recv-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_CTRL], "fabric-ctrl-recv-cb", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_META], "fabric-meta-send-init", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_META], "fabric-meta-send-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_META], "fabric-meta-recv-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_META], "fabric-meta-recv-cb", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-send-init", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-send-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-recv-fragment", HIST_MILLISECONDS);
-	create_and_check_hist(&g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_RW], "fabric-rw-recv-cb", HIST_MILLISECONDS);
+	g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_BULK] = histogram_create("fabric-bulk-send-init", HIST_MILLISECONDS);
+	g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_BULK] = histogram_create("fabric-bulk-send-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_BULK] = histogram_create("fabric-bulk-recv-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_BULK] = histogram_create("fabric-bulk-recv-cb", HIST_MILLISECONDS);
+	g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_CTRL] = histogram_create("fabric-ctrl-send-init", HIST_MILLISECONDS);
+	g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_CTRL] = histogram_create("fabric-ctrl-send-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_CTRL] = histogram_create("fabric-ctrl-recv-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_CTRL] = histogram_create("fabric-ctrl-recv-cb", HIST_MILLISECONDS);
+	g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_META] = histogram_create("fabric-meta-send-init", HIST_MILLISECONDS);
+	g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_META] = histogram_create("fabric-meta-send-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_META] = histogram_create("fabric-meta-recv-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_META] = histogram_create("fabric-meta-recv-cb", HIST_MILLISECONDS);
+	g_stats.fabric_send_init_hists[AS_FABRIC_CHANNEL_RW] = histogram_create("fabric-rw-send-init", HIST_MILLISECONDS);
+	g_stats.fabric_send_fragment_hists[AS_FABRIC_CHANNEL_RW] = histogram_create("fabric-rw-send-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_fragment_hists[AS_FABRIC_CHANNEL_RW] = histogram_create("fabric-rw-recv-fragment", HIST_MILLISECONDS);
+	g_stats.fabric_recv_cb_hists[AS_FABRIC_CHANNEL_RW] = histogram_create("fabric-rw-recv-cb", HIST_MILLISECONDS);
 }
 
 void

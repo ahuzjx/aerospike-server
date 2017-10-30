@@ -1034,39 +1034,33 @@ as_sindex__config_default(as_sindex *si)
 void
 as_sindex__setup_histogram(as_sindex *si)
 {
-	char hist_name[AS_ID_INAME_SZ+64];
+	char hist_name[AS_ID_INAME_SZ + 64];
+
+	COMPILER_ASSERT(sizeof(hist_name) <= HISTOGRAM_NAME_SIZE);
+
 	sprintf(hist_name, "%s_write_us", si->imd->iname);
-	if (NULL == (si->stats._write_hist = histogram_create(hist_name, HIST_MICROSECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex write histogram");
+	si->stats._write_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "%s_si_prep_us", si->imd->iname);
-	if (NULL == (si->stats._si_prep_hist = histogram_create(hist_name, HIST_MICROSECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex prepare histogram");
+	si->stats._si_prep_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "%s_delete_us", si->imd->iname);
-	if (NULL == (si->stats._delete_hist = histogram_create(hist_name, HIST_MICROSECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex delete histogram");
+	si->stats._delete_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "%s_query", si->imd->iname);
-	if (NULL == (si->stats._query_hist = histogram_create(hist_name, HIST_MILLISECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query histogram");
+	si->stats._query_hist = histogram_create(hist_name, HIST_MILLISECONDS);
 
 	sprintf(hist_name, "%s_query_batch_lookup_us", si->imd->iname);
-	if (NULL == (si->stats._query_batch_lookup = histogram_create(hist_name, HIST_MICROSECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query batch-lookup histogram");
+	si->stats._query_batch_lookup = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "%s_query_batch_io_us", si->imd->iname);
-	if (NULL == (si->stats._query_batch_io = histogram_create(hist_name, HIST_MICROSECONDS)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query io histogram");
+	si->stats._query_batch_io = histogram_create(hist_name, HIST_MICROSECONDS);
 
 	sprintf(hist_name, "%s_query_row_count", si->imd->iname);
-	if (NULL == (si->stats._query_rcnt_hist = histogram_create(hist_name, HIST_COUNT)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query row count histogram");
+	si->stats._query_rcnt_hist = histogram_create(hist_name, HIST_COUNT);
 
 	sprintf(hist_name, "%s_query_diff_count", si->imd->iname);
-	if (NULL == (si->stats._query_diff_hist = histogram_create(hist_name, HIST_COUNT)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query diff histogram");
-
+	si->stats._query_diff_hist = histogram_create(hist_name, HIST_COUNT);
 }
 
 int
