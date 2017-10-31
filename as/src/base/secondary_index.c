@@ -1036,8 +1036,6 @@ as_sindex__setup_histogram(as_sindex *si)
 {
 	char hist_name[AS_ID_INAME_SZ + 64];
 
-	COMPILER_ASSERT(sizeof(hist_name) <= HISTOGRAM_NAME_SIZE);
-
 	sprintf(hist_name, "%s_write_us", si->imd->iname);
 	si->stats._write_hist = histogram_create(hist_name, HIST_MICROSECONDS);
 
