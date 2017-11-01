@@ -86,14 +86,12 @@ cf_shash_fn_u32(const void *key)
 	return *(const uint32_t *)key;
 }
 
-
 // Useful if key is a pointer.
 uint32_t
 cf_shash_fn_ptr(const void *key)
 {
 	return cf_hash_ptr32(key);
 }
-
 
 // Useful if key is a null-terminated string. (Note - using fixed-size keys, so
 // key must still be padded to correctly compare keys in a bucket.)
@@ -147,7 +145,6 @@ cf_shash_create(cf_shash_hash_fn h_fn, uint32_t key_size, uint32_t value_size,
 	return h;
 }
 
-
 void
 cf_shash_destroy(cf_shash *h)
 {
@@ -172,50 +169,14 @@ cf_shash_destroy(cf_shash *h)
 	cf_free(h);
 }
 
-
-// FIXME - do better than this...
 uint32_t
 cf_shash_get_size(cf_shash *h)
 {
 	cf_assert(h, CF_MISC, "bad param");
 
-	uint32_t n_elements = 0;
-
-	if ((h->flags & CF_SHASH_BIG_LOCK) != 0) {
-		pthread_mutex_lock(&h->big_lock);
-		n_elements = h->n_elements;
-		pthread_mutex_unlock(&h->big_lock);
-	}
-	else if ((h->flags & CF_SHASH_MANY_LOCK) != 0) {
-		uint8_t *bucket = (uint8_t*)h->table;
-
-		for (uint32_t i = 0; i < h->n_buckets; i++) {
-			cf_shash_ele *e = (cf_shash_ele *)bucket;
-			pthread_mutex_t *bucket_lock = &h->bucket_locks[i];
-
-			pthread_mutex_lock(bucket_lock);
-
-			while (e) {
-				if (! e->in_use) {
-					break;
-				}
-
-				n_elements++;
-				e = e->next;
-			}
-
-			pthread_mutex_unlock(bucket_lock);
-
-			bucket += h->ele_size;
-		}
-	}
-	else {
-		n_elements = h->n_elements;
-	}
-
-	return n_elements;
+	// For now, not bothering with different methods per lock mode.
+	return cf_atomic32_get(h->n_elements);
 }
-
 
 void
 cf_shash_put(cf_shash *h, const void *key, const void *value)
@@ -257,7 +218,6 @@ cf_shash_put(cf_shash *h, const void *key, const void *value)
 	cf_shash_unlock(l);
 }
 
-
 int
 cf_shash_put_unique(cf_shash *h, const void *key, const void *value)
 {
@@ -297,7 +257,6 @@ cf_shash_put_unique(cf_shash *h, const void *key, const void *value)
 
 	return CF_SHASH_OK;
 }
-
 
 // FIXME - replace with cf_shash_put_unique_or_get_vlock()?
 void
@@ -350,7 +309,6 @@ cf_shash_update(cf_shash *h, const void *key, void *value_old, void *value_new,
 	cf_shash_unlock(l);
 }
 
-
 int
 cf_shash_get(cf_shash *h, const void *key, void *value)
 {
@@ -378,7 +336,6 @@ cf_shash_get(cf_shash *h, const void *key, void *value)
 	return CF_SHASH_ERR_NOT_FOUND;
 }
 
-
 int
 cf_shash_get_vlock(cf_shash *h, const void *key, void **value_r,
 		pthread_mutex_t **vlock_r)
@@ -404,13 +361,11 @@ cf_shash_get_vlock(cf_shash *h, const void *key, void **value_r,
 	return CF_SHASH_ERR_NOT_FOUND;
 }
 
-
 int
 cf_shash_delete(cf_shash *h, const void *key)
 {
 	return cf_shash_delete_or_pop(h, key, NULL);
 }
-
 
 int
 cf_shash_delete_lockfree(cf_shash *h, const void *key)
@@ -456,7 +411,6 @@ cf_shash_delete_lockfree(cf_shash *h, const void *key)
 	return CF_SHASH_ERR_NOT_FOUND;
 }
 
-
 // TODO - Rename to cf_shash_pop()?
 int
 cf_shash_get_and_delete(cf_shash *h, const void *key, void *value)
@@ -465,7 +419,6 @@ cf_shash_get_and_delete(cf_shash *h, const void *key, void *value)
 
 	return cf_shash_delete_or_pop(h, key, value);
 }
-
 
 void
 cf_shash_delete_all(cf_shash *h)
@@ -493,10 +446,16 @@ cf_shash_delete_all(cf_shash *h)
 
 			cf_free(e);
 			e = temp;
+
+			cf_shash_size_decr(h);
 		}
 
-		((cf_shash_ele *)bucket)->next = NULL;
-		((cf_shash_ele *)bucket)->in_use = false;
+		if (((cf_shash_ele *)bucket)->in_use) {
+			((cf_shash_ele *)bucket)->in_use = false;
+			((cf_shash_ele *)bucket)->next = NULL;
+
+			cf_shash_size_decr(h);
+		}
 
 		if (bucket_lock) {
 			pthread_mutex_unlock(bucket_lock);
@@ -505,13 +464,10 @@ cf_shash_delete_all(cf_shash *h)
 		bucket += h->ele_size;
 	}
 
-	h->n_elements = 0;
-
 	if ((h->flags & CF_SHASH_BIG_LOCK) != 0) {
 		pthread_mutex_unlock(&h->big_lock);
 	}
 }
-
 
 int
 cf_shash_reduce(cf_shash *h, cf_shash_reduce_fn reduce_fn, void *udata)
@@ -614,7 +570,6 @@ cf_shash_clear_table(cf_shash *h)
 	}
 }
 
-
 static inline void
 cf_shash_destroy_elements(cf_shash *h)
 {
@@ -635,13 +590,11 @@ cf_shash_destroy_elements(cf_shash *h)
 	}
 }
 
-
 static inline uint32_t
 cf_shash_calculate_hash(cf_shash *h, const void *key)
 {
 	return h->h_fn(key) % h->n_buckets;
 }
-
 
 static inline pthread_mutex_t *
 cf_shash_lock(cf_shash *h, uint32_t i)
@@ -662,7 +615,6 @@ cf_shash_lock(cf_shash *h, uint32_t i)
 	return l;
 }
 
-
 static inline void
 cf_shash_unlock(pthread_mutex_t *l)
 {
@@ -671,13 +623,11 @@ cf_shash_unlock(pthread_mutex_t *l)
 	}
 }
 
-
 static inline cf_shash_ele *
 cf_shash_get_bucket(cf_shash *h, uint32_t i)
 {
 	return (cf_shash_ele *)((uint8_t *)h->table + (h->ele_size * i));
 }
-
 
 static inline void
 cf_shash_fill_element(cf_shash_ele *e, cf_shash *h, const void *key,
@@ -689,26 +639,19 @@ cf_shash_fill_element(cf_shash_ele *e, cf_shash *h, const void *key,
 	cf_shash_size_incr(h);
 }
 
-
 static inline void
 cf_shash_size_incr(cf_shash *h)
 {
-	// Counter only used with no locks or big lock.
-	if ((h->flags & CF_SHASH_MANY_LOCK) == 0) {
-		h->n_elements++;
-	}
+	// For now, not bothering with different methods per lock mode.
+	cf_atomic32_incr(&h->n_elements);
 }
-
 
 static inline void
 cf_shash_size_decr(cf_shash *h)
 {
-	// Counter only used with no locks or big lock.
-	if ((h->flags & CF_SHASH_MANY_LOCK) == 0) {
-		h->n_elements--;
-	}
+	// For now, not bothering with different methods per lock mode.
+	cf_atomic32_decr(&h->n_elements);
 }
-
 
 int
 cf_shash_delete_or_pop(cf_shash *h, const void *key, void *value)

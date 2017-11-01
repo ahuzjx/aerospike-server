@@ -29,6 +29,8 @@
 #include <pthread.h>
 #include <stdint.h>
 
+#include <citrusleaf/cf_atomic.h>
+
 
 //==========================================================
 // Typedefs & constants.
@@ -67,7 +69,7 @@ typedef struct cf_shash_s {
 	uint32_t ele_size;
 	uint32_t n_buckets;
 	uint32_t flags;
-	uint32_t n_elements;
+	cf_atomic32 n_elements;
 	void *table;
 	pthread_mutex_t *bucket_locks;
 	pthread_mutex_t big_lock;
