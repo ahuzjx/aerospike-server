@@ -296,19 +296,10 @@ void
 as_transaction_init_iudf(as_transaction *tr, as_namespace *ns, cf_digest *keyd,
 		iudf_origin* iudf_orig, bool is_durable_delete)
 {
-	size_t msg_sz = sizeof(cl_msg);
-	size_t ns_len = strlen(ns->name);
-
-	msg_sz += sizeof(as_msg_field) + ns_len;
-	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);
-
-	cl_msg *msgp = (cl_msg *)cf_malloc(msg_sz);
-	uint8_t *b = (uint8_t *)msgp;
 	uint8_t info2 = AS_MSG_INFO2_WRITE |
 			(is_durable_delete ? AS_MSG_INFO2_DURABLE_DELETE : 0);
 
-	b = as_msg_write_header(b, msg_sz, 0, info2, 0, 0, 0, 0, 2, 0);
-	b = as_msg_write_fields(b, ns->name, ns_len, NULL, 0, keyd, 0);
+	cl_msg *msgp = as_msg_create_internal(ns->name, keyd, 0, info2, 0);
 
 	as_transaction_init_head(tr, NULL, msgp);
 

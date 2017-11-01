@@ -546,52 +546,18 @@ run_nsup_delete(void* pv_data)
 
 		// Generate a delete transaction for this digest, and hand it to tsvc.
 
-		size_t sz = sizeof(cl_msg);
-		size_t ns_name_len = strlen(q_item.ns->name);
+		uint8_t info2 = AS_MSG_INFO2_WRITE | AS_MSG_INFO2_DELETE;
 
-		sz += sizeof(as_msg_field) + ns_name_len;
-		sz += sizeof(as_msg_field) + sizeof(cf_digest);
+		cl_msg *msgp = as_msg_create_internal(q_item.ns->name, &q_item.digest,
+				0, info2, 0);
 
-		cl_msg* msgp = cf_malloc(sz + 32); // TODO - remove the extra 32
-
-		msgp->proto.version = PROTO_VERSION;
-		msgp->proto.type = PROTO_TYPE_AS_MSG;
-		msgp->proto.sz = sz - sizeof(as_proto);
-		msgp->msg.header_sz = sizeof(as_msg);
-		msgp->msg.info1 = 0;
-		msgp->msg.info2 = AS_MSG_INFO2_WRITE | AS_MSG_INFO2_DELETE;
-		msgp->msg.info3 = 0;
-		msgp->msg.unused = 0;
-		msgp->msg.generation = 0;
-		msgp->msg.record_ttl = 0;
-		msgp->msg.transaction_ttl = 0;
-		msgp->msg.n_fields = 2;
-		msgp->msg.n_ops = 0;
-
-		uint8_t* buf = msgp->msg.data;
-		as_msg_field* fp;
-
-		fp = (as_msg_field*)buf;
-		fp->type = AS_MSG_FIELD_TYPE_NAMESPACE;
-		fp->field_sz = 1 + ns_name_len; // 1 for the type field
-		memcpy(fp->data, q_item.ns->name, ns_name_len);
-		buf += sizeof(as_msg_field) + ns_name_len;
-
-		fp = (as_msg_field*)buf;
-		fp->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
-		fp->field_sz = 1 + sizeof(cf_digest); // 1 for the type field
-		*(cf_digest*)fp->data = q_item.digest;
-
-		// Leave in network order. The fact that the digest is filled out means
-		// it won't get swapped back.
-
-		// INIT_TR
 		as_transaction tr;
 		as_transaction_init_head(&tr, NULL, msgp);
-		tr.origin = FROM_NSUP;
-		tr.start_time = cf_getns();
+
 		as_transaction_set_msg_field_flag(&tr, AS_MSG_FIELD_TYPE_NAMESPACE);
 		as_transaction_set_msg_field_flag(&tr, AS_MSG_FIELD_TYPE_DIGEST_RIPE);
+		tr.origin = FROM_NSUP;
+		tr.start_time = cf_getns();
 
 		as_tsvc_enqueue(&tr);
 

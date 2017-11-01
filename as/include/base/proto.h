@@ -477,12 +477,8 @@ void as_msg_swap_header(as_msg *m);
 void as_msg_swap_field(as_msg_field *mf);
 void as_msg_swap_op(as_msg_op *op);
 
-uint8_t *as_msg_write_header(uint8_t *buf, size_t msg_sz, uint8_t info1,
-		uint8_t info2, uint8_t info3, uint32_t generation, uint32_t record_ttl,
-		uint32_t transaction_ttl, uint32_t n_fields, uint32_t n_ops);
-uint8_t *as_msg_write_fields(uint8_t *buf, const char *ns_name,
-		size_t ns_name_len, const char *set_name, size_t set_name_len,
-		const cf_digest *d, uint64_t trid);
+cl_msg *as_msg_create_internal(const char *ns_name, const cf_digest *keyd,
+		uint8_t info1, uint8_t info2, uint8_t info3);
 
 cl_msg *as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		uint32_t void_time, as_msg_op **ops, struct as_bin_s **bins,

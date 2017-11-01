@@ -125,72 +125,48 @@ as_msg_swap_op(as_msg_op *op)
 // Public API - generating internal transactions.
 //
 
-// This writes an host-ordered header, which is what we want.
-uint8_t *
-as_msg_write_header(uint8_t *buf, size_t msg_sz, uint8_t info1, uint8_t info2,
-		uint8_t info3, uint32_t generation, uint32_t record_ttl,
-		uint32_t transaction_ttl, uint32_t n_fields, uint32_t n_ops)
+// Allocates cl_msg returned - caller must free it. Everything is host-ordered.
+// Will add more parameters (e.g. for set name) only as they become necessary.
+cl_msg *
+as_msg_create_internal(const char *ns_name, const cf_digest *keyd,
+		uint8_t info1, uint8_t info2, uint8_t info3)
 {
-	cl_msg *msg = (cl_msg *)buf;
+	size_t msg_sz = sizeof(cl_msg);
+	size_t ns_name_len = strlen(ns_name);
 
-	msg->proto.version = PROTO_VERSION;
-	msg->proto.type = PROTO_TYPE_AS_MSG;
-	msg->proto.sz = msg_sz - sizeof(as_proto);
-	msg->msg.header_sz = sizeof(as_msg);
-	msg->msg.info1 = info1;
-	msg->msg.info2 = info2;
-	msg->msg.info3 = info3;
-	msg->msg.unused = 0;
-	msg->msg.result_code = 0;
-	msg->msg.generation = generation;
-	msg->msg.record_ttl = record_ttl;
-	msg->msg.transaction_ttl = transaction_ttl;
-	msg->msg.n_fields = n_fields;
-	msg->msg.n_ops = n_ops;
+	msg_sz += sizeof(as_msg_field) + ns_name_len;
+	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);
 
-	return buf + sizeof(cl_msg);
-}
+	cl_msg *msgp = (cl_msg *)cf_malloc(msg_sz);
 
+	msgp->proto.version = PROTO_VERSION;
+	msgp->proto.type = PROTO_TYPE_AS_MSG;
+	msgp->proto.sz = msg_sz - sizeof(as_proto);
+	msgp->msg.header_sz = sizeof(as_msg);
+	msgp->msg.info1 = info1;
+	msgp->msg.info2 = info2;
+	msgp->msg.info3 = info3;
+	msgp->msg.unused = 0;
+	msgp->msg.result_code = 0;
+	msgp->msg.generation = 0;
+	msgp->msg.record_ttl = 0;
+	msgp->msg.transaction_ttl = 0;
+	msgp->msg.n_fields = 2;
+	msgp->msg.n_ops = 0;
 
-// This writes host-ordered fields, which is what we want.
-uint8_t *
-as_msg_write_fields(uint8_t *buf, const char *ns_name, size_t ns_name_len,
-		const char *set_name, size_t set_name_len, const cf_digest *d,
-		uint64_t trid)
-{
-	as_msg_field *mf = (as_msg_field *)buf;
+	as_msg_field *mf = (as_msg_field *)(msgp->msg.data);
 
-	if (ns_name) {
-		mf->type = AS_MSG_FIELD_TYPE_NAMESPACE;
-		mf->field_sz = (uint32_t)ns_name_len + 1;
-		memcpy(mf->data, ns_name, ns_name_len);
-		mf = as_msg_field_get_next(mf);
-	}
+	mf->type = AS_MSG_FIELD_TYPE_NAMESPACE;
+	mf->field_sz = (uint32_t)ns_name_len + 1;
+	memcpy(mf->data, ns_name, ns_name_len);
 
-	// Not currently used, but it's plausible we'll do so in future.
-	if (set_name && set_name_len != 0) {
-		mf->type = AS_MSG_FIELD_TYPE_SET;
-		mf->field_sz = (uint32_t)set_name_len + 1;
-		memcpy(mf->data, set_name, set_name_len);
-		mf = as_msg_field_get_next(mf);
-	}
+	mf = as_msg_field_get_next(mf);
 
-	// Not currently used, but it's plausible we'll do so in future.
-	if (trid) {
-		mf->type = AS_MSG_FIELD_TYPE_TRID;
-		mf->field_sz = sizeof(trid) + 1;
-		memcpy(mf->data, &trid, sizeof(trid));
-		mf = as_msg_field_get_next(mf);
-	}
+	mf->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
+	mf->field_sz = sizeof(cf_digest) + 1;
+	*(cf_digest *)mf->data = *keyd;
 
-	if (d) {
-		mf->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
-		mf->field_sz = sizeof(cf_digest) + 1;
-		memcpy(mf->data, d, sizeof(cf_digest));
-		mf = as_msg_field_get_next(mf);
-	}
-
-	return (uint8_t *)mf;
+	return msgp;
 }
 
 
