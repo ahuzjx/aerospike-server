@@ -97,7 +97,6 @@ else
 	install -pm 644 $(EEREPO)/LICENSE.EE $(OPT_AS)/doc/LICENSE
 endif
 	cat $(DEPTH)/LICENSE.3rdParty >> $(OPT_AS)/doc/LICENSE
-	install -pm 644 $(OPT_AS)/doc/LICENSE $(PKG)/packages
 
 ifeq ($(EDITION),community)
   ifeq ($(USE_SYSTEMD),1)
@@ -135,6 +134,7 @@ endif
 	sed -i 's/@DEPS@/$(addprefix $(comma), $(subst $(space),$(comma),$(strip $(DEPS))))/g' $(BUILD_ROOT)/DEBIAN/control
 
 package:
+	install -pm 644 $(OPT_AS)/doc/LICENSE $(PKG)/packages
 	fakeroot dpkg-deb --build $(BUILD_ROOT) $(DEB)
 
 clean:
