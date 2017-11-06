@@ -167,18 +167,6 @@ typedef struct as_proto_s {
 	uint8_t		data[];
 } __attribute__ ((__packed__)) as_proto;
 
-/*
- * zlib decompression API needs original size of the compressed data.
- * So we need to transfer it to another end.
- * This structure packs together -
- * header + original size of data + compressed data
- */
-typedef struct as_comp_proto_s {
-	as_proto    proto;     // Protocol header
-	uint64_t    org_sz;    // Original size of compressed data hold in 'data'
-	uint8_t data[];        // Compressed data
-}  as_comp_proto;
-
 /* as_msg_field
 * Aerospike message field */
 typedef struct as_msg_field_s {
