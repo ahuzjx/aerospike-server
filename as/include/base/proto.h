@@ -472,7 +472,7 @@ as_proto_wrapped_is_valid(const as_proto *proto, size_t size)
 			as_proto_size_get(proto) == size;
 }
 
-void as_proto_swap(as_proto *m);
+void as_proto_swap(as_proto *proto);
 void as_msg_swap_header(as_msg *m);
 void as_msg_swap_field(as_msg_field *mf);
 void as_msg_swap_op(as_msg_op *op);

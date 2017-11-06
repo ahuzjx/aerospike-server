@@ -37,6 +37,7 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_byte_order.h"
 #include "citrusleaf/cf_digest.h"
+#include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_vector.h"
 
 #include "dynbuf.h"
@@ -75,8 +76,8 @@ static cf_queue g_netio_slow_queue;
 //
 
 static int send_reply_buf(as_file_handle *fd_h, uint8_t *msgp, size_t msg_sz);
-void *run_netio(void *q_to_wait_on);
-int netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset, bool blocking);
+static void *run_netio(void *q_to_wait_on);
+static int netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset, bool blocking);
 
 
 //==========================================================
@@ -84,17 +85,16 @@ int netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offs
 //
 
 void
-as_proto_swap(as_proto *p)
+as_proto_swap(as_proto *proto)
 {
-	uint8_t version = p->version;
-	uint8_t type = p->type;
+	uint8_t version = proto->version;
+	uint8_t type = proto->type;
 
-	p->version = p->type = 0;
-	p->sz = cf_swap_from_be64(*(uint64_t *)p);
-	p->version = version;
-	p->type = type;
+	proto->version = proto->type = 0;
+	proto->sz = cf_swap_from_be64(*(uint64_t *)proto);
+	proto->version = version;
+	proto->type = type;
 }
-
 
 void
 as_msg_swap_header(as_msg *m)
@@ -106,13 +106,11 @@ as_msg_swap_header(as_msg *m)
 	m->n_ops = cf_swap_from_be16(m->n_ops);
 }
 
-
 void
 as_msg_swap_field(as_msg_field *mf)
 {
 	mf->field_sz = cf_swap_from_be32(mf->field_sz);
 }
-
 
 void
 as_msg_swap_op(as_msg_op *op)
@@ -131,30 +129,33 @@ cl_msg *
 as_msg_create_internal(const char *ns_name, const cf_digest *keyd,
 		uint8_t info1, uint8_t info2, uint8_t info3)
 {
-	size_t msg_sz = sizeof(cl_msg);
 	size_t ns_name_len = strlen(ns_name);
 
-	msg_sz += sizeof(as_msg_field) + ns_name_len;
-	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);
+	size_t msg_sz = sizeof(cl_msg) +
+			sizeof(as_msg_field) + ns_name_len +
+			sizeof(as_msg_field) + sizeof(cf_digest);
 
 	cl_msg *msgp = (cl_msg *)cf_malloc(msg_sz);
 
 	msgp->proto.version = PROTO_VERSION;
 	msgp->proto.type = PROTO_TYPE_AS_MSG;
 	msgp->proto.sz = msg_sz - sizeof(as_proto);
-	msgp->msg.header_sz = sizeof(as_msg);
-	msgp->msg.info1 = info1;
-	msgp->msg.info2 = info2;
-	msgp->msg.info3 = info3;
-	msgp->msg.unused = 0;
-	msgp->msg.result_code = 0;
-	msgp->msg.generation = 0;
-	msgp->msg.record_ttl = 0;
-	msgp->msg.transaction_ttl = 0;
-	msgp->msg.n_fields = 2;
-	msgp->msg.n_ops = 0;
 
-	as_msg_field *mf = (as_msg_field *)(msgp->msg.data);
+	as_msg *m = &msgp->msg;
+
+	m->header_sz = sizeof(as_msg);
+	m->info1 = info1;
+	m->info2 = info2;
+	m->info3 = info3;
+	m->unused = 0;
+	m->result_code = 0;
+	m->generation = 0;
+	m->record_ttl = 0;
+	m->transaction_ttl = 0;
+	m->n_fields = 2;
+	m->n_ops = 0;
+
+	as_msg_field *mf = (as_msg_field *)(m->data);
 
 	mf->type = AS_MSG_FIELD_TYPE_NAMESPACE;
 	mf->field_sz = (uint32_t)ns_name_len + 1;
@@ -180,7 +181,13 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		uint32_t void_time, as_msg_op **ops, as_bin **bins, uint16_t bin_count,
 		as_namespace *ns, cl_msg *msgp_in, size_t *msg_sz_in, uint64_t trid)
 {
+	uint16_t n_fields = 0;
 	size_t msg_sz = sizeof(cl_msg);
+
+	if (trid != 0) {
+		n_fields++;
+		msg_sz += sizeof(as_msg_field) + sizeof(trid);
+	}
 
 	msg_sz += sizeof(as_msg_op) * bin_count;
 
@@ -201,10 +208,6 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 		}
 	}
 
-	if (trid != 0) {
-		msg_sz += sizeof(as_msg_field) + sizeof(trid);
-	}
-
 	uint8_t *buf;
 
 	if (! msgp_in || *msg_sz_in < msg_sz) {
@@ -221,6 +224,7 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 	msgp->proto.version = PROTO_VERSION;
 	msgp->proto.type = PROTO_TYPE_AS_MSG;
 	msgp->proto.sz = msg_sz - sizeof(as_proto);
+
 	as_proto_swap(&msgp->proto);
 
 	as_msg *m = &msgp->msg;
@@ -234,25 +238,22 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 	m->generation = generation;
 	m->record_ttl = void_time;
 	m->transaction_ttl = 0;
+	m->n_fields = n_fields;
 	m->n_ops = bin_count;
-	m->n_fields = 0;
-
-	buf += sizeof(cl_msg);
-
-	if (trid != 0) {
-		m->n_fields++;
-
-		as_msg_field *trfield = (as_msg_field *)buf;
-
-		trfield->field_sz = 1 + sizeof(uint64_t);
-		trfield->type = AS_MSG_FIELD_TYPE_TRID;
-		*(uint64_t *)trfield->data = cf_swap_to_be64(trid);
-
-		buf += sizeof(as_msg_field) + sizeof(uint64_t);
-		as_msg_swap_field(trfield);
-	}
 
 	as_msg_swap_header(m);
+
+	buf = m->data;
+
+	if (trid != 0) {
+		as_msg_field *mf = (as_msg_field *)buf;
+
+		mf->field_sz = 1 + sizeof(uint64_t);
+		mf->type = AS_MSG_FIELD_TYPE_TRID;
+		*(uint64_t *)mf->data = cf_swap_to_be64(trid);
+		as_msg_swap_field(mf);
+		buf += sizeof(as_msg_field) + sizeof(uint64_t);
+	}
 
 	for (uint16_t i = 0; i < bin_count; i++) {
 		as_msg_op *op = (as_msg_op *)buf;
@@ -279,7 +280,6 @@ as_msg_make_response_msg(uint32_t result_code, uint32_t generation,
 
 	return msgp;
 }
-
 
 // FIXME - only old batch sets include_key false - remove parameter ???
 // FIXME - only old batch sets skip_empty_records false - remove parameter ???
@@ -309,10 +309,10 @@ as_msg_make_response_bufbuilder(cf_buf_builder **bb_r, as_storage_rd *rd,
 		key_size = rd->key_size;
 	}
 
-	uint16_t n_fields = 2; // always add digest and namespace
+	uint16_t n_fields = 2; // always add namespace and digest
 	size_t msg_sz = sizeof(as_msg) +
-			sizeof(as_msg_field) + sizeof(cf_digest) +
-			sizeof(as_msg_field) + ns_len;
+			sizeof(as_msg_field) + ns_len +
+			sizeof(as_msg_field) + sizeof(cf_digest);
 
 	if (set_name) {
 		n_fields++;
@@ -379,44 +379,44 @@ as_msg_make_response_bufbuilder(cf_buf_builder **bb_r, as_storage_rd *rd,
 
 	cf_buf_builder_reserve(bb_r, (int)msg_sz, &buf);
 
-	as_msg *msgp = (as_msg *)buf;
+	as_msg *m = (as_msg *)buf;
 
-	msgp->header_sz = sizeof(as_msg);
-	msgp->info1 = no_bin_data ? AS_MSG_INFO1_GET_NO_BINS : 0;
-	msgp->info2 = 0;
-	msgp->info3 = 0;
-	msgp->unused = 0;
-	msgp->result_code = AS_PROTO_RESULT_OK;
-	msgp->generation = r->generation;
-	msgp->record_ttl = r->void_time;
-	msgp->transaction_ttl = 0;
-	msgp->n_fields = n_fields;
+	m->header_sz = sizeof(as_msg);
+	m->info1 = no_bin_data ? AS_MSG_INFO1_GET_NO_BINS : 0;
+	m->info2 = 0;
+	m->info3 = 0;
+	m->unused = 0;
+	m->result_code = AS_PROTO_RESULT_OK;
+	m->generation = r->generation;
+	m->record_ttl = r->void_time;
+	m->transaction_ttl = 0;
+	m->n_fields = n_fields;
 
 	if (no_bin_data) {
-		msgp->n_ops = 0;
+		m->n_ops = 0;
 	}
 	else {
-		msgp->n_ops = select_bins ? n_bins_matched : n_record_bins;
+		m->n_ops = select_bins ? n_bins_matched : n_record_bins;
 	}
 
-	as_msg_swap_header(msgp);
+	as_msg_swap_header(m);
 
-	buf += sizeof(as_msg);
+	buf = m->data;
 
 	as_msg_field *mf = (as_msg_field *)buf;
 
-	mf->field_sz = sizeof(cf_digest) + 1;
-	mf->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
-	memcpy(mf->data, &r->keyd, sizeof(cf_digest));
-	as_msg_swap_field(mf);
-	buf += sizeof(as_msg_field) + sizeof(cf_digest);
-
-	mf = (as_msg_field *)buf;
 	mf->field_sz = ns_len + 1;
 	mf->type = AS_MSG_FIELD_TYPE_NAMESPACE;
 	memcpy(mf->data, ns->name, ns_len);
 	as_msg_swap_field(mf);
 	buf += sizeof(as_msg_field) + ns_len;
+
+	mf = (as_msg_field *)buf;
+	mf->field_sz = sizeof(cf_digest) + 1;
+	mf->type = AS_MSG_FIELD_TYPE_DIGEST_RIPE;
+	memcpy(mf->data, &r->keyd, sizeof(cf_digest));
+	as_msg_swap_field(mf);
+	buf += sizeof(as_msg_field) + sizeof(cf_digest);
 
 	if (set_name) {
 		mf = (as_msg_field *)buf;
@@ -484,7 +484,6 @@ as_msg_make_response_bufbuilder(cf_buf_builder **bb_r, as_storage_rd *rd,
 	return (int32_t)msg_sz;
 }
 
-
 cl_msg *
 as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 		uint32_t generation, uint32_t void_time, uint64_t trid,
@@ -502,12 +501,16 @@ as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 		bin_name_len = sizeof(FAILURE_BIN_NAME) - 1;
 	}
 
-	size_t msg_sz = sizeof(cl_msg) + sizeof(as_msg_op) + bin_name_len +
-			as_particle_asval_client_value_size(val);
+	uint16_t n_fields = 0;
+	size_t msg_sz = sizeof(cl_msg);
 
 	if (trid != 0) {
+		n_fields++;
 		msg_sz += sizeof(as_msg_field) + sizeof(trid);
 	}
+
+	msg_sz += sizeof(as_msg_op) + bin_name_len +
+			as_particle_asval_client_value_size(val);
 
 	uint8_t *buf = cf_malloc(msg_sz);
 	cl_msg *msgp = (cl_msg *)buf;
@@ -515,6 +518,7 @@ as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 	msgp->proto.version = PROTO_VERSION;
 	msgp->proto.type = PROTO_TYPE_AS_MSG;
 	msgp->proto.sz = msg_sz - sizeof(as_proto);
+
 	as_proto_swap(&msgp->proto);
 
 	as_msg *m = &msgp->msg;
@@ -528,25 +532,22 @@ as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 	m->generation = generation;
 	m->record_ttl = void_time;
 	m->transaction_ttl = 0;
-	m->n_fields = 0;
+	m->n_fields = n_fields;
 	m->n_ops = 1; // only the one special bin
 
-	buf += sizeof(cl_msg);
+	as_msg_swap_header(m);
+
+	buf = m->data;
 
 	if (trid != 0) {
-		m->n_fields++;
+		as_msg_field *mf = (as_msg_field *)buf;
 
-		as_msg_field *trfield = (as_msg_field *)buf;
-
-		trfield->field_sz = 1 + sizeof(uint64_t);
-		trfield->type = AS_MSG_FIELD_TYPE_TRID;
-		*(uint64_t *)trfield->data = cf_swap_to_be64(trid);
-
+		mf->field_sz = 1 + sizeof(uint64_t);
+		mf->type = AS_MSG_FIELD_TYPE_TRID;
+		*(uint64_t *)mf->data = cf_swap_to_be64(trid);
+		as_msg_swap_field(mf);
 		buf += sizeof(as_msg_field) + sizeof(uint64_t);
-		as_msg_swap_field(trfield);
 	}
-
-	as_msg_swap_header(m);
 
 	as_msg_op *op = (as_msg_op *)buf;
 
@@ -564,7 +565,6 @@ as_msg_make_val_response(bool success, const as_val *val, uint32_t result_code,
 
 	return msgp;
 }
-
 
 // Caller-provided val_sz must be the result of calling
 // as_particle_asval_client_value_size() for same val.
@@ -590,23 +590,23 @@ as_msg_make_val_response_bufbuilder(const as_val *val, cf_buf_builder **bb_r,
 
 	cf_buf_builder_reserve(bb_r, (int)msg_sz, &buf);
 
-	as_msg *msgp = (as_msg *)buf;
+	as_msg *m = (as_msg *)buf;
 
-	msgp->header_sz = sizeof(as_msg);
-	msgp->info1 = 0;
-	msgp->info2 = 0;
-	msgp->info3 = 0;
-	msgp->unused = 0;
-	msgp->result_code = AS_PROTO_RESULT_OK;
-	msgp->generation = 0;
-	msgp->record_ttl = 0;
-	msgp->transaction_ttl = 0;
-	msgp->n_fields = 0;
-	msgp->n_ops = 1; // only the one special bin
+	m->header_sz = sizeof(as_msg);
+	m->info1 = 0;
+	m->info2 = 0;
+	m->info3 = 0;
+	m->unused = 0;
+	m->result_code = AS_PROTO_RESULT_OK;
+	m->generation = 0;
+	m->record_ttl = 0;
+	m->transaction_ttl = 0;
+	m->n_fields = 0;
+	m->n_ops = 1; // only the one special bin
 
-	as_msg_swap_header(msgp);
+	as_msg_swap_header(m);
 
-	as_msg_op *op = (as_msg_op *)(buf + sizeof(as_msg));
+	as_msg_op *op = (as_msg_op *)m->data;
 
 	op->op = AS_MSG_OP_READ;
 	op->name_sz = (uint8_t)bin_name_len;
@@ -645,14 +645,12 @@ as_msg_send_reply(as_file_handle *fd_h, uint32_t result_code,
 	return rv;
 }
 
-
 // Send a pre-made response saved in a dyn-buf.
 int
 as_msg_send_ops_reply(as_file_handle *fd_h, cf_dyn_buf *db)
 {
 	return send_reply_buf(fd_h, db->buf, db->used_sz);
 }
-
 
 // Send a blocking "fin" message with default timeout.
 bool
@@ -661,32 +659,35 @@ as_msg_send_fin(cf_socket *sock, uint32_t result_code)
 	return as_msg_send_fin_timeout(sock, result_code, CF_SOCKET_TIMEOUT) != 0;
 }
 
-
 // Send a blocking "fin" message with a specified timeout.
 size_t
 as_msg_send_fin_timeout(cf_socket *sock, uint32_t result_code, int32_t timeout)
 {
-	cl_msg m;
+	cl_msg msgp;
 
-	m.proto.version = PROTO_VERSION;
-	m.proto.type = PROTO_TYPE_AS_MSG;
-	m.proto.sz = sizeof(as_msg);
-	as_proto_swap(&m.proto);
+	msgp.proto.version = PROTO_VERSION;
+	msgp.proto.type = PROTO_TYPE_AS_MSG;
+	msgp.proto.sz = sizeof(as_msg);
 
-	m.msg.header_sz = sizeof(as_msg);
-	m.msg.info1 = 0;
-	m.msg.info2 = 0;
-	m.msg.info3 = AS_MSG_INFO3_LAST;
-	m.msg.unused = 0;
-	m.msg.result_code = result_code;
-	m.msg.generation = 0;
-	m.msg.record_ttl = 0;
-	m.msg.transaction_ttl = 0;
-	m.msg.n_fields = 0;
-	m.msg.n_ops = 0;
-	as_msg_swap_header(&m.msg);
+	as_proto_swap(&msgp.proto);
 
-	if (cf_socket_send_all(sock, (uint8_t*)&m, sizeof(m), MSG_NOSIGNAL,
+	as_msg *m = &msgp.msg;
+
+	m->header_sz = sizeof(as_msg);
+	m->info1 = 0;
+	m->info2 = 0;
+	m->info3 = AS_MSG_INFO3_LAST;
+	m->unused = 0;
+	m->result_code = result_code;
+	m->generation = 0;
+	m->record_ttl = 0;
+	m->transaction_ttl = 0;
+	m->n_fields = 0;
+	m->n_ops = 0;
+
+	as_msg_swap_header(m);
+
+	if (cf_socket_send_all(sock, (uint8_t*)&msgp, sizeof(msgp), MSG_NOSIGNAL,
 			timeout) < 0) {
 		cf_warning(AS_PROTO, "send error - fd %d %s", CSFD(sock),
 				cf_strerror(errno));
@@ -723,7 +724,6 @@ as_netio_init()
 		cf_crash(AS_PROTO, "failed to create netio slow thread");
 	}
 }
-
 
 // Based on io object, send buffer to the network, or queue for retry.
 //
@@ -803,8 +803,7 @@ send_reply_buf(as_file_handle *fd_h, uint8_t *msgp, size_t msg_sz)
 	return 0;
 }
 
-
-void *
+static void *
 run_netio(void *q_to_wait_on)
 {
 	cf_queue *q = (cf_queue*)q_to_wait_on;
@@ -813,7 +812,7 @@ run_netio(void *q_to_wait_on)
 		as_netio io;
 
 		if (cf_queue_pop(q, &io, CF_QUEUE_FOREVER) != 0) {
-			cf_crash(AS_PROTO, "Failed to pop from IO worker queue.");
+			cf_crash(AS_PROTO, "failed to pop from IO worker queue.");
 		}
 
 		if (io.slow) {
@@ -826,8 +825,7 @@ run_netio(void *q_to_wait_on)
 	return NULL;
 }
 
-
-int
+static int
 netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset,
 		bool blocking)
 {
@@ -839,6 +837,7 @@ netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset,
 	uint8_t *buf = bb_r->buf;
 
 	as_proto proto;
+
 	proto.version = PROTO_VERSION;
 	proto.type = PROTO_TYPE_AS_MSG;
 	proto.sz = len - 8;
@@ -852,7 +851,7 @@ netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset,
 
 	int retry = 0;
 
-	cf_detail(AS_PROTO," Start At %p %d %d", buf, pos, len);
+	cf_detail(AS_PROTO," start at %p %d %d", buf, pos, len);
 
 	while (pos < len) {
 		int rv = cf_socket_send(&fd_h->sock, buf + pos, len - pos,
@@ -860,14 +859,14 @@ netio_send_packet(as_file_handle *fd_h, cf_buf_builder *bb_r, uint32_t *offset,
 
 		if (rv <= 0) {
 			if (errno != EAGAIN) {
-				cf_debug(AS_PROTO, "Packet send response error returned %d errno %d fd %d",
+				cf_debug(AS_PROTO, "packet send response error returned %d errno %d fd %d",
 						rv, errno, CSFD(&fd_h->sock));
 				return AS_NETIO_IO_ERR;
 			}
 
 			if (! blocking && (retry > NETIO_MAX_IO_RETRY)) {
 				*offset = pos;
-				cf_detail(AS_PROTO," End At %p %d %d", buf, pos, len);
+				cf_detail(AS_PROTO," end at %p %d %d", buf, pos, len);
 				ASD_QUERY_SENDPACKET_CONTINUE(nodeid, pos);
 				return AS_NETIO_CONTINUE;
 			}
