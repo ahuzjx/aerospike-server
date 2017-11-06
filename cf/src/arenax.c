@@ -40,10 +40,6 @@
 // Typedefs & constants.
 //
 
-// Limit so stage_size fits in 32 bits.
-// (Probably unnecessary - size_t is 64 bits on our systems.)
-const uint64_t MAX_STAGE_SIZE = 0xFFFFffff;
-
 // Must be in-sync with cf_arenax_err:
 const char* ARENAX_ERR_STRINGS[] = {
 	"ok",
@@ -98,19 +94,13 @@ cf_arenax_init(cf_arenax* arena, key_t key_base, uint32_t element_size,
 		cf_crash(CF_ARENAX, "max stages %u too large", max_stages);
 	}
 
-	uint64_t stage_size = (uint64_t)stage_capacity * (uint64_t)element_size;
-
-	if (stage_size > MAX_STAGE_SIZE) {
-		cf_crash(CF_ARENAX, "stage size %lu too large", stage_size);
-	}
-
 	arena->key_base = key_base;
 	arena->element_size = element_size;
 	arena->stage_capacity = stage_capacity;
 	arena->max_stages = max_stages;
 	arena->flags = flags;
 
-	arena->stage_size = (size_t)stage_size;
+	arena->stage_size = (size_t)stage_capacity * element_size;
 
 	arena->free_h = 0;
 

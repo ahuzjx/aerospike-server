@@ -48,7 +48,7 @@ cf_arenax_add_stage(cf_arenax* arena)
 	uint8_t* p_stage = (uint8_t*)cf_try_malloc(arena->stage_size);
 
 	if (! p_stage) {
-		cf_warning(CF_ARENAX, "could not allocate %lu-byte arena stage %u",
+		cf_warning(CF_ARENAX, "could not allocate %zu-byte arena stage %u",
 				arena->stage_size, arena->stage_count);
 		return CF_ARENAX_ERR_STAGE_CREATE;
 	}

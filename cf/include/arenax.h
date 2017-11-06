@@ -61,8 +61,8 @@ typedef enum {
 //
 
 // Element is indexed by 24 bits.
-#define ELEMENT_ID_NUM_BITS	24
-#define ELEMENT_ID_MASK		0xFFffFFL // least significant 24 bits (3 bytes)
+#define ELEMENT_ID_NUM_BITS 24
+#define ELEMENT_ID_MASK ((1UL << ELEMENT_ID_NUM_BITS) - 1) // 0xFFffff
 
 #define MAX_STAGE_CAPACITY (1 << ELEMENT_ID_NUM_BITS) // 16 M
 
