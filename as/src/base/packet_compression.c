@@ -33,21 +33,6 @@
 
 #define STACK_BUF_SZ (1024 * 16)
 
-// Exactly like as_proto, but without the (size-less) data member, so we can
-// compile the 'proto' member of as_comp_proto below with g++-7.
-typedef struct as_proto_head_s {
-	uint8_t version;
-	uint8_t type;
-	uint64_t sz: 48;
-} __attribute__ ((__packed__)) as_proto_head;
-
-// zlib decompression API needs original size of the compressed data.
-typedef struct as_comp_proto_s {
-	as_proto_head proto; // protocol header - packs the same as as_proto
-	uint64_t org_sz;     // original size of compressed data hold in 'data'
-	uint8_t data[];      // compressed data
-}  as_comp_proto;
-
 /**
  * Function to decompress the given data
  * Expected arguments
