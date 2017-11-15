@@ -294,16 +294,16 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid site ID", jem_sz, p, ra);
 	}
 
-	const void *alloc_ra = ck_pr_load_ptr(g_site_ras + site_id);
+	const void *data_ra = ck_pr_load_ptr(g_site_ras + site_id);
 
 	if (delta == 0xffff) {
-		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, potential double free, possibly allocated with RA %p",
-				jem_sz, p, ra, alloc_ra);
+		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, potential double free, possibly freed before with RA %p",
+				jem_sz, p, ra, data_ra);
 	}
 
 	if (delta > jem_sz - sizeof(uint32_t)) {
 		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid delta length, possibly allocated with RA %p",
-				jem_sz, p, ra, alloc_ra);
+				jem_sz, p, ra, data_ra);
 	}
 
 	uint8_t *mark = data - delta;
@@ -311,7 +311,7 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 	for (uint32_t i = 0; i < 4 && i < delta; ++i) {
 		if (mark[i] != data[i]) {
 			cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid mark, possibly allocated with RA %p",
-					jem_sz, p, ra, alloc_ra);
+					jem_sz, p, ra, data_ra);
 		}
 	}
 
@@ -327,8 +327,13 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 		--info->size_hi;
 	}
 
-	// Invalidate the delta length, so that we are more likely to detect double
-	// frees.
+	// Replace the allocation site with the deallocation site to facilitate
+	// double-free debugging.
+
+	site_id = hook_get_site_id(ra);
+
+	// Also invalidate the delta length, so that we are more likely to detect
+	// double frees.
 
 	*data32 = ((site_id << 16) | 0xffff) * MULT + 1;
 
