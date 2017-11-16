@@ -60,9 +60,6 @@ typedef struct as_stats_s {
 	// Info stats.
 	cf_atomic64		info_complete;
 
-	// Proxy stats.
-	uint64_t		proxy_retry; // not in ticker - incremented only in proxy retransmit thread
-
 	// Early transaction errors.
 	cf_atomic64		n_demarshal_error;
 	cf_atomic64		n_tsvc_client_error;

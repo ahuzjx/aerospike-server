@@ -276,8 +276,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	info_append_uint64(db, "info_complete", g_stats.info_complete); // not in ticker
 
-	info_append_uint64(db, "proxy_retry", g_stats.proxy_retry); // not in ticker
-
 	info_append_uint64(db, "demarshal_error", g_stats.n_demarshal_error);
 	info_append_uint64(db, "early_tsvc_client_error", g_stats.n_tsvc_client_error);
 	info_append_uint64(db, "early_tsvc_batch_sub_error", g_stats.n_tsvc_batch_sub_error);

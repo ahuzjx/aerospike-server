@@ -224,7 +224,8 @@ handle_hot_key(rw_request* rw0, as_transaction* tr)
 			rw0->from.proxy_node == tr->from.proxy_node &&
 			rw0->from_data.proxy_tid == tr->from_data.proxy_tid) {
 		// If the new transaction is a retransmitted proxy request, don't
-		// queue it or reply to origin, just drop it and feign success.
+		// queue it or reply to origin, just drop it and feign success. (Older
+		// servers will retransmit proxy requests - must handle them.)
 
 		return TRANS_DONE_SUCCESS;
 	}

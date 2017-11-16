@@ -116,15 +116,8 @@ typedef struct proxy_request_s {
 	uint64_t		start_time;
 	uint64_t		end_time;
 
-	// Handle retransmits.
+	// The original proxy message.
 	msg*			fab_msg;
-	cf_clock		xmit_ms;
-	uint32_t		retry_interval_ms;
-
-	// The node we're diverting to.
-	cf_node			dest;
-
-	uint32_t		pid;
 
 	as_namespace*	ns;
 } proxy_request;
@@ -143,8 +136,7 @@ static cf_atomic32 g_proxy_tid = 0;
 //
 
 void* run_proxy_retransmit(void* arg);
-int proxy_retransmit_reduce_fn(const void* key, void* data, void* udata);
-int proxy_retransmit_send(proxy_request* pr);
+int proxy_timeout_reduce_fn(const void* key, void* data, void* udata);
 
 int proxy_msg_cb(cf_node src, msg* m, void* udata);
 
@@ -235,8 +227,6 @@ as_proxy_hash_count()
 void
 as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 {
-	uint32_t pid = as_partition_getid(&tr->keyd);
-
 	// Get a fabric message and fill it out.
 
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
@@ -268,11 +258,7 @@ as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 	pr.end_time = tr->end_time;
 
 	pr.fab_msg = m;
-	pr.xmit_ms = cf_getms() + g_config.transaction_retry_ms;
-	pr.retry_interval_ms = g_config.transaction_retry_ms;
 
-	pr.dest = dst;
-	pr.pid = pid;
 	pr.ns = ns;
 
 	cf_shash_put(g_proxy_hash, &tid, &pr);
@@ -476,12 +462,10 @@ proxyer_handle_return_to_sender(msg* m, uint32_t tid)
 		// If this node was a "random" node, i.e. neither acting nor eventual
 		// master, it diverts to the eventual master (the best it can do.) The
 		// eventual master must inform this node about the acting master.
-		pr->dest = redirect_node;
-		pr->xmit_ms = cf_getms() + g_config.transaction_retry_ms;
 
 		msg_incr_ref(pr->fab_msg);
 
-		if (as_fabric_send(pr->dest, pr->fab_msg, AS_FABRIC_CHANNEL_RW) !=
+		if (as_fabric_send(redirect_node, pr->fab_msg, AS_FABRIC_CHANNEL_RW) !=
 				AS_FABRIC_SUCCESS) {
 			as_fabric_msg_put(pr->fab_msg);
 		}
@@ -607,7 +591,7 @@ run_proxy_retransmit(void* arg)
 		now.now_ns = cf_getns();
 		now.now_ms = now.now_ns / 1000000;
 
-		cf_shash_reduce(g_proxy_hash, proxy_retransmit_reduce_fn, &now);
+		cf_shash_reduce(g_proxy_hash, proxy_timeout_reduce_fn, &now);
 	}
 
 	return NULL;
@@ -615,123 +599,41 @@ run_proxy_retransmit(void* arg)
 
 
 int
-proxy_retransmit_reduce_fn(const void* key, void* data, void* udata)
+proxy_timeout_reduce_fn(const void* key, void* data, void* udata)
 {
 	proxy_request* pr = data;
 	now_times* now = (now_times*)udata;
 
+	if (now->now_ns < pr->end_time) {
+		return CF_SHASH_OK;
+	}
+
 	// Handle timeouts.
 
-	if (now->now_ns > pr->end_time) {
-		cf_assert(pr->from.any, AS_PROXY,
-				"origin %u has null 'from'", pr->origin);
+	cf_assert(pr->from.any, AS_PROXY, "origin %u has null 'from'", pr->origin);
 
-		switch (pr->origin) {
-		case FROM_CLIENT:
-			// TODO - when it becomes important enough, find a way to echo trid.
-			as_msg_send_reply(pr->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT,
-					0, 0, NULL, NULL, 0, pr->ns, 0);
-			client_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
-			break;
-		case FROM_BATCH:
-			as_batch_add_error(pr->from.batch_shared, pr->batch_index,
-					AS_PROTO_RESULT_FAIL_TIMEOUT);
-			// Note - no worries about msgp, proxy divert copied it.
-			batch_sub_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
-			break;
-		default:
-			cf_crash(AS_PROXY, "unexpected transaction origin %u", pr->origin);
-			break;
-		}
-
-		pr->from.any = NULL; // pattern, not needed
-		as_fabric_msg_put(pr->fab_msg);
-
-		return CF_SHASH_REDUCE_DELETE;
+	switch (pr->origin) {
+	case FROM_CLIENT:
+		// TODO - when it becomes important enough, find a way to echo trid.
+		as_msg_send_reply(pr->from.proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT, 0,
+				0, NULL, NULL, 0, pr->ns, 0);
+		client_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
+		break;
+	case FROM_BATCH:
+		as_batch_add_error(pr->from.batch_shared, pr->batch_index,
+				AS_PROTO_RESULT_FAIL_TIMEOUT);
+		// Note - no worries about msgp, proxy divert copied it.
+		batch_sub_proxy_update_stats(pr->ns, AS_PROTO_RESULT_FAIL_TIMEOUT);
+		break;
+	default:
+		cf_crash(AS_PROXY, "unexpected transaction origin %u", pr->origin);
+		break;
 	}
 
-	// Handle retransmits.
+	pr->from.any = NULL; // pattern, not needed
+	as_fabric_msg_put(pr->fab_msg);
 
-	if (pr->xmit_ms < now->now_ms) {
-		// Update the retry interval, exponentially.
-		pr->xmit_ms = now->now_ms + pr->retry_interval_ms;
-		pr->retry_interval_ms *= 2;
-
-		return proxy_retransmit_send(pr);
-	}
-
-	return CF_SHASH_OK;
-}
-
-
-int
-proxy_retransmit_send(proxy_request* pr)
-{
-	while (true) {
-		g_stats.proxy_retry++;
-
-		msg_incr_ref(pr->fab_msg);
-
-		if (as_fabric_send(pr->dest, pr->fab_msg, AS_FABRIC_CHANNEL_RW) ==
-				AS_FABRIC_SUCCESS) {
-			return CF_SHASH_OK;
-		}
-
-		as_fabric_msg_put(pr->fab_msg);
-
-		// The node I'm proxying to is no longer up. Find another node. (Easier
-		// to just send to the master and not pay attention to whether it's read
-		// or write.)
-		cf_node new_dst = as_partition_writable_node(pr->ns, pr->pid);
-
-		// Partition is frozen - try more retransmits, but will likely time out.
-		if (new_dst == (cf_node)0) {
-			return CF_SHASH_OK;
-		}
-
-		// Destination is self - abandon proxy and try local transaction.
-		if (new_dst == g_config.self_node) {
-			cf_digest* keyd;
-
-			msg_get_buf(pr->fab_msg, PROXY_FIELD_DIGEST, (uint8_t**)&keyd, NULL,
-					MSG_GET_DIRECT);
-
-			cl_msg* msgp;
-
-			msg_get_buf(pr->fab_msg, PROXY_FIELD_AS_PROTO, (uint8_t**)&msgp,
-					NULL, MSG_GET_COPY_MALLOC);
-
-			as_transaction tr;
-			as_transaction_init_head(&tr, keyd, msgp);
-			// msgp might not have digest - batch sub-transactions, old clients.
-			// For old clients, will compute it again from msgp key and set.
-
-			tr.msg_fields = pr->msg_fields;
-			tr.origin = pr->origin;
-			tr.from_flags = pr->from_flags;
-			tr.from.any = pr->from.any;
-			tr.from_data.batch_index = pr->batch_index;
-			tr.start_time = pr->start_time;
-
-			as_tsvc_enqueue(&tr);
-
-			as_fabric_msg_put(pr->fab_msg);
-
-			return CF_SHASH_REDUCE_DELETE;
-		}
-
-		// Original destination - just wait for the next retransmit.
-		if (new_dst == pr->dest) {
-			return CF_SHASH_OK;
-		}
-
-		// Different destination - retry immediately. This is the reason for the
-		// while loop. Is this too complicated to bother with?
-		pr->dest = new_dst;
-	}
-
-	// For now, it's impossible to get here.
-	return CF_SHASH_ERR;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 
