@@ -135,7 +135,7 @@ static cf_atomic32 g_proxy_tid = 0;
 // Forward declarations.
 //
 
-void* run_proxy_retransmit(void* arg);
+void* run_proxy_timeout(void* arg);
 int proxy_timeout_reduce_fn(const void* key, void* data, void* udata);
 
 int proxy_msg_cb(cf_node src, msg* m, void* udata);
@@ -207,8 +207,8 @@ as_proxy_init()
 	pthread_attr_init(&attrs);
 	pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
 
-	if (pthread_create(&thread, &attrs, run_proxy_retransmit, NULL) != 0) {
-		cf_crash(AS_RW, "failed to create proxy retransmit thread");
+	if (pthread_create(&thread, &attrs, run_proxy_timeout, NULL) != 0) {
+		cf_crash(AS_RW, "failed to create proxy timeout thread");
 	}
 
 	as_fabric_register_msg_fn(M_TYPE_PROXY, proxy_mt, sizeof(proxy_mt),
@@ -577,11 +577,11 @@ proxyee_handle_request(cf_node src, msg* m, uint32_t tid)
 
 
 //==========================================================
-// Local helpers - retransmit.
+// Local helpers - timeout.
 //
 
 void*
-run_proxy_retransmit(void* arg)
+run_proxy_timeout(void* arg)
 {
 	while (true) {
 		usleep(75 * 1000);
