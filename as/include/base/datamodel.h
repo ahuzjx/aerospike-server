@@ -709,7 +709,7 @@ struct as_namespace_s {
 	char*			storage_devices[AS_STORAGE_MAX_DEVICES];
 	char*			storage_shadows[AS_STORAGE_MAX_DEVICES];
 	char*			storage_files[AS_STORAGE_MAX_FILES];
-	off_t			storage_filesize;
+	uint64_t		storage_filesize;
 	char*			storage_scheduler_mode; // relevant for devices only, not files
 	uint32_t		storage_write_block_size;
 	PAD_BOOL		storage_data_in_memory;

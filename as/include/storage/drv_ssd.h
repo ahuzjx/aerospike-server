@@ -177,7 +177,7 @@ typedef struct drv_ssd_s
 
 	cf_atomic32		defrag_sweep;		// defrag sweep flag
 
-	off_t			file_size;
+	uint64_t		file_size;
 	int				file_id;
 
 	uint32_t		open_flag;
@@ -190,9 +190,7 @@ typedef struct drv_ssd_s
 
 	uint32_t		write_block_size;	// number of bytes to write at a time
 
-	uint64_t		header_size;
-
-	uint32_t		sweep_block_counter;			// large blocks read
+	uint32_t		sweep_wblock_id;				// wblocks read at startup
 	uint64_t		record_add_older_counter;		// records not inserted due to better existing one
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration
 	uint64_t		record_add_max_ttl_counter;		// records not inserted due to max-ttl
@@ -235,8 +233,17 @@ typedef struct drv_ssds_s
 // Private API - for enterprise separation only
 //
 
+// SSD_HEADER_SIZE must be a power of 2 and >= MAX_WRITE_BLOCK_SIZE.
+// Do NOT change SSD_HEADER_SIZE!
+#define SSD_HEADER_SIZE			(1024 * 1024)
+
+// Artificial limit on write-block-size, in case we ever move to an
+// SSD_HEADER_SIZE that's too big to be a write-block size limit.
+// MAX_WRITE_BLOCK_SIZE must be power of 2 and <= SSD_HEADER_SIZE.
 #define MAX_WRITE_BLOCK_SIZE	(1024 * 1024)
-#define LOAD_BUF_SIZE			MAX_WRITE_BLOCK_SIZE // must be multiple of MAX_WRITE_BLOCK_SIZE
+
+// Artificial limit on write-block-size, must be power of 2 and >= RBLOCK_SIZE.
+#define MIN_WRITE_BLOCK_SIZE	(1024 * 1)
 
 #define SSD_BLOCK_MAGIC		0x037AF200
 #define LENGTH_BASE			offsetof(struct drv_ssd_block_s, keyd)
