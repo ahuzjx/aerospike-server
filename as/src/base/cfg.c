@@ -3349,6 +3349,10 @@ as_config_init(const char* config_file)
 				g_xcfg.xdr_digestlog_file_size = cfg_u64_val2_no_checks(&line);
 				break;
 			case CASE_XDR_DATACENTER_BEGIN:
+				if (g_dc_count == DC_MAX_NUM) {
+					cf_crash_nostack(AS_CFG, "Cannot have more than %d datacenters", DC_MAX_NUM);
+				}
+
 				cur_dc_cfg = &g_dc_xcfg_opt[g_dc_count];
 				cur_dc_cfg->dc_name = cfg_strdup(&line, true);
 				cur_dc_cfg->dc_id = g_dc_count;
