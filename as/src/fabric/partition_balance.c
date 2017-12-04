@@ -84,7 +84,7 @@ static int g_init_balance_done = false;
 static cf_atomic32 g_migrate_num_incoming = 0;
 
 // Using int for 4-byte size, but maintaining bool semantics.
-static volatile int g_allow_migrations = true;
+static volatile int g_allow_migrations = false;
 
 static uint64_t g_hashed_pids[AS_PARTITIONS];
 
@@ -276,6 +276,7 @@ void
 as_partition_balance_revert_to_orphan()
 {
 	g_init_balance_done = false;
+	g_allow_migrations = false;
 
 	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
 		as_namespace* ns = g_config.namespaces[ns_ix];
