@@ -79,7 +79,8 @@ typedef struct {
 	uint64_t	random;			// a random value - good for telling all disks are of the same state
 	uint32_t	write_block_size;
 	uint32_t	last_evict_void_time;
-	uint16_t	version;
+	uint8_t		version;
+	uint8_t		flags;
 	uint16_t	devices_n;		// number of devices
 	uint32_t	header_length;
 	char		namespace[32];	// ascii representation of the namespace name, null-terminated

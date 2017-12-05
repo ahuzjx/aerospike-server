@@ -2497,6 +2497,7 @@ ssd_init_header(as_namespace *ns)
 	h->write_block_size = ns->storage_write_block_size;
 	h->last_evict_void_time = 0;
 	h->version = SSD_VERSION;
+	h->flags = 0;
 	h->devices_n = 0;
 	h->header_length = SSD_HEADER_SIZE;
 	memset(h->namespace, 0, sizeof(h->namespace));
