@@ -1740,6 +1740,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		info_append_bool(db, "storage-engine.disable-odirect", ns->storage_disable_odirect);
 		info_append_bool(db, "storage-engine.enable-benchmarks-storage", ns->storage_benchmarks_enabled);
 		info_append_bool(db, "storage-engine.enable-osync", ns->storage_enable_osync);
+		info_append_string_safe(db, "storage-engine.encryption-key-file", ns->storage_encryption_key_file);
 		info_append_uint64(db, "storage-engine.flush-max-ms", ns->storage_flush_max_us / 1000);
 		info_append_uint64(db, "storage-engine.fsync-max-sec", ns->storage_fsync_max_us / 1000000);
 		info_append_uint64(db, "storage-engine.max-write-cache", ns->storage_max_write_cache);

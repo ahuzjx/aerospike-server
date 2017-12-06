@@ -68,6 +68,9 @@ struct drv_ssd_s;
 // 1 - original
 // 2 - minimum storage increment (RBLOCK_SIZE) from 512 to 128 bytes
 
+// Device header flags.
+#define SSD_HEADER_FLAG_ENCRYPTED	0x01
+
 #define MAX_SSD_THREADS 20
 
 
@@ -295,7 +298,14 @@ void ssd_cold_start_adjust_cenotaph(struct as_namespace_s *ns, const drv_ssd_blo
 void ssd_cold_start_transition_record(struct as_namespace_s *ns, const drv_ssd_block *block, struct as_index_s *r, bool is_create);
 void ssd_cold_start_drop_cenotaphs(struct as_namespace_s *ns);
 
+// Record encryption.
+void ssd_init_encryption_key(struct as_namespace_s *ns);
+void ssd_do_encrypt(const uint8_t *key, uint64_t off, drv_ssd_block *block);
+void ssd_do_decrypt(const uint8_t *key, uint64_t off, drv_ssd_block *block);
+
 // Miscellaneous.
+void ssd_header_init_cfg(const struct as_namespace_s *ns, ssd_device_header *header);
+bool ssd_header_is_valid_cfg(const struct as_namespace_s *ns, const ssd_device_header *header);
 bool ssd_cold_start_is_valid_n_bins(uint32_t n_bins);
 bool ssd_cold_start_is_record_truncated(struct as_namespace_s *ns, const drv_ssd_block *block, const struct as_rec_props_s *p_props);
 
@@ -382,4 +392,25 @@ can_convert_storage_version(uint16_t version)
 	return version == 1
 			// In case I bump version 2 and forget to tweak conversion code:
 			&& SSD_VERSION == 2;
+}
+
+
+//
+// Record encryption.
+//
+
+static inline void
+ssd_encrypt(drv_ssd *ssd, uint64_t off, drv_ssd_block *block)
+{
+	if (ssd->ns->storage_encryption_key_file != NULL) {
+		ssd_do_encrypt(ssd->ns->storage_encryption_key, off, block);
+	}
+}
+
+static inline void
+ssd_decrypt(drv_ssd *ssd, uint64_t off, drv_ssd_block *block)
+{
+	if (ssd->ns->storage_encryption_key_file != NULL) {
+		ssd_do_decrypt(ssd->ns->storage_encryption_key, off, block);
+	}
 }

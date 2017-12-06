@@ -570,8 +570,12 @@ defrag_move_record(drv_ssd *ssd, drv_ssd_block *block, as_index *r)
 
 	memcpy(swb->buf + swb->pos, (const uint8_t*)block, write_size);
 
+	uint64_t write_offset = WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id) + swb->pos;
+
+	ssd_encrypt(ssd, write_offset, (drv_ssd_block *)(swb->buf + swb->pos));
+
 	r->file_id = ssd->file_id;
-	r->rblock_id = BYTES_TO_RBLOCKS(WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id) + swb->pos);
+	r->rblock_id = BYTES_TO_RBLOCKS(write_offset);
 	r->n_rblocks = BYTES_TO_RBLOCKS(write_size);
 
 	swb->pos += write_size;
@@ -722,6 +726,8 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 	while (wblock_offset < ssd->write_block_size &&
 			cf_atomic32_get(p_wblock_state->inuse_sz) != 0) {
 		drv_ssd_block *block = (drv_ssd_block*)&read_buf[wblock_offset];
+
+		ssd_decrypt(ssd, file_offset + wblock_offset, block);
 
 		if (block->magic != SSD_BLOCK_MAGIC) {
 			// First block must have magic.
@@ -1092,6 +1098,8 @@ ssd_read_record(as_storage_rd *rd)
 		int swb_offset = record_offset - WBLOCK_ID_TO_BYTES(ssd, wblock);
 		memcpy(read_buf, swb->buf + swb_offset, record_size);
 		swb_release(swb);
+
+		ssd_decrypt(ssd, record_offset, block);
 	}
 	else {
 		// Normal case - data is read from device.
@@ -1134,6 +1142,7 @@ ssd_read_record(as_storage_rd *rd)
 		ssd_fd_put(ssd, fd);
 
 		block = (drv_ssd_block*)(read_buf + record_buf_indent);
+		ssd_decrypt(ssd, record_offset, block);
 
 		// Sanity checks.
 
@@ -1636,8 +1645,12 @@ ssd_write_bins(as_storage_rd *rd)
 	block->n_bins = n_bins_written;
 	block->last_update_time = r->last_update_time;
 
+	uint64_t write_offset = WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id) + swb_pos;
+
+	ssd_encrypt(ssd, write_offset, block);
+
 	r->file_id = ssd->file_id;
-	r->rblock_id = BYTES_TO_RBLOCKS(WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id) + swb_pos);
+	r->rblock_id = BYTES_TO_RBLOCKS(write_offset);
 	r->n_rblocks = BYTES_TO_RBLOCKS(write_size);
 
 	cf_atomic64_add(&ssd->inuse_size, (int64_t)write_size);
@@ -1918,6 +1931,8 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 
 	while (offset < ssd->write_block_size) {
 		drv_ssd_block* p_block = (drv_ssd_block*)&read_buf[offset];
+
+		ssd_decrypt(ssd, file_offset + offset, p_block);
 
 		if (p_block->magic != SSD_BLOCK_MAGIC) {
 			if (offset == 0) {
@@ -2459,6 +2474,10 @@ ssd_read_header(drv_ssd *ssd, as_namespace *ns, ssd_device_header **header_r)
 	cf_detail(AS_DRV_SSD, "device %s: header read success: version %d devices %d random %lu",
 			ssd_name, header->version, header->devices_n, header->random);
 
+	if (! ssd_header_is_valid_cfg(ns, header)) {
+		goto Fail;
+	}
+
 	// In case we're bumping the version - ensure the new version gets written.
 	header->version = SSD_VERSION;
 
@@ -2504,6 +2523,8 @@ ssd_init_header(as_namespace *ns)
 	strcpy(h->namespace, ns->name);
 	h->info_n = AS_PARTITIONS;
 	h->info_stride = SSD_HEADER_INFO_STRIDE;
+
+	ssd_header_init_cfg(ns, h);
 
 	return h;
 }
@@ -2976,6 +2997,8 @@ ssd_cold_start_sweep(drv_ssds *ssds, drv_ssd *ssd)
 		while (indent < wblock_size) {
 			drv_ssd_block *block = (drv_ssd_block*)&buf[indent];
 
+			ssd_decrypt(ssd, file_offset + indent, block);
+
 			// Look for record magic.
 			if (block->magic != SSD_BLOCK_MAGIC) {
 				// Should always find a record at beginning of used wblock. if
@@ -3165,8 +3188,7 @@ ssd_load_records(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		int rvh = ssd_read_header(ssd, ns, &headers[i]);
 
 		if (rvh == -1) {
-			cf_crash(AS_DRV_SSD, "unable to read disk header %s: %s",
-					ssd->name, cf_strerror(errno));
+			cf_crash(AS_DRV_SSD, "unable to read disk header %s", ssd->name);
 		}
 
 		if (rvh == -2) {

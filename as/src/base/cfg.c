@@ -593,6 +593,7 @@ typedef enum {
 	CASE_NAMESPACE_STORAGE_DEVICE_DISABLE_ODIRECT,
 	CASE_NAMESPACE_STORAGE_DEVICE_ENABLE_BENCHMARKS_STORAGE,
 	CASE_NAMESPACE_STORAGE_DEVICE_ENABLE_OSYNC,
+	CASE_NAMESPACE_STORAGE_DEVICE_ENCRYPTION_KEY_FILE,
 	CASE_NAMESPACE_STORAGE_DEVICE_FLUSH_MAX_MS,
 	CASE_NAMESPACE_STORAGE_DEVICE_FSYNC_MAX_SEC,
 	CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE,
@@ -1084,6 +1085,7 @@ const cfg_opt NAMESPACE_STORAGE_DEVICE_OPTS[] = {
 		{ "disable-odirect",				CASE_NAMESPACE_STORAGE_DEVICE_DISABLE_ODIRECT },
 		{ "enable-benchmarks-storage",		CASE_NAMESPACE_STORAGE_DEVICE_ENABLE_BENCHMARKS_STORAGE },
 		{ "enable-osync",					CASE_NAMESPACE_STORAGE_DEVICE_ENABLE_OSYNC },
+		{ "encryption-key-file",			CASE_NAMESPACE_STORAGE_DEVICE_ENCRYPTION_KEY_FILE },
 		{ "flush-max-ms",					CASE_NAMESPACE_STORAGE_DEVICE_FLUSH_MAX_MS },
 		{ "fsync-max-sec",					CASE_NAMESPACE_STORAGE_DEVICE_FSYNC_MAX_SEC },
 		{ "max-write-cache",				CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE },
@@ -3055,6 +3057,10 @@ as_config_init(const char* config_file)
 			case CASE_NAMESPACE_STORAGE_DEVICE_ENABLE_OSYNC:
 				ns->storage_enable_osync = cfg_bool(&line);
 				break;
+			case CASE_NAMESPACE_STORAGE_DEVICE_ENCRYPTION_KEY_FILE:
+				cfg_enterprise_only(&line);
+				ns->storage_encryption_key_file = cfg_strdup(&line, true);
+				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_FLUSH_MAX_MS:
 				ns->storage_flush_max_us = cfg_u64_no_checks(&line) * 1000;
 				break;
@@ -3766,6 +3772,8 @@ as_config_post_process(as_config* c, const char* config_file)
 		ns->tree_shared.locks_shift			= 12 - cf_msb(ns->tree_shared.n_lock_pairs);
 		ns->tree_shared.sprigs_shift		= 12 - cf_msb(ns->tree_shared.n_sprigs);
 		ns->tree_shared.sprigs_offset		= sizeof(as_lock_pair) * ns->tree_shared.n_lock_pairs;
+
+		ssd_init_encryption_key(ns);
 
 		char hist_name[HISTOGRAM_NAME_SIZE];
 
