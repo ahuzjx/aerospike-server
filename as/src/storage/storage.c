@@ -34,6 +34,7 @@
 #include "citrusleaf/cf_digest.h"
 #include "citrusleaf/cf_queue.h"
 
+#include "cf_mutex.h"
 #include "fault.h"
 #include "olock.h"
 
@@ -661,7 +662,7 @@ as_storage_shutdown(void)
 	// that each write's record lock scope is either completed or never entered.
 
 	for (uint32_t n = 0; n < g_record_locks->n_locks; n++) {
-		pthread_mutex_lock(&g_record_locks->locks[n]);
+		cf_mutex_lock(&g_record_locks->locks[n]);
 	}
 
 	// Now flush everything outstanding to storage devices.

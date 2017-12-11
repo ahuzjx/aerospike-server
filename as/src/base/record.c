@@ -24,7 +24,6 @@
 // Includes.
 //
 
-#include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -153,7 +152,7 @@ void
 as_record_done(as_index_ref *r_ref, as_namespace *ns)
 {
 	if (! r_ref->skip_lock) {
-		pthread_mutex_unlock(r_ref->olock);
+		cf_mutex_unlock(r_ref->olock);
 	}
 
 	int rc = as_index_release(r_ref->r);

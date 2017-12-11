@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -31,6 +30,7 @@
 #include "citrusleaf/cf_digest.h"
 
 #include "arenax.h"
+#include "cf_mutex.h"
 
 #include "base/datamodel.h"
 
@@ -235,7 +235,7 @@ struct as_index_ref_s {
 	bool				skip_lock;
 	as_index			*r;
 	cf_arenax_handle	r_h;
-	pthread_mutex_t		*olock;
+	cf_mutex			*olock;
 };
 
 
@@ -262,8 +262,8 @@ typedef struct as_index_tree_s {
 
 typedef struct as_lock_pair_s {
 	// Note: reduce_lock's scope is always inside of lock's scope.
-	pthread_mutex_t	lock;        // insert, delete vs. insert, delete, get
-	pthread_mutex_t	reduce_lock; // insert, delete vs. reduce
+	cf_mutex lock;        // insert, delete vs. insert, delete, get
+	cf_mutex reduce_lock; // insert, delete vs. reduce
 } as_lock_pair;
 
 typedef struct as_sprig_s {
