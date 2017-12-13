@@ -1679,6 +1679,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	}
 
 	info_append_bool(db, "data-in-index", ns->data_in_index);
+	info_append_bool(db, "disable-write-dup-res", ns->write_dup_res_disabled);
 	info_append_bool(db, "disallow-null-setname", ns->disallow_null_setname);
 	info_append_bool(db, "enable-benchmarks-batch-sub", ns->batch_sub_benchmarks_enabled);
 	info_append_bool(db, "enable-benchmarks-read", ns->read_benchmarks_enabled);
@@ -2757,6 +2758,19 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
 				cf_info(AS_INFO, "Changing value of allow-xdr-writes of ns %s from %s to %s", ns->name, bool_val[ns->ns_allow_xdr_writes], context);
 				ns->ns_allow_xdr_writes = false;
+			}
+			else {
+				goto Error;
+			}
+		}
+		else if (0 == as_info_parameter_get(params, "disable-write-dup-res", context, &context_len)) {
+			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
+				cf_info(AS_INFO, "Changing value of disable-write-dup-res of ns %s from %s to %s", ns->name, bool_val[ns->write_dup_res_disabled], context);
+				ns->write_dup_res_disabled = true;
+			}
+			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
+				cf_info(AS_INFO, "Changing value of disable-write-dup-res of ns %s from %s to %s", ns->name, bool_val[ns->write_dup_res_disabled], context);
+				ns->write_dup_res_disabled = false;
 			}
 			else {
 				goto Error;
