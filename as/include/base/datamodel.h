@@ -681,6 +681,7 @@ struct as_namespace_s {
 	uint32_t		cold_start_evict_ttl;
 	conflict_resolution_pol conflict_resolution_policy;
 	PAD_BOOL		data_in_index; // with single-bin, allows warm restart for data-in-memory (with storage-engine device)
+	PAD_BOOL		write_dup_res_disabled;
 	PAD_BOOL		disallow_null_setname;
 	PAD_BOOL		batch_sub_benchmarks_enabled;
 	PAD_BOOL		read_benchmarks_enabled;

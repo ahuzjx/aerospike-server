@@ -131,7 +131,8 @@ as_delete_start(as_transaction* tr)
 	}
 	// else - rw_request is now in hash, continue...
 
-	if (as_transaction_is_nsup_delete(tr)) {
+	if (tr->rsv.ns->write_dup_res_disabled ||
+			as_transaction_is_nsup_delete(tr)) {
 		// Note - preventing duplicate resolution this way allows
 		// rw_request_destroy() to handle dup_msg[] cleanup correctly.
 		tr->rsv.n_dupl = 0;
