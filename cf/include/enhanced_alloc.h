@@ -29,6 +29,7 @@
 #include <malloc.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "citrusleaf/cf_atomic.h"
 
