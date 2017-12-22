@@ -48,6 +48,7 @@
 #include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_random.h"
 
+#include "cf_mutex.h"
 #include "fault.h"
 #include "hist.h"
 #include "vmapx.h"
@@ -265,14 +266,14 @@ swb_reset(ssd_write_buf *swb)
 static inline void
 swb_check_and_reserve(ssd_wblock_state *wblock_state, ssd_write_buf **p_swb)
 {
-	pthread_mutex_lock(&wblock_state->LOCK);
+	cf_mutex_lock(&wblock_state->LOCK);
 
 	if (wblock_state->swb) {
 		*p_swb = wblock_state->swb;
 		swb_reserve(*p_swb);
 	}
 
-	pthread_mutex_unlock(&wblock_state->LOCK);
+	cf_mutex_unlock(&wblock_state->LOCK);
 }
 
 static inline void
@@ -292,7 +293,7 @@ swb_dereference_and_release(drv_ssd *ssd, uint32_t wblock_id,
 {
 	ssd_wblock_state *wblock_state = &ssd->alloc_table->wblock_state[wblock_id];
 
-	pthread_mutex_lock(&wblock_state->LOCK);
+	cf_mutex_lock(&wblock_state->LOCK);
 
 	if (swb != wblock_state->swb) {
 		cf_warning(AS_DRV_SSD, "releasing wrong swb! %p (%d) != %p (%d), thread %lu",
@@ -320,7 +321,7 @@ swb_dereference_and_release(drv_ssd *ssd, uint32_t wblock_id,
 				ssd->name, wblock_id);
 	}
 
-	pthread_mutex_unlock(&wblock_state->LOCK);
+	cf_mutex_unlock(&wblock_state->LOCK);
 }
 
 ssd_write_buf *
@@ -363,12 +364,12 @@ swb_get(drv_ssd *ssd)
 				ssd->name, swb->wblock_id);
 	}
 
-	pthread_mutex_lock(&p_wblock_state->LOCK);
+	cf_mutex_lock(&p_wblock_state->LOCK);
 
 	swb_reserve(swb);
 	p_wblock_state->swb = swb;
 
-	pthread_mutex_unlock(&p_wblock_state->LOCK);
+	cf_mutex_unlock(&p_wblock_state->LOCK);
 
 	return swb;
 }
@@ -408,7 +409,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks, char *msg)
 
 	ssd_wblock_state *p_wblock_state = &at->wblock_state[wblock_id];
 
-	pthread_mutex_lock(&p_wblock_state->LOCK);
+	cf_mutex_lock(&p_wblock_state->LOCK);
 
 	int64_t resulting_inuse_sz = cf_atomic32_sub(&p_wblock_state->inuse_sz,
 			(int32_t)size);
@@ -435,7 +436,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks, char *msg)
 		}
 	}
 
-	pthread_mutex_unlock(&p_wblock_state->LOCK);
+	cf_mutex_unlock(&p_wblock_state->LOCK);
 }
 
 
@@ -648,11 +649,11 @@ ssd_is_full(drv_ssd *ssd, uint32_t wblock_id)
 
 	ssd_wblock_state* p_wblock_state = &ssd->alloc_table->wblock_state[wblock_id];
 
-	pthread_mutex_lock(&p_wblock_state->LOCK);
+	cf_mutex_lock(&p_wblock_state->LOCK);
 
 	if (cf_atomic32_get(p_wblock_state->inuse_sz) == 0) {
 		// Lucky - wblock is empty, let ssd_defrag_wblock() free it.
-		pthread_mutex_unlock(&p_wblock_state->LOCK);
+		cf_mutex_unlock(&p_wblock_state->LOCK);
 
 		return false;
 	}
@@ -664,7 +665,7 @@ ssd_is_full(drv_ssd *ssd, uint32_t wblock_id)
 	// definitely have a queue, and it's better to push back to head.
 	cf_queue_push_head(ssd->defrag_wblock_q, &wblock_id);
 
-	pthread_mutex_unlock(&p_wblock_state->LOCK);
+	cf_mutex_unlock(&p_wblock_state->LOCK);
 
 	// If we got here, we used all our runtime reserve wblocks, but the wblocks
 	// we defragged must still have non-zero inuse_sz. Must wait for those to
@@ -793,7 +794,7 @@ Finished:
 				ssd->name, wblock_id);
 	}
 
-	pthread_mutex_lock(&p_wblock_state->LOCK);
+	cf_mutex_lock(&p_wblock_state->LOCK);
 
 	p_wblock_state->state = WBLOCK_STATE_NONE;
 
@@ -803,7 +804,7 @@ Finished:
 		push_wblock_to_free_q(ssd, wblock_id, FREE_TO_HEAD);
 	}
 
-	pthread_mutex_unlock(&p_wblock_state->LOCK);
+	cf_mutex_unlock(&p_wblock_state->LOCK);
 
 	return record_count;
 }
@@ -1050,7 +1051,7 @@ ssd_wblock_init(drv_ssd *ssd)
 
 	// Device header wblocks' inuse_sz will (also) be 0 but that doesn't matter.
 	for (uint32_t i = 0; i < n_wblocks; i++) {
-		pthread_mutex_init(&at->wblock_state[i].LOCK, 0);
+		cf_mutex_init(&at->wblock_state[i].LOCK);
 		at->wblock_state[i].state = WBLOCK_STATE_NONE;
 		cf_atomic32_set(&at->wblock_state[i].inuse_sz, 0);
 		at->wblock_state[i].swb = 0;
@@ -2225,7 +2226,7 @@ ssd_defrag_sweep(drv_ssd *ssd)
 	for (uint32_t wblock_id = first_id; wblock_id < last_id; wblock_id++) {
 		ssd_wblock_state *p_wblock_state = &at->wblock_state[wblock_id];
 
-		pthread_mutex_lock(&p_wblock_state->LOCK);
+		cf_mutex_lock(&p_wblock_state->LOCK);
 
 		uint32_t inuse_sz = cf_atomic32_get(p_wblock_state->inuse_sz);
 
@@ -2237,7 +2238,7 @@ ssd_defrag_sweep(drv_ssd *ssd)
 			n_queued++;
 		}
 
-		pthread_mutex_unlock(&p_wblock_state->LOCK);
+		cf_mutex_unlock(&p_wblock_state->LOCK);
 	}
 
 	cf_info(AS_DRV_SSD, "... %s sweep queued %u wblocks for defrag", ssd->name,

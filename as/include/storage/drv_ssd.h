@@ -34,6 +34,7 @@
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_queue.h"
 
+#include "cf_mutex.h"
 #include "hist.h"
 
 #include "base/datamodel.h"
@@ -112,10 +113,10 @@ typedef struct {
 // Per-wblock information.
 //
 typedef struct ssd_wblock_state_s {
-	pthread_mutex_t		LOCK;		// transactions, write_worker, and defrag all are interested in wblock_state
-	uint32_t			state;		// for now just a defrag flag
 	cf_atomic32			inuse_sz;	// number of bytes currently used in the wblock
+	cf_mutex			LOCK;		// transactions, write_worker, and defrag all are interested in wblock_state
 	ssd_write_buf		*swb;		// pending writes for the wblock, also treated as a cache for reads
+	uint32_t			state;		// for now just a defrag flag
 } ssd_wblock_state;
 
 // wblock state
