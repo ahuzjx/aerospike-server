@@ -95,6 +95,15 @@ typedef struct {
 
 
 //------------------------------------------------
+// A defragged wblock waiting to be freed.
+//
+typedef struct vacated_wblock_s {
+	uint32_t file_id;
+	uint32_t wblock_id;
+} vacated_wblock;
+
+
+//------------------------------------------------
 // Write buffer - where records accumulate until
 // (the full buffer is) flushed to a device.
 //
@@ -102,6 +111,9 @@ typedef struct {
 	cf_atomic32			rc;
 	cf_atomic32			n_writers;	// number of concurrent writers
 	bool				skip_post_write_q;
+	uint32_t			n_vacated;
+	uint32_t			vacated_capacity;
+	vacated_wblock		*vacated_wblocks;
 	struct drv_ssd_s	*ssd;
 	uint32_t			wblock_id;
 	uint32_t			pos;
@@ -117,6 +129,7 @@ typedef struct ssd_wblock_state_s {
 	cf_mutex			LOCK;		// transactions, write_worker, and defrag all are interested in wblock_state
 	ssd_write_buf		*swb;		// pending writes for the wblock, also treated as a cache for reads
 	uint32_t			state;		// for now just a defrag flag
+	cf_atomic32			n_vac_dests; // number of wblocks into which this wblock defragged
 } ssd_wblock_state;
 
 // wblock state
