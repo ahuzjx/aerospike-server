@@ -362,6 +362,18 @@
 #define ADJACENCY_TEND_INTERVAL (PULSE_TRANSMIT_INTERVAL())
 
 /**
+ * Acquire a lock on the external event publisher.
+ */
+#define EXTERNAL_EVENT_PUBLISH_LOCK()						\
+	(pthread_mutex_lock(&g_external_event_publish_lock))
+
+/**
+ * Relinquish the lock on the external event publisher.
+ */
+#define EXTERNAL_EVENT_PUBLISH_UNLOCK()						\
+	(pthread_mutex_unlock(&g_external_event_publish_lock))
+
+/**
  * Acquire a lock on the heartbeat main module.
  */
 #define HB_LOCK() (pthread_mutex_lock(&g_hb_lock))
@@ -1451,6 +1463,14 @@ typedef void (*endpoint_list_process_fn)(const as_endpoint_list* endpoint_list, 
  * Global heartbeat instance.
  */
 static as_hb g_hb;
+
+/**
+ * The big fat lock for all external event publishing. This ensures that a batch
+ * of external events are published atomically to preserve the order of external
+ * events.
+ */
+static pthread_mutex_t g_external_event_publish_lock =
+	PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 /**
  * Global heartbeat events listener instance.
@@ -7804,6 +7824,7 @@ hb_event_queue(as_hb_internal_event_type event_type, const cf_node* nodes,
 static void
 hb_event_publish_pending()
 {
+	EXTERNAL_EVENT_PUBLISH_LOCK();
 	cf_clock now = cf_getms();
 	cf_clock last_published;
 	HB_LOCK();
@@ -7813,7 +7834,7 @@ hb_event_publish_pending()
 	int num_events = cf_queue_sz(&g_hb_event_listeners.external_events_queue);
 	if (last_published + HB_EVENT_PUBLISH_INTERVAL > now || num_events <= 0) {
 		// Events need not be published.
-		return;
+		goto Exit;
 	}
 
 	as_hb_event_node events[AS_HB_CLUSTER_MAX_SIZE_SOFT];
@@ -7834,6 +7855,9 @@ hb_event_publish_pending()
 					g_hb_event_listeners.event_listeners[i].udata);
 		}
 	}
+
+Exit:
+	EXTERNAL_EVENT_PUBLISH_UNLOCK();
 
 	HB_LOCK();
 	// update last published.
@@ -8331,7 +8355,6 @@ hb_adjacency_tender(void* arg)
 
 		shash_reduce_delete(g_hb.adjacency, hb_adjacency_tend_reduce,
 				&adjacency_tender_udata);
-		HB_UNLOCK();
 
 		if (adjacency_tender_udata.dead_node_count > 0) {
 			// Queue events for dead nodes.
@@ -8344,6 +8367,7 @@ hb_adjacency_tender(void* arg)
 			hb_event_queue(AS_HB_INTERNAL_NODE_EVICT, evicted_nodes,
 						   adjacency_tender_udata.evicted_node_count);
 		}
+		HB_UNLOCK();
 
 		// See if we have pending events to publish.
 		hb_event_publish_pending();
