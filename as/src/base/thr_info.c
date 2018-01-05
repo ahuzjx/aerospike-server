@@ -40,13 +40,13 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_queue.h"
-#include "citrusleaf/cf_shash.h"
 #include "citrusleaf/cf_vector.h"
 
 #include "cf_str.h"
 #include "dynbuf.h"
 #include "fault.h"
 #include "meminfo.h"
+#include "shash.h"
 #include "socket.h"
 
 #include "ai_obj.h"
@@ -56,7 +56,6 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
-#include "base/ldt.h"
 #include "base/monitor.h"
 #include "base/scan.h"
 #include "base/thr_batch.h"
@@ -100,7 +99,6 @@
 extern int as_nsup_queue_get_size();
 
 int info_get_objects(char *name, cf_dyn_buf *db);
-void clear_ldt_histograms();
 int info_get_tree_sets(char *name, char *subtree, cf_dyn_buf *db);
 int info_get_tree_bins(char *name, char *subtree, cf_dyn_buf *db);
 int info_get_tree_sindexes(char *name, char *subtree, cf_dyn_buf *db);
@@ -193,7 +191,7 @@ typedef struct info_tree_s {
 	if (db) { \
 		cf_dyn_buf_append_string(db, "FAIL:");			\
 		cf_dyn_buf_append_int(db, num); 				\
-		cf_dyn_buf_append_string(db, ":");				\
+		cf_dyn_buf_append_string(db, ": ");				\
 		cf_dyn_buf_append_string(db, message);          \
 	}
 
@@ -202,19 +200,16 @@ void
 info_get_aggregated_namespace_stats(cf_dyn_buf *db)
 {
 	uint64_t total_objects = 0;
-	uint64_t total_sub_objects = 0;
 	uint64_t total_tombstones = 0;
 
 	for (uint32_t i = 0; i < g_config.n_namespaces; i++) {
 		as_namespace *ns = g_config.namespaces[i];
 
 		total_objects += ns->n_objects;
-		total_sub_objects += ns->n_sub_objects;
 		total_tombstones += ns->n_tombstones;
 	}
 
 	info_append_uint64(db, "objects", total_objects);
-	info_append_uint64(db, "sub_objects", total_sub_objects);
 	info_append_uint64(db, "tombstones", total_tombstones);
 }
 
@@ -281,8 +276,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	info_append_uint64(db, "info_complete", g_stats.info_complete); // not in ticker
 
-	info_append_uint64(db, "proxy_retry", g_stats.proxy_retry); // not in ticker
-
 	info_append_uint64(db, "demarshal_error", g_stats.n_demarshal_error);
 	info_append_uint64(db, "early_tsvc_client_error", g_stats.n_tsvc_client_error);
 	info_append_uint64(db, "early_tsvc_batch_sub_error", g_stats.n_tsvc_batch_sub_error);
@@ -317,8 +310,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	info_append_uint64(db, "sindex_ucgarbage_found", g_stats.query_false_positives);
 	info_append_uint64(db, "sindex_gc_locktimedout", g_stats.sindex_gc_timedout);
-	info_append_uint64(db, "sindex_gc_inactivity_dur", g_stats.sindex_gc_inactivity_dur);
-	info_append_uint64(db, "sindex_gc_activity_dur", g_stats.sindex_gc_activity_dur);
 	info_append_uint64(db, "sindex_gc_list_creation_time", g_stats.sindex_gc_list_creation_time);
 	info_append_uint64(db, "sindex_gc_list_deletion_time", g_stats.sindex_gc_list_deletion_time);
 	info_append_uint64(db, "sindex_gc_objects_validated", g_stats.sindex_gc_objects_validated);
@@ -391,8 +382,8 @@ bind_to_port(cf_serv_cfg *cfg, cf_sock_owner owner)
 	return 0;
 }
 
-static char *
-bind_to_string(cf_serv_cfg *cfg, cf_sock_owner owner)
+char *
+as_info_bind_to_string(const cf_serv_cfg *cfg, cf_sock_owner owner)
 {
 	cf_dyn_buf_define_size(db, 2500);
 	uint32_t count = 0;
@@ -439,7 +430,7 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 	cf_ip_port port = bind_to_port(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	info_append_int(db, "service.port", port);
 
-	char *string = bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE);
+	char *string = as_info_bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	info_append_string(db, "service.addresses", string);
 	cf_free(string);
 
@@ -458,7 +449,7 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 	port = bind_to_port(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
 	info_append_int(db, "service.tls-port", port);
 
-	string = bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
+	string = as_info_bind_to_string(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);
 	info_append_string(db, "service.tls-addresses", string);
 	cf_free(string);
 
@@ -476,15 +467,25 @@ info_get_endpoints(char *name, cf_dyn_buf *db)
 
 	as_hb_info_endpoints_get(db);
 
-	info_append_int(db, "fabric.port", g_fabric_port);
+	port = bind_to_port(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
+	info_append_int(db, "fabric.port", port);
 
-	string = bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
+	string = as_info_bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC);
 	info_append_string(db, "fabric.addresses", string);
 	cf_free(string);
 
+	port = bind_to_port(&g_fabric_bind, CF_SOCK_OWNER_FABRIC_TLS);
+	info_append_int(db, "fabric.tls-port", port);
+
+	string = as_info_bind_to_string(&g_fabric_bind, CF_SOCK_OWNER_FABRIC_TLS);
+	info_append_string(db, "fabric.tls-addresses", string);
+	cf_free(string);
+
+	as_fabric_info_peer_endpoints_get(db);
+
 	info_append_int(db, "info.port", g_info_port);
 
-	string = bind_to_string(&g_info_bind, CF_SOCK_OWNER_INFO);
+	string = as_info_bind_to_string(&g_info_bind, CF_SOCK_OWNER_INFO);
 	info_append_string(db, "info.addresses", string);
 	cf_free(string);
 
@@ -557,47 +558,56 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 
 	char port_str[50];
 	int  port_str_len = sizeof(port_str);
+	int rv = -1;
+
+	char tls_str[50];
+	int  tls_str_len = sizeof(tls_str);
 
 	/*
-	 *  Command Format:  "tip:host=<IPAddr>;port=<PortNum>"
+	 *  Command Format:  "tip:host=<IPAddr>;port=<PortNum>[;tls=<Bool>]"
 	 *
 	 *  where <IPAddr> is an IP address and <PortNum> is a valid TCP port number.
 	 */
 
 	if (0 != as_info_parameter_get(params, "host", host_str, &host_str_len)) {
 		cf_warning(AS_INFO, "tip command: no host, must add a host parameter");
-		return(0);
+		goto Exit;
 	}
 
 	if (0 != as_info_parameter_get(params, "port", port_str, &port_str_len)) {
 		cf_warning(AS_INFO, "tip command: no port, must have port");
-		return(0);
+		goto Exit;
+	}
+
+	if (0 != as_info_parameter_get(params, "tls", tls_str, &tls_str_len)) {
+		strcpy(tls_str, "false");
 	}
 
 	int port = 0;
 	if (0 != cf_str_atoi(port_str, &port)) {
 		cf_warning(AS_INFO, "tip command: port must be an integer in: %s", port_str);
-		return(0);
+		goto Exit;
 	}
 
-	int rv = as_hb_mesh_tip(host_str, port);
+	bool tls;
+	if (strcmp(tls_str, "true") == 0) {
+		tls = true;
+	}
+	else if (strcmp(tls_str, "false") == 0) {
+		tls = false;
+	}
+	else {
+		cf_warning(AS_INFO, "The \"%s:\" command argument \"tls\" value must be one of {\"true\", \"false\"}, not \"%s\"", name, tls_str);
+		goto Exit;
+	}
 
-	switch (rv) {
-		case SHASH_OK:
-			cf_info(AS_INFO, "tip command executed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "ok");
-			break;
-		case SHASH_ERR_FOUND:
-			cf_warning(AS_INFO, "tip command failed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "error: already exists");
-			break;
-		case SHASH_ERR:
-			cf_warning(AS_INFO, "tip command failed: params %s",
-				params);
-			cf_dyn_buf_append_string(db, "error");
-			break;
+	rv = as_hb_mesh_tip(host_str, port, tls);
+
+Exit:
+	if (0 == rv) {
+		cf_dyn_buf_append_string(db, "ok");
+	} else {
+		cf_dyn_buf_append_string(db, "error");
 	}
 
 	return(0);
@@ -621,8 +631,8 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 	char host_port_list[3000];
 	int host_port_list_len = sizeof(host_port_list);
 	host_port_list[0] = '\0';
-	bool clear_all = false, success = true;
-	int cleared = 0;
+	bool success = true;
+	uint32_t cleared = 0, not_found = 0;
 
 	if (as_info_parameter_get(params, "host-port-list", host_port_list,
 				  &host_port_list_len) == 0) {
@@ -633,8 +643,8 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 			  strtok_r(host_port_list, ",", &save_ptr);
 
 			while (host_port != NULL) {
-   				char* host_port_delim = ":";
-   				if(*host_port == '[') {
+				char* host_port_delim = ":";
+				if (*host_port == '[') {
 					// Parse IPv6 address differently.
 					host_port++;
 					host_port_delim = "]";
@@ -645,37 +655,37 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 				  strtok_r(host_port, host_port_delim, &host_port_save_ptr);
 
 				if (host == NULL) {
-					cf_warning(AS_INFO,
-						   "tip clear command: invalid host:port string: %s",
-						   host_port);
-					return (0);
+					cf_warning(AS_INFO, "tip clear command: invalid host:port string: %s", host_port);
+					success = false;
+					break;
 				}
 
 				char* port_str =
 				  strtok_r(NULL, host_port_delim, &host_port_save_ptr);
 
-				if(port_str != NULL && *port_str == ':') {
-			   		// IPv6 case
-				   	port_str++;
+				if (port_str != NULL && *port_str == ':') {
+					// IPv6 case
+					port_str++;
 				}
 				if (port_str == NULL ||
 					0 != cf_str_atoi(port_str, &port)) {
-					cf_warning(AS_INFO,
-						   "tip clear command: port must be an integer in: %s",
-						   port_str);
-					return (0);
+					cf_warning(AS_INFO, "tip clear command: port must be an integer in: %s", port_str);
+					success = false;
+					break;
 				}
 
 				if (as_hb_mesh_tip_clear(host, port) == -1) {
 					success = false;
-					break;
+					not_found++;
+					cf_warning(AS_INFO, "seed node %s:%d does not exist", host, port);
+				} else {
+					cleared++;
 				}
-				cleared++;
+
 				host_port = strtok_r(NULL, ",", &save_ptr);
 			}
 		} else {
-			clear_all = true;
-			if (as_hb_mesh_tip_clear_all()) {
+			if (as_hb_mesh_tip_clear_all(&cleared)) {
 				success = false;
 			}
 		}
@@ -684,17 +694,13 @@ info_command_tip_clear(char* name, char* params, cf_dyn_buf* db)
 	}
 
 	if (success) {
-		char cleared_s[8];
-		cf_str_itoa(cleared, cleared_s, 10);
-		cf_info(AS_INFO,
-			"tip clear command executed: cleared %s, params %s",
-			(clear_all ? "all" : cleared_s), params);
+		cf_info(AS_INFO, "tip clear command executed: cleared %"PRIu32", params %s", cleared, params);
 		cf_dyn_buf_append_string(db, "ok");
 	} else {
-		cf_info(
-		  AS_INFO, "tip clear %s command failed: cleared %d, params %s",
-		  (clear_all ? "all" : ""), (clear_all ? 0 : cleared), params);
-		cf_dyn_buf_append_string(db, "error");
+		cf_info(AS_INFO, "tip clear command failed: cleared %"PRIu32", params %s", cleared, params);
+		char error_msg[1024];
+		sprintf(error_msg, "error: %"PRIu32" cleared, %"PRIu32" not found", cleared, not_found);
+		cf_dyn_buf_append_string(db, error_msg);
 	}
 
 	return (0);
@@ -1043,7 +1049,8 @@ compare_rack_nodes(const void* pa, const void* pb)
 void
 namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 {
-	// Not thread safe - can be wrong, but not a disaster.
+	as_exchange_info_lock();
+
 	uint32_t n_nodes = ns->cluster_size;
 
 	if (n_nodes == 0) {
@@ -1056,7 +1063,8 @@ namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 		rack_nodes[i].rack_id = ns->rack_ids[i];
 		rack_nodes[i].node = ns->succession[i];
 	}
-	// End - not thread safe.
+
+	as_exchange_info_unlock();
 
 	qsort(rack_nodes, n_nodes, sizeof(rack_node), compare_rack_nodes);
 
@@ -1485,7 +1493,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "hist-track-slice", g_config.hist_track_slice);
 	info_append_string_safe(db, "hist-track-thresholds", g_config.hist_track_thresholds);
 	info_append_int(db, "info-threads", g_config.n_info_threads);
-	info_append_bool(db, "ldt-benchmarks", g_config.ldt_benchmarks);
 	info_append_bool(db, "log-local-time", cf_fault_is_using_local_time());
 	info_append_uint32(db, "migrate-max-num-incoming", g_config.migrate_max_num_incoming);
 	info_append_uint32(db, "migrate-threads", g_config.n_migrate_threads);
@@ -1513,7 +1520,6 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "query-threshold", g_config.query_threshold);
 	info_append_uint64(db, "query-untracked-time-ms", g_config.query_untracked_time_ms);
 	info_append_uint32(db, "query-worker-threads", g_config.query_worker_threads);
-	info_append_bool(db, "respond-client-on-master-completion", g_config.respond_client_on_master_completion);
 	info_append_bool(db, "run-as-daemon", g_config.run_as_daemon);
 	info_append_uint32(db, "scan-max-active", g_config.scan_max_active);
 	info_append_uint32(db, "scan-max-done", g_config.scan_max_done);
@@ -1521,22 +1527,18 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "scan-threads", g_config.scan_threads);
 	info_append_uint32(db, "service-threads", g_config.n_service_threads);
 	info_append_uint32(db, "sindex-builder-threads", g_config.sindex_builder_threads);
-	info_append_bool(db, "sindex-gc-enable-histogram", g_config.sindex_gc_enable_histogram); // dynamic only
 	info_append_uint32(db, "sindex-gc-max-rate", g_config.sindex_gc_max_rate);
 	info_append_uint32(db, "sindex-gc-period", g_config.sindex_gc_period);
 	info_append_uint32(db, "ticker-interval", g_config.ticker_interval);
 	info_append_int(db, "transaction-max-ms", (int)(g_config.transaction_max_ns / 1000000));
 	info_append_uint32(db, "transaction-pending-limit", g_config.transaction_pending_limit);
 	info_append_uint32(db, "transaction-queues", g_config.n_transaction_queues);
-	info_append_bool(db, "transaction-repeatable-read", g_config.transaction_repeatable_read);
 	info_append_uint32(db, "transaction-retry-ms", g_config.transaction_retry_ms);
 	info_append_uint32(db, "transaction-threads-per-queue", g_config.n_transaction_threads_per_queue);
 	info_append_string_safe(db, "work-directory", g_config.work_directory);
-	info_append_bool(db, "write-duplicate-resolution-disable", g_config.write_duplicate_resolution_disable);
 
 	info_append_string(db, "debug-allocations", debug_allocations_string());
 	info_append_bool(db, "fabric-dump-msgs", g_config.fabric_dump_msgs);
-	info_append_int(db, "max-msgs-per-type", (int)g_config.max_msgs_per_type);
 	info_append_uint32(db, "prole-extra-ttl", g_config.prole_extra_ttl);
 }
 
@@ -1566,7 +1568,12 @@ info_network_config_get(cf_dyn_buf *db)
 	append_addrs(db, "service.tls-access-address", &g_config.tls_service.std);
 	info_append_int(db, "service.tls-alternate-access-port", g_config.tls_service.alt_port);
 	append_addrs(db, "service.tls-alternate-access-address", &g_config.tls_service.alt);
-	info_append_string_safe(db, "service.tls-name", g_config.tls_name);
+	info_append_string_safe(db, "service.tls-name", g_config.tls_service.tls_our_name);
+
+	for (uint32_t i = 0; i < g_config.tls_service.n_tls_peer_names; ++i) {
+		info_append_string(db, "service.tls-authenticate-client",
+				g_config.tls_service.tls_peer_names[i]);
+	}
 
 	// Heartbeat:
 
@@ -1574,8 +1581,11 @@ info_network_config_get(cf_dyn_buf *db)
 
 	// Fabric:
 
-	append_addrs(db, "fabric.address", &g_config.info.bind);
+	append_addrs(db, "fabric.address", &g_config.fabric.bind);
 	info_append_int(db, "fabric.port", g_config.fabric.bind_port);
+	append_addrs(db, "fabric.tls-address", &g_config.tls_fabric.bind);
+	info_append_int(db, "fabric.tls-port", g_config.tls_fabric.bind_port);
+	info_append_string_safe(db, "fabric.tls-name", g_config.tls_fabric.tls_our_name);
 	info_append_int(db, "fabric.channel-bulk-fds", g_config.n_fabric_channel_fds[AS_FABRIC_CHANNEL_BULK]);
 	info_append_int(db, "fabric.channel-bulk-recv-threads", g_config.n_fabric_channel_recv_threads[AS_FABRIC_CHANNEL_BULK]);
 	info_append_int(db, "fabric.channel-ctrl-fds", g_config.n_fabric_channel_fds[AS_FABRIC_CHANNEL_CTRL]);
@@ -1596,6 +1606,37 @@ info_network_config_get(cf_dyn_buf *db)
 
 	append_addrs(db, "info.address", &g_config.info.bind);
 	info_append_int(db, "info.port", g_config.info.bind_port);
+
+	// TLS:
+
+	for (uint32_t i = 0; i < g_config.n_tls_specs; ++i) {
+		cf_tls_spec *spec = g_config.tls_specs + i;
+		char key[100];
+
+		snprintf(key, sizeof(key), "tls[%u].name", i);
+		info_append_string_safe(db, key, spec->name);
+
+		snprintf(key, sizeof(key), "tls[%u].cert_file", i);
+		info_append_string_safe(db, key, spec->cert_file);
+
+		snprintf(key, sizeof(key), "tls[%u].key_file", i);
+		info_append_string_safe(db, key, spec->key_file);
+
+		snprintf(key, sizeof(key), "tls[%u].ca_file", i);
+		info_append_string_safe(db, key, spec->ca_file);
+
+		snprintf(key, sizeof(key), "tls[%u].ca_path", i);
+		info_append_string_safe(db, key, spec->ca_path);
+
+		snprintf(key, sizeof(key), "tls[%u].cert_blacklist", i);
+		info_append_string_safe(db, key, spec->cert_blacklist);
+
+		snprintf(key, sizeof(key), "tls[%u].protocols", i);
+		info_append_string_safe(db, key, spec->protocols);
+
+		snprintf(key, sizeof(key), "tls[%u].cipher_suite", i);
+		info_append_string_safe(db, key, spec->cipher_suite);
+	}
 }
 
 
@@ -1609,7 +1650,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		return;
 	}
 
-	info_append_uint32(db, "repl-factor", ns->replication_factor);
+	info_append_uint32(db, "replication-factor", ns->cfg_replication_factor);
 	info_append_uint64(db, "memory-size", ns->memory_size);
 	info_append_uint64(db, "default-ttl", ns->default_ttl);
 
@@ -1638,6 +1679,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	}
 
 	info_append_bool(db, "data-in-index", ns->data_in_index);
+	info_append_bool(db, "disable-write-dup-res", ns->write_dup_res_disabled);
 	info_append_bool(db, "disallow-null-setname", ns->disallow_null_setname);
 	info_append_bool(db, "enable-benchmarks-batch-sub", ns->batch_sub_benchmarks_enabled);
 	info_append_bool(db, "enable-benchmarks-read", ns->read_benchmarks_enabled);
@@ -1649,9 +1691,6 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	info_append_uint32(db, "evict-tenths-pct", ns->evict_tenths_pct);
 	info_append_uint32(db, "high-water-disk-pct", ns->hwm_disk_pct);
 	info_append_uint32(db, "high-water-memory-pct", ns->hwm_memory_pct);
-	info_append_bool(db, "ldt-enabled", ns->ldt_enabled);
-	info_append_uint32(db, "ldt-gc-rate", ns->ldt_gc_sleep_us / 1000000);
-	info_append_uint32(db, "ldt-page-size", ns->ldt_page_size);
 	info_append_uint64(db, "max-ttl", ns->max_ttl);
 	info_append_uint32(db, "migrate-order", ns->migrate_order);
 	info_append_uint32(db, "migrate-retransmit-ms", ns->migrate_retransmit_ms);
@@ -1702,6 +1741,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		info_append_bool(db, "storage-engine.disable-odirect", ns->storage_disable_odirect);
 		info_append_bool(db, "storage-engine.enable-benchmarks-storage", ns->storage_benchmarks_enabled);
 		info_append_bool(db, "storage-engine.enable-osync", ns->storage_enable_osync);
+		info_append_string_safe(db, "storage-engine.encryption-key-file", ns->storage_encryption_key_file);
 		info_append_uint64(db, "storage-engine.flush-max-ms", ns->storage_flush_max_us / 1000);
 		info_append_uint64(db, "storage-engine.fsync-max-sec", ns->storage_fsync_max_us / 1000000);
 		info_append_uint64(db, "storage-engine.max-write-cache", ns->storage_max_write_cache);
@@ -1861,36 +1901,11 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of transaction-pending-limit from %d to %d ", g_config.transaction_pending_limit, val);
 			g_config.transaction_pending_limit = val;
 		}
-		else if (0 == as_info_parameter_get(params, "transaction-repeatable-read", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of transaction-repeatable-read from %s to %s", bool_val[g_config.transaction_repeatable_read], context);
-				g_config.transaction_repeatable_read = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of transaction-repeatable-read from %s to %s", bool_val[g_config.transaction_repeatable_read], context);
-				g_config.transaction_repeatable_read = false;
-			}
-			else
-				goto Error;
-		}
 		else if (0 == as_info_parameter_get(params, "ticker-interval", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
 				goto Error;
 			cf_info(AS_INFO, "Changing value of ticker-interval from %d to %d ", g_config.ticker_interval, val);
 			g_config.ticker_interval = val;
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-benchmarks", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				clear_ldt_histograms();
-				cf_info(AS_INFO, "Changing value of ldt-benchmarks from %s to %s", bool_val[g_config.ldt_benchmarks], context);
-				g_config.ldt_benchmarks = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-benchmarks from %s to %s", bool_val[g_config.ldt_benchmarks], context);
-				g_config.ldt_benchmarks = false;
-			}
-			else
-				goto Error;
 		}
 		else if (0 == as_info_parameter_get(params, "scan-max-active", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -2026,42 +2041,12 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			if (0 != cf_str_atoi(context, &val) || (0 > val) || (as_clustering_cluster_size_min_set(val) < 0))
 				goto Error;
 		}
-		else if (0 == as_info_parameter_get(params, "write-duplicate-resolution-disable", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of write-duplicate-resolution-disable from %s to %s", bool_val[g_config.write_duplicate_resolution_disable], context);
-				g_config.write_duplicate_resolution_disable = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of write-duplicate-resolution-disable from %s to %s", bool_val[g_config.write_duplicate_resolution_disable], context);
-				g_config.write_duplicate_resolution_disable = false;
-			}
-			else
-				goto Error;
-		}
-		else if (0 == as_info_parameter_get(params, "respond-client-on-master-completion", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of respond-client-on-master-completion from %s to %s", bool_val[g_config.respond_client_on_master_completion], context);
-				g_config.respond_client_on_master_completion = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of respond-client-on-master-completion from %s to %s", bool_val[g_config.respond_client_on_master_completion], context);
-				g_config.respond_client_on_master_completion = false;
-			}
-			else
-				goto Error;
-		}
 		else if (0 == as_info_parameter_get(params, "prole-extra-ttl", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of prole-extra-ttl from %d to %d ", g_config.prole_extra_ttl, val);
 			g_config.prole_extra_ttl = val;
-		}
-		else if (0 == as_info_parameter_get(params, "max-msgs-per-type", context, &context_len)) {
-			if ((0 != cf_str_atoi(context, &val)) || (val == 0))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of max-msgs-per-type from %"PRId64" to %d ", g_config.max_msgs_per_type, val);
-			msg_set_max_msgs_per_type(g_config.max_msgs_per_type = (val >= 0 ? val : -1));
 		}
 		else if (0 == as_info_parameter_get(params, "query-buf-size", context, &context_len)) {
 			uint64_t val = atoll(context);
@@ -2296,16 +2281,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 				cf_info(AS_INFO, "Changing value of enable-hist-info to %s", context);
 				g_config.info_hist_enabled = false;
 				histogram_clear(g_stats.info_hist);
-			}
-		}
-		else if (0 == as_info_parameter_get(params, "sindex-gc-enable-histogram", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of sindex-gc-enable-histogram to %s", context);
-				g_config.sindex_gc_enable_histogram = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of sindex-gc-enable-histogram from to %s", context);
-				g_config.sindex_gc_enable_histogram = false;
 			}
 		}
 		else if (0 == as_info_parameter_get(params, "query-microbenchmark", context, &context_len)) {
@@ -2680,42 +2655,6 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			}
 		}
-		else if (0 == as_info_parameter_get(params, "ldt-enabled", context, &context_len)) {
-			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-enabled of ns %s from %s to %s", ns->name, bool_val[ns->ldt_enabled], context);
-				ns->ldt_enabled = true;
-			}
-			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
-				cf_info(AS_INFO, "Changing value of ldt-enabled of ns %s from %s to %s", ns->name, bool_val[ns->ldt_enabled], context);
-				ns->ldt_enabled = false;
-			}
-			else {
-				goto Error;
-			}
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-page-size", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-	  		if (val > ns->storage_write_block_size) {
-				// 1Kb head room
-				val = ns->storage_write_block_size - 1024;
-			}
-			cf_info(AS_INFO, "Changing value of ldt-page-size of ns %s from %d to %d ", ns->name, ns->ldt_page_size, val);
-			ns->ldt_page_size = val;
-		}
-		else if (0 == as_info_parameter_get(params, "ldt-gc-rate", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			uint64_t rate = (uint64_t)val;
-
-			if ((rate == 0) || (rate > LDT_SUB_GC_MAX_RATE)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of ldt-gc-rate of ns %s from %u to %d", ns->name, (1000 * 1000)/ns->ldt_gc_sleep_us , val);
-			ns->ldt_gc_sleep_us = 1000 * 1000 / rate;
-		}
 		else if (0 == as_info_parameter_get(params, "defrag-lwm-pct", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
@@ -2819,6 +2758,19 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
 				cf_info(AS_INFO, "Changing value of allow-xdr-writes of ns %s from %s to %s", ns->name, bool_val[ns->ns_allow_xdr_writes], context);
 				ns->ns_allow_xdr_writes = false;
+			}
+			else {
+				goto Error;
+			}
+		}
+		else if (0 == as_info_parameter_get(params, "disable-write-dup-res", context, &context_len)) {
+			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
+				cf_info(AS_INFO, "Changing value of disable-write-dup-res of ns %s from %s to %s", ns->name, bool_val[ns->write_dup_res_disabled], context);
+				ns->write_dup_res_disabled = true;
+			}
+			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) {
+				cf_info(AS_INFO, "Changing value of disable-write-dup-res of ns %s from %s to %s", ns->name, bool_val[ns->write_dup_res_disabled], context);
+				ns->write_dup_res_disabled = false;
 			}
 			else {
 				goto Error;
@@ -2995,16 +2947,13 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "read-consistency-level-override", context, &context_len)) {
 			char *original_value = NS_READ_CONSISTENCY_LEVEL_NAME();
 			if (strcmp(context, "all") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ALL;
-				ns->read_consistency_level_override = true;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ALL;
 			}
 			else if (strcmp(context, "off") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE; // restore default
-				ns->read_consistency_level_override = false;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_PROTO;
 			}
 			else if (strcmp(context, "one") == 0) {
-				ns->read_consistency_level = AS_POLICY_CONSISTENCY_LEVEL_ONE;
-				ns->read_consistency_level_override = true;
+				ns->read_consistency_level = AS_READ_CONSISTENCY_LEVEL_ONE;
 			}
 			else {
 				goto Error;
@@ -3016,16 +2965,13 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "write-commit-level-override", context, &context_len)) {
 			char *original_value = NS_WRITE_COMMIT_LEVEL_NAME();
 			if (strcmp(context, "all") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL;
-				ns->write_commit_level_override = true;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_ALL;
 			}
 			else if (strcmp(context, "master") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_MASTER;
-				ns->write_commit_level_override = true;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_MASTER;
 			}
 			else if (strcmp(context, "off") == 0) {
-				ns->write_commit_level = AS_POLICY_COMMIT_LEVEL_ALL; // restore default
-				ns->write_commit_level_override = false;
+				ns->write_commit_level = AS_WRITE_COMMIT_LEVEL_PROTO;
 			}
 			else {
 				goto Error;
@@ -3841,13 +3787,7 @@ thr_info_fn(void *unused)
 void
 as_info(as_info_transaction *it)
 {
-	if (0 != cf_queue_push(g_info_work_q, it)) {
-		cf_warning(AS_INFO, "failed info queue push");
-
-		// TODO - bother "handling" this?
-		as_end_of_transaction_force_close(it->fd_h);
-		cf_free(it->proto);
-	}
+	cf_queue_push(g_info_work_q, it);
 }
 
 // Return the number of pending Info requests in the queue.
@@ -3881,19 +3821,14 @@ as_info_set_dynamic(char *name, as_info_get_value_fn gv_fn, bool def)
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_dynamic));
-		if (!e) goto Cleanup;
 		e->def = def;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->value_fn = gv_fn;
 		e->next = dynamic_head;
 		dynamic_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -3922,18 +3857,13 @@ as_info_set_tree(char *name, as_info_get_tree_fn gv_fn)
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_tree));
-		if (!e) goto Cleanup;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->tree_fn = gv_fn;
 		e->next = tree_head;
 		tree_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -3962,19 +3892,14 @@ as_info_set_command(char *name, as_info_command_fn command_fn, as_sec_perm requi
 
 	if (!e) {
 		e = cf_malloc(sizeof(info_command));
-		if (!e) goto Cleanup;
 		e->name = cf_strdup(name);
-		if (!e->name) {
-			cf_free(e);
-			goto Cleanup;
-		}
 		e->command_fn = command_fn;
 		e->required_perm = required_perm;
 		e->next = command_head;
 		command_head = e;
 	}
 	rv = 0;
-Cleanup:
+
 	pthread_mutex_unlock(&g_info_lock);
 	return(rv);
 }
@@ -4175,8 +4100,8 @@ typedef struct port_savings_context_s {
 // of g_info_node_info_history_hash. In order to ensure this, every modification
 // of g_info_node_info_hash should first involve grabbing the lock for the same
 // key in g_info_node_info_history_hash.
-shash *g_info_node_info_history_hash = 0;
-shash *g_info_node_info_hash = 0;
+cf_shash *g_info_node_info_history_hash = NULL;
+cf_shash *g_info_node_info_hash = NULL;
 
 int info_node_info_reduce_fn(const void *key, void *data, void *udata);
 
@@ -4343,22 +4268,12 @@ set_static_services(void)
 void
 info_node_info_tend()
 {
-	shash_reduce(g_info_node_info_hash, info_node_info_reduce_fn, 0);
+	cf_shash_reduce(g_info_node_info_hash, info_node_info_reduce_fn, 0);
 }
 
 void *
 info_interfaces_fn(void *unused)
 {
-	pthread_mutex_lock(&g_serv_lock);
-	set_static_services();
-
-	if (g_config.tls_name != NULL) {
-		g_serv_tls_name = g_config.tls_name;
-	}
-
-	++g_serv_gen;
-	pthread_mutex_unlock(&g_serv_lock);
-
 	cf_ip_addr legacy[CF_SOCK_CFG_MAX];
 	uint32_t n_legacy = 0;
 
@@ -4420,7 +4335,7 @@ info_interfaces_fn(void *unused)
 						',');
 			}
 
-			if (chg_name && g_config.tls_name == NULL) {
+			if (chg_name && g_config.tls_service.tls_our_name == NULL) {
 				g_serv_tls_name = tls_name;
 			}
 
@@ -4549,7 +4464,7 @@ info_clustering_event_reduce_fn(const void *key, void *data, void *udata)
 
 	for (uint32_t i = 0; i < context->cluster_size; ++i) {
 		if (*node == context->succession[i]) {
-			return SHASH_OK;
+			return CF_SHASH_OK;
 		}
 	}
 
@@ -4560,7 +4475,7 @@ info_clustering_event_reduce_fn(const void *key, void *data, void *udata)
 	++context->n_deleted;
 
 	free_node_info_services(info);
-	return SHASH_REDUCE_DELETE;
+	return CF_SHASH_REDUCE_DELETE;
 }
 
 //
@@ -4589,14 +4504,14 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info_history;
 		pthread_mutex_t *vlock_history;
 
-		if (shash_get_vlock(g_info_node_info_history_hash, &member_nodeid, (void **)&info_history,
-				&vlock_history) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_history_hash, &member_nodeid, (void **)&info_history,
+				&vlock_history) != CF_SHASH_OK) {
 			// This may fail, but this is OK. This should only fail when info_msg_fn is also trying
 			// to add this key, so either way the entry will be in the hash table.
-			shash_put_unique(g_info_node_info_history_hash, &member_nodeid, &temp);
+			cf_shash_put_unique(g_info_node_info_history_hash, &member_nodeid, &temp);
 
-			if (shash_get_vlock(g_info_node_info_history_hash, &member_nodeid,
-					(void **)&info_history, &vlock_history) != SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_history_hash, &member_nodeid,
+					(void **)&info_history, &vlock_history) != CF_SHASH_OK) {
 				cf_crash(AS_INFO,
 						"Could not create info history hash entry for %" PRIx64, member_nodeid);
 				continue;
@@ -4606,12 +4521,12 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info;
 		pthread_mutex_t *vlock;
 
-		if (shash_get_vlock(g_info_node_info_hash, &member_nodeid, (void **)&info,
-				&vlock) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_hash, &member_nodeid, (void **)&info,
+				&vlock) != CF_SHASH_OK) {
 			clone_node_info_services(info_history, &temp);
 			temp.last_changed = cf_atomic64_incr(&g_peers_gen);
 
-			if (shash_put_unique(g_info_node_info_hash, &member_nodeid, &temp) == SHASH_OK) {
+			if (cf_shash_put_unique(g_info_node_info_hash, &member_nodeid, &temp) == CF_SHASH_OK) {
 				reset_node_info_services(&temp);
 				info_history->last_changed = 0; // See info_clustering_event_reduce_fn().
 				cf_debug(AS_INFO, "Peers generation %" PRId64 ": added node %" PRIx64,
@@ -4632,11 +4547,11 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		pthread_mutex_unlock(vlock_history);
 	}
 
-	uint32_t before = shash_get_size(g_info_node_info_hash);
+	uint32_t before = cf_shash_get_size(g_info_node_info_hash);
 	cf_debug(AS_INFO, "Clustering succession list has %d element(s), info hash has %u", i, before);
 
 	reduce_context cont = { .cluster_size = event->cluster_size, .succession = event->succession, .n_deleted = 0 };
-	shash_reduce_delete(g_info_node_info_hash, info_clustering_event_reduce_fn, &cont);
+	cf_shash_reduce(g_info_node_info_hash, info_clustering_event_reduce_fn, &cont);
 
 	// While an alumni is gone, its last_changed field is non-zero. When it comes back, the
 	// field goes back to zero.
@@ -4646,8 +4561,8 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		info_node_info *info_history;
 		pthread_mutex_t *vlock_history;
 
-		if (shash_get_vlock(g_info_node_info_history_hash, &cont.deleted[i],
-				(void **)&info_history, &vlock_history) != SHASH_OK) {
+		if (cf_shash_get_vlock(g_info_node_info_history_hash, &cont.deleted[i],
+				(void **)&info_history, &vlock_history) != CF_SHASH_OK) {
 			cf_crash(AS_INFO, "Removing a node (%" PRIx64 ") that is not an alumni",
 					cont.deleted[i]);
 		}
@@ -4658,7 +4573,7 @@ info_clustering_event_listener(const as_exchange_cluster_changed_event* event, v
 		pthread_mutex_unlock(vlock_history);
 	}
 
-	uint32_t after = shash_get_size(g_info_node_info_hash);
+	uint32_t after = cf_shash_get_size(g_info_node_info_hash);
 	cf_debug(AS_INFO, "After removal, info hash has %u element(s)", after);
 
 	cf_atomic32_incr(&g_node_info_generation);
@@ -4683,12 +4598,6 @@ info_node_info_reduce_fn(const void *key, void *data, void *udata)
 		pthread_mutex_lock(&g_serv_lock);
 
 		msg *m = as_fabric_msg_get(M_TYPE_INFO);
-		if (0 == m) {
-			pthread_mutex_unlock(&g_serv_lock);
-
-			cf_debug(AS_INFO, " could not get fabric message");
-			return(-1);
-		}
 
 		// If we don't have the remote node's service address, request it via our update info. msg.
 		msg_set_uint32(m, INFO_FIELD_OP, infop->service_addr && infop->services_clear_std ?
@@ -4750,10 +4659,6 @@ convert_legacy_services(const char *legacy)
 
 	char *res = cf_strdup(legacy);
 
-	if (res == NULL) {
-		cf_crash(AS_INFO, "Out of memory");
-	}
-
 	for (size_t i = 0; res[i] != 0; ++i) {
 		if (res[i] == ';') {
 			res[i] = ',';
@@ -4791,15 +4696,15 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			info_node_info *info_history;
 			pthread_mutex_t *vlock_history;
 
-			if (shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
-					&vlock_history) != SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
+					&vlock_history) != CF_SHASH_OK) {
 				// This may fail, but this is ok. This should only fail when as_info_paxos_event
 				// is concurrently trying to add this key, so either way the entry will be in the
 				// hash table.
-				shash_put_unique(g_info_node_info_history_hash, &node, &temp);
+				cf_shash_put_unique(g_info_node_info_history_hash, &node, &temp);
 
-				if (shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
-						&vlock_history) != SHASH_OK) {
+				if (cf_shash_get_vlock(g_info_node_info_history_hash, &node, (void **)&info_history,
+						&vlock_history) != CF_SHASH_OK) {
 					cf_crash(AS_INFO,
 							"Could not create info history hash entry for %" PRIx64, node);
 					break;
@@ -4851,8 +4756,9 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 
 			info_node_info *info;
 			pthread_mutex_t *vlock;
+			info_node_info info_to_tend = { 0 };
 
-			if (shash_get_vlock(g_info_node_info_hash, &node, (void **)&info, &vlock) == SHASH_OK) {
+			if (cf_shash_get_vlock(g_info_node_info_hash, &node, (void **)&info, &vlock) == CF_SHASH_OK) {
 				if (!compare_node_info_services(info_history, info)) {
 					cf_debug(AS_INFO, "Changed node info entry, was:");
 					dump_node_info_services(info);
@@ -4867,6 +4773,7 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 					cf_debug(AS_INFO, "Received request for info update from node %" PRIx64 " ~~ setting node's info generation to 0!", node);
 					info->generation = 0;
 					node_info_tend_required = true;
+					memcpy(&info_to_tend, info, sizeof(info_to_tend));
 				}
 
 				pthread_mutex_unlock(vlock);
@@ -4892,7 +4799,8 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			}
 
 			if (node_info_tend_required) {
-				info_node_info_tend();
+				// Send our service update to the source.
+				info_node_info_reduce_fn(&node, &info_to_tend, NULL);
 			}
 		}
 
@@ -4908,7 +4816,7 @@ info_msg_fn(cf_node node, msg *m, void *udata)
 			msg_get_uint32(m, INFO_FIELD_GENERATION, &gen);
 			info_node_info	*info;
 			pthread_mutex_t	*vlock;
-			if (0 == shash_get_vlock(g_info_node_info_hash, &node, (void **) &info, &vlock)) {
+			if (0 == cf_shash_get_vlock(g_info_node_info_hash, &node, (void **) &info, &vlock)) {
 
 				info->generation = gen;
 
@@ -4956,10 +4864,10 @@ info_get_x_legacy_reduce_fn(const void *key, void *data, void *udata)
 }
 
 int32_t
-info_get_x_legacy_reduce(shash *h, info_node_proj_fn proj, cf_dyn_buf *db)
+info_get_x_legacy_reduce(cf_shash *h, info_node_proj_fn proj, cf_dyn_buf *db)
 {
 	services_printer sp = { .proj = proj, .db = db };
-	shash_reduce(h, info_get_x_legacy_reduce_fn, (void *)&sp);
+	cf_shash_reduce(h, info_get_x_legacy_reduce_fn, (void *)&sp);
 	return 0;
 }
 
@@ -5126,12 +5034,12 @@ info_get_services_x_reduce_fn(const void *key, void *data, void *udata)
 }
 
 int32_t
-info_get_services_x(shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t since,
+info_get_services_x(cf_shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t since,
 		bool with_tls_name)
 {
 	// Pick the default port that saves us the most space.
 	port_savings_context psc = { .proj = proj, .since = since };
-	shash_reduce(h, info_port_savings_reduce_fn, &psc);
+	cf_shash_reduce(h, info_port_savings_reduce_fn, &psc);
 
 	int32_t best_savings = 0;
 	int32_t best_port = 0;
@@ -5161,7 +5069,7 @@ info_get_services_x(shash *h, info_node_proj_fn proj, cf_dyn_buf *db, uint64_t s
 
 	services_printer sp = { .proj = proj, .db = db, .strip = strip, .since = since,
 			.with_tls_name = with_tls_name };
-	shash_reduce(h, info_get_services_x_reduce_fn, (void *)&sp);
+	cf_shash_reduce(h, info_get_services_x_reduce_fn, (void *)&sp);
 
 	cf_dyn_buf_append_char(db, ']');
 	return sp.count;
@@ -5215,7 +5123,7 @@ info_get_services_x_delta(info_node_proj_fn proj, cf_dyn_buf *db, char *params, 
 		cf_dyn_buf_chomp(db); // Remove the "]".
 
 		services_printer sp = { .proj = proj, .db = db, .since = since, .count = count };
-		shash_reduce(g_info_node_info_history_hash, info_get_services_x_gone_reduce_fn, &sp);
+		cf_shash_reduce(g_info_node_info_history_hash, info_get_services_x_gone_reduce_fn, &sp);
 
 		cf_dyn_buf_append_char(db, ']'); // Re-add the "]".
 
@@ -5342,13 +5250,13 @@ info_get_services_generation(char *name, cf_dyn_buf *db)
 int
 history_purge_reduce_fn(const void *key, void *data, void *udata)
 {
-	return SHASH_OK == shash_get(g_info_node_info_hash, key, NULL) ? SHASH_OK : SHASH_REDUCE_DELETE;
+	return CF_SHASH_OK == cf_shash_get(g_info_node_info_hash, key, NULL) ? CF_SHASH_OK : CF_SHASH_REDUCE_DELETE;
 }
 
 int
 info_services_alumni_reset(char *name, cf_dyn_buf *db)
 {
-	shash_reduce_delete(g_info_node_info_history_hash, history_purge_reduce_fn, NULL);
+	cf_shash_reduce(g_info_node_info_history_hash, history_purge_reduce_fn, NULL);
 	cf_info(AS_INFO, "services alumni list reset");
 	cf_dyn_buf_append_string(db, "ok");
 
@@ -5424,23 +5332,27 @@ info_get_sindexes(char *name, cf_dyn_buf *db)
 void
 info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 {
+	// Cluster size.
+
+	// Using ns_ prefix to avoid confusion with global cluster_size.
+	info_append_uint32(db, "ns_cluster_size", ns->cluster_size);
+
+	// Using effective_ prefix to avoid confusion with configured value.
+	info_append_uint32(db, "effective_replication_factor", ns->replication_factor);
+
 	// Object counts.
 
 	info_append_uint64(db, "objects", ns->n_objects);
-	info_append_uint64(db, "sub_objects", ns->n_sub_objects);
 	info_append_uint64(db, "tombstones", ns->n_tombstones);
 
 	repl_stats mp;
 	as_partition_get_replica_stats(ns, &mp);
 
 	info_append_uint64(db, "master_objects", mp.n_master_objects);
-	info_append_uint64(db, "master_sub_objects", mp.n_master_sub_objects);
 	info_append_uint64(db, "master_tombstones", mp.n_master_tombstones);
 	info_append_uint64(db, "prole_objects", mp.n_prole_objects);
-	info_append_uint64(db, "prole_sub_objects", mp.n_prole_sub_objects);
 	info_append_uint64(db, "prole_tombstones", mp.n_prole_tombstones);
 	info_append_uint64(db, "non_replica_objects", mp.n_non_replica_objects);
-	info_append_uint64(db, "non_replica_sub_objects", mp.n_non_replica_sub_objects);
 	info_append_uint64(db, "non_replica_tombstones", mp.n_non_replica_tombstones);
 
 	// Expiration & eviction (nsup) stats.
@@ -5464,7 +5376,7 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	// Memory usage stats.
 
 	uint64_t data_memory = ns->n_bytes_memory;
-	uint64_t index_memory = as_index_size_get(ns) * (ns->n_objects + ns->n_sub_objects + ns->n_tombstones);
+	uint64_t index_memory = as_index_size_get(ns) * (ns->n_objects + ns->n_tombstones);
 	uint64_t sindex_memory = ns->n_bytes_sindex_memory;
 	uint64_t used_memory = data_memory + index_memory + sindex_memory;
 
@@ -5683,50 +5595,6 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	// Special non-error counters:
 
 	info_append_uint64(db, "deleted_last_bin", ns->n_deleted_last_bin);
-
-	// LDT stats.
-
-	if (ns->ldt_enabled) {
-		info_append_uint64(db, "ldt_reads", ns->lstats.ldt_read_reqs);
-		info_append_uint64(db, "ldt_read_success", ns->lstats.ldt_read_success);
-		info_append_uint64(db, "ldt_deletes", ns->lstats.ldt_delete_reqs);
-		info_append_uint64(db, "ldt_delete_success", ns->lstats.ldt_delete_success);
-		info_append_uint64(db, "ldt_writes", ns->lstats.ldt_write_reqs);
-		info_append_uint64(db, "ldt_write_success", ns->lstats.ldt_write_success);
-		info_append_uint64(db, "ldt_updates", ns->lstats.ldt_update_reqs);
-
-		info_append_uint64(db, "ldt_gc_io", ns->lstats.ldt_gc_io);
-		info_append_uint64(db, "ldt_gc_cnt", ns->lstats.ldt_gc_cnt);
-		info_append_uint64(db, "ldt_randomizer_retry", ns->lstats.ldt_randomizer_retry);
-
-		info_append_uint64(db, "ldt_errors", ns->lstats.ldt_errs);
-
-		info_append_uint64(db, "ldt_err_toprec_notfound", ns->lstats.ldt_err_toprec_not_found);
-		info_append_uint64(db, "ldt_err_item_notfound", ns->lstats.ldt_err_item_not_found);
-		info_append_uint64(db, "ldt_err_internal", ns->lstats.ldt_err_internal);
-		info_append_uint64(db, "ldt_err_unique_key_violation", ns->lstats.ldt_err_unique_key_violation);
-		info_append_uint64(db, "ldt_err_insert_fail", ns->lstats.ldt_err_insert_fail);
-		info_append_uint64(db, "ldt_err_delete_fail", ns->lstats.ldt_err_delete_fail);
-		info_append_uint64(db, "ldt_err_search_fail", ns->lstats.ldt_err_search_fail);
-		info_append_uint64(db, "ldt_err_version_mismatch", ns->lstats.ldt_err_version_mismatch);
-		info_append_uint64(db, "ldt_err_capacity_exceeded", ns->lstats.ldt_err_capacity_exceeded);
-		info_append_uint64(db, "ldt_err_param", ns->lstats.ldt_err_param);
-		info_append_uint64(db, "ldt_err_op_bintype_mismatch", ns->lstats.ldt_err_op_bintype_mismatch);
-		info_append_uint64(db, "ldt_err_too_many_open_subrec", ns->lstats.ldt_err_too_many_open_subrec);
-		info_append_uint64(db, "ldt_err_subrec_not_found", ns->lstats.ldt_err_subrec_not_found);
-		info_append_uint64(db, "ldt_err_bin_does_not_exist", ns->lstats.ldt_err_bin_does_not_exist);
-		info_append_uint64(db, "ldt_err_bin_exits", ns->lstats.ldt_err_bin_exits);
-		info_append_uint64(db, "ldt_err_bin_damaged", ns->lstats.ldt_err_bin_damaged);
-		info_append_uint64(db, "ldt_err_toprec_internal", ns->lstats.ldt_err_toprec_internal);
-		info_append_uint64(db, "ldt_err_subrec_internal", ns->lstats.ldt_err_subrec_internal);
-		info_append_uint64(db, "ldt_err_filer", ns->lstats.ldt_err_filter);
-		info_append_uint64(db, "ldt_err_key", ns->lstats.ldt_err_key);
-		info_append_uint64(db, "ldt_err_createspec", ns->lstats.ldt_err_createspec);
-		info_append_uint64(db, "ldt_err_usermodule", ns->lstats.ldt_err_usermodule);
-		info_append_uint64(db, "ldt_err_input_too_large", ns->lstats.ldt_err_input_too_large);
-		info_append_uint64(db, "ldt_err_ldt_not_enabled", ns->lstats.ldt_err_ldt_not_enabled);
-		info_append_uint64(db, "ldt_err_unknown", ns->lstats.ldt_err_unknown);
-	}
 }
 
 //
@@ -6007,16 +5875,6 @@ info_get_service_tls_alt(char *name, cf_dyn_buf *db)
 	return 0;
 }
 
-void
-clear_ldt_histograms()
-{
-	histogram_clear(g_stats.ldt_multiop_prole_hist);
-	histogram_clear(g_stats.ldt_update_record_cnt_hist);
-	histogram_clear(g_stats.ldt_io_record_cnt_hist);
-	histogram_clear(g_stats.ldt_update_io_bytes_hist);
-	histogram_clear(g_stats.ldt_hist);
-}
-
 // SINDEX wire protocol examples:
 // 1.) NUMERIC:    sindex-create:ns=usermap;set=demo;indexname=um_age;indexdata=age,numeric
 // 2.) STRING:     sindex-create:ns=usermap;set=demo;indexname=um_state;indexdata=state,string
@@ -6032,54 +5890,63 @@ clear_ldt_histograms()
  */
 int
 as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn_buf* db,
-		bool is_create, bool *is_smd_op, char * cmd)
+		bool is_create, bool *is_smd_op, char * OP)
 {
-	if (!imd) {
-		cf_warning(AS_INFO, "%s : Failed. internal error", cmd);
+	if (! imd) {
+		cf_warning(AS_INFO, "%s : Failed. internal error.", OP);
 		return AS_SINDEX_ERR_PARAM;
 	}
-	imd->post_op     = 0;
 
 	char indexname_str[AS_ID_INAME_SZ];
 	int  indname_len  = sizeof(indexname_str);
-	int ret = as_info_parameter_get(params, STR_INDEXNAME, indexname_str, &indname_len);
+	int ret = as_info_parameter_get(params, STR_INDEXNAME, indexname_str,
+			&indname_len);
 	if ( ret == -1 ) {
-		cf_warning(AS_INFO, "%s : Failed. Indexname not specified", cmd);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Index Name Not Specified");
+		cf_warning(AS_INFO, "%s : Failed. Missing Index name.", OP);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Missing Index name");
 		return AS_SINDEX_ERR_PARAM;
 	}
 	else if ( ret == -2 ) {
-		cf_warning(AS_INFO, "%s : Failed. The indexname is longer than %d characters", cmd,
-				AS_ID_INAME_SZ-1);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Indexname too long");
+		cf_warning(AS_INFO, "%s : Failed. Index name longer than allowed %d.",
+				OP, AS_ID_INAME_SZ-1);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Index name too long");
 		return AS_SINDEX_ERR_PARAM;
 	}
+
+	char cmd[128];
+	snprintf(cmd, 128, "%s %s", OP, indexname_str);
 
 	char ns_str[AS_ID_NAMESPACE_SZ];
 	int ns_len       = sizeof(ns_str);
 	ret = as_info_parameter_get(params, STR_NS, ns_str, &ns_len);
 	if ( ret == -1 ) {
-		cf_warning(AS_INFO, "%s : Failed. Namespace not specified for index %s ", cmd, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Namespace Not Specified");
+		cf_warning(AS_INFO, "%s : Failed. Missing Namespace name.", cmd);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Missing Namespace name");
 		return AS_SINDEX_ERR_PARAM;
 	}
 	else if (ret == -2 ) {
-		cf_warning(AS_INFO, "%s : Failed. Name of the namespace is longer than %d characters"
-			" for index %s ", cmd, AS_ID_NAMESPACE_SZ-1, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Name of the namespace is too long");
+		cf_warning(AS_INFO, "%s : Failed. Namespace name longer than allowed %d.",
+				cmd, AS_ID_NAMESPACE_SZ - 1);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Namespace name too long");
 		return AS_SINDEX_ERR_PARAM;
 	}
+
 	as_namespace *ns = as_namespace_get_byname(ns_str);
-	if (!ns) {
-		cf_warning(AS_INFO, "%s : Failed. namespace %s not found for index %s", cmd, ns_str,
-					indexname_str);
+	if (! ns) {
+		cf_warning(AS_INFO, "%s : Failed. Namespace '%s' not found %d",
+				cmd, ns_str, ns_len);
 		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Namespace Not Found");
 		return AS_SINDEX_ERR_PARAM;
 	}
 	if (ns->single_bin) {
 		cf_warning(AS_INFO, "%s : Failed. Secondary Index is not allowed on single bin "
-				"namespace %s for index %s", cmd, ns_str, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Single bin namespace");
+				"namespace '%s'.", cmd, ns_str);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Single bin namespace");
 		return AS_SINDEX_ERR_PARAM;
 	}
 
@@ -6091,21 +5958,25 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 	}
 	ret = as_info_parameter_get(params, STR_SET, set_str, &set_len);
 	if (!ret && set_len != 0) {
-		if (as_namespace_get_create_set_w_len(ns, set_str, set_len, NULL, NULL) != 0) {
-			INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Set vmap full");
+		if (as_namespace_get_create_set_w_len(ns, set_str, set_len, NULL, NULL)
+				!= 0) {
+			INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+					"Set name quota full");
 			return AS_SINDEX_ERR_PARAM;
 		}
 		imd->set = cf_strdup(set_str);
 	} else if (ret == -2) {
-		cf_warning(AS_INFO, "%s : Failed. Setname is longer than %d for index %s",
-				cmd, AS_SET_NAME_MAX_SIZE-1, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Name of the set is too long");
+		cf_warning(AS_INFO, "%s : Failed. Setname longer than %d for index.",
+				cmd, AS_SET_NAME_MAX_SIZE - 1);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Set name too long");
 		return AS_SINDEX_ERR_PARAM;
 	}
 
 	char cluster_op[6];
 	int cluster_op_len = sizeof(cluster_op);
-	if (as_info_parameter_get(params, "cluster_op", cluster_op, &cluster_op_len) != 0) {
+	if (as_info_parameter_get(params, "cluster_op", cluster_op, &cluster_op_len)
+			!= 0) {
 		*is_smd_op = true;
 	}
 	else if (strcmp(cluster_op, "true") == 0) {
@@ -6130,9 +6001,10 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 		imd->itype = AS_SINDEX_ITYPE_DEFAULT;
 	}
 	else if (ret == -2) {
-		cf_warning(AS_INFO, "%s : Failed. Indextype str  is longer than %d for index %s",
-				cmd, AS_SINDEX_TYPE_STR_SIZE-1, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Indextype str is too long");
+		cf_warning(AS_INFO, "%s : Failed. Indextype str longer than allowed %d.",
+				cmd, AS_SINDEX_TYPE_STR_SIZE-1);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Indextype is too long");
 		return AS_SINDEX_ERR_PARAM;
 
 	}
@@ -6150,10 +6022,10 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 			imd->itype = AS_SINDEX_ITYPE_MAPVALUES;
 		}
 		else {
-			cf_warning(AS_INFO, "%s : Failed. Invalid indextype %s for index %s",
-					cmd, indextype_str, indexname_str);
+			cf_warning(AS_INFO, "%s : Failed. Invalid indextype '%s'.", cmd,
+					indextype_str);
 			INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
-					"Invalid type. Should be one of [DEFAULT, LIST, MAPKEYS, MAPVALUES]");
+					"Invalid indextype. Should be one of [DEFAULT, LIST, MAPKEYS, MAPVALUES]");
 			return AS_SINDEX_ERR_PARAM;
 		}
 	}
@@ -6161,64 +6033,73 @@ as_info_parse_params_to_sindex_imd(char* params, as_sindex_metadata *imd, cf_dyn
 	// Indexdata = binpath,keytype
 	char indexdata_str[AS_SINDEXDATA_STR_SIZE];
 	int  indexdata_len = sizeof(indexdata_str);
-	if (as_info_parameter_get(params, STR_INDEXDATA, indexdata_str, &indexdata_len)) {
-		cf_warning(AS_INFO, "%s : Failed. Invalid indexdata %s for index %s",
-				cmd, indexdata_str, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Invalid indexdata");
+	if (as_info_parameter_get(params, STR_INDEXDATA, indexdata_str,
+				&indexdata_len)) {
+		cf_warning(AS_INFO, "%s : Failed. Invalid indexdata '%s'.", cmd,
+				indexdata_str);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Invalid indexdata");
 		return AS_SINDEX_ERR_PARAM;
 	}
+
 	cf_vector *str_v = cf_vector_create(sizeof(void *), 10, VECTOR_FLAG_INITZERO);
 	cf_str_split(",", indexdata_str, str_v);
-	if (2 != (cf_vector_size(str_v))) {
-		cf_warning(AS_INFO, "%s : Failed. Number of bins more than 1 for index %s",
-				cmd, indexname_str);
+	if ((cf_vector_size(str_v)) > 2) {
+		cf_warning(AS_INFO, "%s : Failed. >1 bins specified in indexdata.",
+				cmd);
 		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
 				"Number of bins more than 1");
 		cf_vector_destroy(str_v);
 		return AS_SINDEX_ERR_PARAM;
 	}
 
-	char * path_str;
+	char *path_str = NULL;
 	cf_vector_get(str_v, 0, &path_str);
-	if (as_sindex_extract_bin_path(imd, path_str)) {
-		cf_warning(AS_INFO, "%s : Failed. Path_str is not valid- %s", cmd, path_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Invalid path");
-		return AS_SINDEX_ERR_PARAM;
-	}
-	if (!imd->bname) {
-		cf_warning(AS_INFO, "%s : Failed. Invalid bin name", cmd);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Invalid bin name");
+	if (! path_str) {
+		cf_warning(AS_INFO, "%s : Failed. Missing Bin Name.", cmd);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Missing Bin name");
 		cf_vector_destroy(str_v);
 		return AS_SINDEX_ERR_PARAM;
 	}
+
+	if (as_sindex_extract_bin_path(imd, path_str)
+			|| ! imd->bname) {
+		cf_warning(AS_INFO, "%s : Failed. Invalid Bin Path '%s'.", cmd, path_str);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Invalid Bin path");
+		return AS_SINDEX_ERR_PARAM;
+	}
+
+	if (imd->bname && strlen(imd->bname) >= AS_ID_BIN_SZ) {
+		cf_warning(AS_INFO, "%s : Failed. Bin Name longer than allowed %d",
+				cmd, AS_ID_BIN_SZ - 1);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Bin Name too long");
+		cf_vector_destroy(str_v);
+		return AS_SINDEX_ERR_PARAM;
+	}
+
 	char *type_str = NULL;
 	cf_vector_get(str_v, 1, &type_str);
-	if (!type_str) {
-		cf_warning(AS_INFO, "%s : Failed. Bin type is null for index %s ", cmd, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Invalid type. Should be one"
-				" of [numeric,string,geo2dsphere]");
+	if (! type_str) {
+		cf_warning(AS_INFO, "%s : Failed. Missing Bin type", cmd);
+		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
+				"Missing Bin Type.");
 		cf_vector_destroy(str_v);
 		return AS_SINDEX_ERR_PARAM;
 	}
 
 	as_sindex_ktype ktype = as_sindex_ktype_from_string(type_str);
 	if (ktype == COL_TYPE_INVALID) {
-		cf_warning(AS_INFO, "%s : Failed. Invalid bin type %s for index %s", cmd,
-				type_str, indexname_str);
+		cf_warning(AS_INFO, "%s : Failed. Invalid Bin type '%s'.", cmd, type_str);
 		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER,
-				"Invalid type. Should be one of [numeric,string,geo2dsphere]");
+				"Invalid Bin type. Supported types [Numeric, String, Geo2dsphere]");
 		cf_vector_destroy(str_v);
 		return AS_SINDEX_ERR_PARAM;
 	}
 	imd->sktype = ktype;
 
-	if (imd->bname && strlen(imd->bname) >= AS_ID_BIN_SZ) {
-		cf_warning(AS_INFO, "%s : Failed. Bin Name %s longer than allowed %d for index %s",
-				cmd, imd->bname, AS_ID_BIN_SZ-1, indexname_str);
-		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_PARAMETER, "Bin Name too long");
-		cf_vector_destroy(str_v);
-		return AS_SINDEX_ERR_PARAM;
-	}
+
 
 	cf_vector_destroy(str_v);
 
@@ -6247,8 +6128,9 @@ int info_command_sindex_create(char *name, char *params, cf_dyn_buf *db)
 	res = as_sindex_create_check_params(ns, &imd);
 
 	if (res == AS_SINDEX_ERR_FOUND) {
-		cf_warning(AS_INFO, "SINDEX CREATE : Index with the same index defn already exists or bin has "
-				"already been indexed.");
+		cf_warning(AS_INFO, "SINDEX CREATE: Index already exists on namespace '%s', either with same name '%s' or same bin '%s' / type '%s' combination.",
+				imd.ns_name, imd.iname, imd.bname,
+				as_sindex_ktype_str(imd.sktype));
 		INFO_COMMAND_SINDEX_FAILCODE(AS_PROTO_RESULT_FAIL_INDEX_FOUND,
 				"Index with the same name already exists or this bin has already been indexed.");
 		goto ERR;
@@ -6425,7 +6307,7 @@ int info_command_abort_scan(char *name, char *params, cf_dyn_buf *db) {
 
 	if (rv != 0) {
 		cf_dyn_buf_append_string(db, "ERROR:");
-		cf_dyn_buf_append_int(db, AS_PROTO_RESULT_FAIL_NOTFOUND);
+		cf_dyn_buf_append_int(db, AS_PROTO_RESULT_FAIL_NOT_FOUND);
 		cf_dyn_buf_append_string(db, ":Transaction Not Found");
 	}
 	else {
@@ -6602,14 +6484,14 @@ as_info_init()
 {
 	// g_info_node_info_history_hash is a hash of all nodes that have ever been
 	// recognized by this node - either via paxos or info messages.
-	shash_create(&g_info_node_info_history_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, SHASH_CR_MT_BIGLOCK);
+	g_info_node_info_history_hash = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// g_info_node_info_hash is a hash of all nodes *currently* in the cluster.
 	// This hash should *always* be a subset of g_info_node_info_history_hash -
 	// to ensure this, you should take the lock on the corresponding key in
 	// info_history_hash before modifying an element in this hash table. This
 	// hash is used to create the services list.
-	shash_create(&g_info_node_info_hash, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, SHASH_CR_MT_BIGLOCK);
+	g_info_node_info_hash = cf_shash_create(cf_nodeid_shash_fn, sizeof(cf_node), sizeof(info_node_info), 64, CF_SHASH_BIG_LOCK);
 
 	// create worker threads
 	g_info_work_q = cf_queue_create(sizeof(as_info_transaction), true);
@@ -6794,6 +6676,15 @@ as_info_init()
 	as_fabric_register_msg_fn(M_TYPE_INFO, info_mt, sizeof(info_mt), INFO_MSG_SCRATCH_SIZE, info_msg_fn, 0 /* udata */ );
 
 	as_exchange_register_listener(info_clustering_event_listener, NULL);
+
+	// Initialize services info exchange machinery.
+	set_static_services();
+
+	if (g_config.tls_service.tls_our_name != NULL) {
+		g_serv_tls_name = g_config.tls_service.tls_our_name;
+	}
+
+	++g_serv_gen;
 
 	pthread_t info_interfaces_th;
 	pthread_create(&info_interfaces_th, &thr_attr, info_interfaces_fn, 0);

@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef uint64_t cf_node;
@@ -29,3 +30,33 @@ typedef uint64_t cf_node;
 uint32_t cf_nodeid_shash_fn(const void *key);
 uint32_t cf_nodeid_rchash_fn(const void *key, uint32_t key_size);
 char *cf_node_name();
+
+static inline int
+index_of_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
+{
+	for (uint32_t n = 0; n < n_nodes; n++) {
+		if (node == nodes[n]) {
+			return (int)n;
+		}
+	}
+
+	return -1;
+}
+
+static inline bool
+contains_node(const cf_node* nodes, uint32_t n_nodes, cf_node node)
+{
+	return index_of_node(nodes, n_nodes, node) != -1;
+}
+
+static inline uint32_t
+remove_node(cf_node* nodes, uint32_t n_nodes, cf_node node)
+{
+	int n = index_of_node(nodes, n_nodes, node);
+
+	if (n != -1) {
+		nodes[n] = nodes[--n_nodes];
+	}
+
+	return n_nodes;
+}

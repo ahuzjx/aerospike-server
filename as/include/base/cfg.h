@@ -41,6 +41,7 @@
 #include "hardware.h"
 #include "node.h"
 #include "socket.h"
+#include "tls.h"
 
 #include "base/security_config.h"
 #include "fabric/clustering.h"
@@ -65,6 +66,7 @@ struct as_namespace_s;
 
 #define MAX_DEMARSHAL_THREADS 256
 #define MAX_BATCH_THREADS 256
+#define MAX_TLS_SPECS 10
 
 // Declare bools with PAD_BOOL so they can't share a 4-byte space with other
 // bools, chars or shorts. This prevents adjacent bools set concurrently in
@@ -111,7 +113,6 @@ typedef struct as_config_s {
 	uint32_t		hist_track_slice; // period in seconds at which to cache histogram data
 	char*			hist_track_thresholds; // comma-separated bucket (ms) values to track
 	int				n_info_threads;
-	PAD_BOOL		ldt_benchmarks;
 	// Note - log-local-time affects a cf_fault.c global, so can't be here.
 	uint32_t		migrate_max_num_incoming;
 	uint32_t		n_migrate_threads;
@@ -119,7 +120,6 @@ typedef struct as_config_s {
 	uint32_t		nsup_delete_sleep; // sleep this many microseconds between generating delete transactions, default 0
 	uint32_t		nsup_period;
 	PAD_BOOL		nsup_startup_evict;
-	uint32_t		paxos_max_cluster_size; // TODO - has been deprecated - clean up
 	int				proto_fd_idle_ms; // after this many milliseconds, connections are aborted unless transaction is in progress
 	int				proto_slow_netio_sleep_ms; // dynamic only
 	uint32_t		query_bsize;
@@ -139,7 +139,6 @@ typedef struct as_config_s {
 	uint32_t		query_threshold;
 	uint64_t		query_untracked_time_ms;
 	uint32_t		query_worker_threads;
-	PAD_BOOL		respond_client_on_master_completion;
 	PAD_BOOL		run_as_daemon;
 	uint32_t		scan_max_active; // maximum number of active scans allowed
 	uint32_t		scan_max_done; // maximum number of finished scans kept for monitoring
@@ -147,24 +146,20 @@ typedef struct as_config_s {
 	uint32_t		scan_threads; // size of scan thread pool
 	uint32_t		n_service_threads;
 	uint32_t		sindex_builder_threads; // secondary index builder thread pool size
-	PAD_BOOL		sindex_gc_enable_histogram; // dynamic only
 	uint32_t		sindex_gc_max_rate; // Max sindex entries processed per second for gc
 	uint32_t		sindex_gc_period; // same as nsup_period for sindex gc
 	uint32_t		ticker_interval;
 	uint64_t		transaction_max_ns;
 	uint32_t		transaction_pending_limit; // 0 means no limit
 	uint32_t		n_transaction_queues;
-	PAD_BOOL		transaction_repeatable_read;
 	uint32_t		transaction_retry_ms;
 	uint32_t		n_transaction_threads_per_queue;
 	char*			work_directory;
-	PAD_BOOL		write_duplicate_resolution_disable;
 
 	// For special debugging or bug-related repair:
 
 	cf_alloc_debug	debug_allocations; // how to instrument the memory allocation API
 	PAD_BOOL		fabric_dump_msgs; // whether to log information about existing "msg" objects and queues
-	int64_t			max_msgs_per_type; // maximum number of "msg" objects permitted per type
 	uint32_t		prole_extra_ttl; // seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
 
 	//--------------------------------------------
@@ -177,7 +172,6 @@ typedef struct as_config_s {
 
 	// Normally hidden:
 
-	char*			tls_name; // TLS name
 	cf_serv_spec	tls_service; // TLS client service
 
 	//--------------------------------------------
@@ -185,6 +179,7 @@ typedef struct as_config_s {
 	//
 
 	cf_serv_spec	hb_serv_spec; // literal binding address spec parsed from config
+	cf_serv_spec	hb_tls_serv_spec; // literal binding address spec for TLS parsed from config
 	cf_addr_list	hb_multicast_groups; // literal multicast groups parsed from config
 	as_hb_config	hb_config;
 
@@ -195,6 +190,7 @@ typedef struct as_config_s {
 	// Normally visible, in canonical configuration file order:
 
 	cf_serv_spec	fabric; // fabric service
+	cf_serv_spec	tls_fabric; // TLS fabric service
 
 	// Normally hidden:
 
@@ -222,6 +218,9 @@ typedef struct as_config_s {
 
 	mod_lua_config	mod_lua;
 	as_sec_config	sec_cfg;
+
+	uint32_t		n_tls_specs;
+	cf_tls_spec		tls_specs[MAX_TLS_SPECS];
 
 
 	//======================================================
@@ -276,3 +275,4 @@ typedef struct cfg_line_s {
 } cfg_line;
 
 void cfg_enterprise_only(const cfg_line* p_line);
+cf_tls_spec* cfg_link_tls(const char* which, char** our_name);

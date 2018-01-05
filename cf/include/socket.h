@@ -34,10 +34,9 @@
 #include "fault.h"
 #include "msg.h"
 #include "node.h"
-#include "tls_mode.h"
 
 // Use forward declaration instead of including openssl/ssl.h here.
-typedef struct ssl_st SSL;
+struct ssl_st;
 
 #define CF_SOCKET_TIMEOUT 10000
 #define CF_SOCK_CFG_MAX 250
@@ -89,7 +88,7 @@ typedef uint16_t cf_ip_port;
 
 typedef struct cf_addr_list_s {
 	uint32_t n_addrs;
-	const char* addrs[CF_SOCK_CFG_MAX];
+	const char *addrs[CF_SOCK_CFG_MAX];
 } cf_addr_list;
 
 typedef struct cf_serv_spec_s {
@@ -99,16 +98,9 @@ typedef struct cf_serv_spec_s {
 	cf_addr_list std;
 	cf_ip_port alt_port;
 	cf_addr_list alt;
-	cf_tls_mode mode;
-	char *certfile;
-	char *keyfile;
-	char *cafile;
-	char *capath;
-	char *protocols;
-	char *cipher_suite;
-	char *cert_blacklist;
-	void *ssl_ctx;
-	void *cbl;
+	char *tls_our_name;
+	uint32_t n_tls_peer_names;
+	char *tls_peer_names[CF_SOCK_CFG_MAX];
 } cf_serv_spec;
 
 typedef struct cf_sock_addr_s {
@@ -116,10 +108,17 @@ typedef struct cf_sock_addr_s {
 	cf_ip_port port;
 } cf_sock_addr;
 
+typedef enum {
+	CF_SOCKET_STATE_NON_TLS,
+	CF_SOCKET_STATE_TLS_HANDSHAKE,
+	CF_SOCKET_STATE_TLS_READY
+} cf_socket_state;
+
 typedef struct cf_socket_s {
 	int32_t fd;
-	void *data;
-	SSL *ssl;
+	cf_socket_state state;
+	void *cfg;
+	struct ssl_st *ssl;
 } cf_socket;
 
 typedef struct cf_sockets_s {
@@ -131,7 +130,9 @@ typedef enum {
 	CF_SOCK_OWNER_SERVICE,
 	CF_SOCK_OWNER_SERVICE_TLS,
 	CF_SOCK_OWNER_HEARTBEAT,
+	CF_SOCK_OWNER_HEARTBEAT_TLS,
 	CF_SOCK_OWNER_FABRIC,
+	CF_SOCK_OWNER_FABRIC_TLS,
 	CF_SOCK_OWNER_INFO,
 	CF_SOCK_OWNER_XDR,
 	CF_SOCK_OWNER_INVALID
@@ -146,7 +147,6 @@ typedef struct cf_sock_cfg_s {
 typedef struct cf_serv_cfg_s {
 	uint32_t n_cfgs;
 	cf_sock_cfg cfgs[CF_SOCK_CFG_MAX];
-	const cf_serv_spec *spec;
 } cf_serv_cfg;
 
 typedef struct cf_poll_s {
@@ -252,7 +252,8 @@ bool cf_socket_exists(cf_socket *sock);
 static inline void cf_socket_copy(const cf_socket *from, cf_socket *to)
 {
 	to->fd = from->fd;
-	to->data = from->data;
+	to->state = from->state;
+	to->cfg = from->cfg;
 	to->ssl = from->ssl;
 }
 

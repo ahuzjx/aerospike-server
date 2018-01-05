@@ -29,6 +29,7 @@
 #include "citrusleaf/cf_vector.h"
 
 #include "node.h"
+#include "tls.h"
 
 //==========================================================
 // Forward declarations.
@@ -110,11 +111,8 @@ typedef struct dc_config_opt_s {
 	 uint32_t				dc_connections_idle_ms;
 	 xdr_security_config	dc_security_cfg;
 	 bool					dc_use_alternate_services;
-	 const char				*tls_cafile;
-	 const char				*tls_capath;
-	 const char				*tls_certfile;
-	 const char				*tls_keyfile;
-	 const char				*tls_cert_blacklist;
+	 char					*tls_our_name;
+	 cf_tls_spec			*tls_spec;
 } dc_config_opt;
 
 //==========================================================

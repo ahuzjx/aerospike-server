@@ -121,6 +121,29 @@ hook_get_arena(const void *p)
 	return arena[0];
 }
 
+static void
+hook_check_arena(const void *p, int32_t arena)
+{
+	if (g_debug == CF_ALLOC_DEBUG_NONE) {
+		return;
+	}
+
+	int32_t arena_p = hook_get_arena(p);
+
+	if (arena < 0 && arena_p < N_ARENAS) {
+		return;
+	}
+
+	// The "arena" parameter is never < N_ARENAS.
+
+	if (arena >= N_ARENAS && arena_p >= N_ARENAS) {
+		return;
+	}
+
+	size_t jem_sz = jem_sallocx(p, 0);
+	cf_crash(CF_ALLOC, "arena change for %zu@%p: %d -> %d", jem_sz, p, arena_p, arena);
+}
+
 static pid_t
 hook_gettid(void)
 {
@@ -217,7 +240,7 @@ static void
 hook_handle_alloc(const void *ra, void *p, size_t sz)
 {
 	if (p == NULL) {
-		cf_crash(CF_ALLOC, "out of memory");
+		return;
 	}
 
 	size_t jem_sz = jem_sallocx(p, 0);
@@ -271,16 +294,16 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid site ID", jem_sz, p, ra);
 	}
 
-	const void *alloc_ra = ck_pr_load_ptr(g_site_ras + site_id);
+	const void *data_ra = ck_pr_load_ptr(g_site_ras + site_id);
 
 	if (delta == 0xffff) {
-		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, potential double free, possibly allocated with RA %p",
-				jem_sz, p, ra, alloc_ra);
+		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, potential double free, possibly freed before with RA %p",
+				jem_sz, p, ra, data_ra);
 	}
 
 	if (delta > jem_sz - sizeof(uint32_t)) {
 		cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid delta length, possibly allocated with RA %p",
-				jem_sz, p, ra, alloc_ra);
+				jem_sz, p, ra, data_ra);
 	}
 
 	uint8_t *mark = data - delta;
@@ -288,7 +311,7 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 	for (uint32_t i = 0; i < 4 && i < delta; ++i) {
 		if (mark[i] != data[i]) {
 			cf_crash(CF_ALLOC, "corruption %zu@%p RA %p, invalid mark, possibly allocated with RA %p",
-					jem_sz, p, ra, alloc_ra);
+					jem_sz, p, ra, data_ra);
 		}
 	}
 
@@ -304,8 +327,13 @@ hook_handle_free(const void *ra, void *p, size_t jem_sz)
 		--info->size_hi;
 	}
 
-	// Invalidate the delta length, so that we are more likely to detect double
-	// frees.
+	// Replace the allocation site with the deallocation site to facilitate
+	// double-free debugging.
+
+	site_id = hook_get_site_id(ra);
+
+	// Also invalidate the delta length, so that we are more likely to detect
+	// double frees.
 
 	*data32 = ((site_id << 16) | 0xffff) * MULT + 1;
 
@@ -642,6 +670,7 @@ do_free(void *p, const void *ra)
 }
 
 void
+__attribute__ ((noinline))
 free(void *p)
 {
 	do_free(p, __builtin_return_address(0));
@@ -709,15 +738,27 @@ do_mallocx(size_t sz, int32_t arena, const void *ra)
 }
 
 void *
-cf_alloc_malloc_arena(size_t sz, int32_t arena)
+cf_alloc_try_malloc(size_t sz)
 {
-	return do_mallocx(sz, arena, __builtin_return_address(0));
+	// Allowed to return NULL.
+	return do_mallocx(sz, -1, __builtin_return_address(0));
 }
 
 void *
+cf_alloc_malloc_arena(size_t sz, int32_t arena)
+{
+	void *p = do_mallocx(sz, arena, __builtin_return_address(0));
+	cf_assert(p, CF_ALLOC, "malloc_ns failed sz %zu arena %d", sz, arena);
+	return p;
+}
+
+void *
+__attribute__ ((noinline))
 malloc(size_t sz)
 {
-	return do_mallocx(sz, -1, __builtin_return_address(0));
+	void *p = do_mallocx(sz, -1, __builtin_return_address(0));
+	cf_assert(p, CF_ALLOC, "malloc failed sz %zu", sz);
+	return p;
 }
 
 static void *
@@ -741,13 +782,17 @@ do_callocx(size_t n, size_t sz, int32_t arena, const void *ra)
 void *
 cf_alloc_calloc_arena(size_t n, size_t sz, int32_t arena)
 {
-	return do_callocx(n, sz, arena, __builtin_return_address(0));
+	void *p = do_callocx(n, sz, arena, __builtin_return_address(0));
+	cf_assert(p, CF_ALLOC, "calloc_ns failed n %zu sz %zu arena %d", n, sz, arena);
+	return p;
 }
 
 void *
 calloc(size_t n, size_t sz)
 {
-	return do_callocx(n, sz, -1, __builtin_return_address(0));
+	void *p = do_callocx(n, sz, -1, __builtin_return_address(0));
+	cf_assert(p, CF_ALLOC, "calloc failed n %zu sz %zu", n, sz);
+	return p;
 }
 
 static void *
@@ -756,6 +801,8 @@ do_rallocx(void *p, size_t sz, int32_t arena, const void *ra)
 	if (p == NULL) {
 		return do_mallocx(sz, arena, ra);
 	}
+
+	hook_check_arena(p, arena);
 
 	if (sz == 0) {
 		do_free(p, ra);
@@ -782,13 +829,17 @@ do_rallocx(void *p, size_t sz, int32_t arena, const void *ra)
 void *
 cf_alloc_realloc_arena(void *p, size_t sz, int32_t arena)
 {
-	return do_rallocx(p, sz, arena, __builtin_return_address(0));
+	void *p2 = do_rallocx(p, sz, arena, __builtin_return_address(0));
+	cf_assert(p2 || sz == 0, CF_ALLOC, "realloc_ns failed sz %zu arena %d", sz, arena);
+	return p2;
 }
 
 void *
 realloc(void *p, size_t sz)
 {
-	return do_rallocx(p, sz, -1, __builtin_return_address(0));
+	void *p2 = do_rallocx(p, sz, -1, __builtin_return_address(0));
+	cf_assert(p2 || sz == 0, CF_ALLOC, "realloc failed sz %zu", sz);
+	return p2;
 }
 
 char *
@@ -799,6 +850,7 @@ strdup(const char *s)
 	size_t ext_sz = want_debug(-1) ? sz + sizeof(uint32_t) : sz;
 
 	char *s2 = jem_mallocx(ext_sz, 0);
+	cf_assert(s2, CF_ALLOC, "strdup failed len %zu", n);
 
 	if (want_debug(-1)) {
 		hook_handle_alloc(__builtin_return_address(0), s2, sz);
@@ -821,6 +873,7 @@ strndup(const char *s, size_t n)
 	size_t ext_sz = want_debug(-1) ? sz + sizeof(uint32_t) : sz;
 
 	char *s2 = jem_mallocx(ext_sz, 0);
+	cf_assert(s2, CF_ALLOC, "strndup failed limit %zu", n);
 
 	if (want_debug(-1)) {
 		hook_handle_alloc(__builtin_return_address(0), s2, sz);
@@ -865,8 +918,8 @@ aligned_alloc(size_t align, size_t sz)
 	return p;
 }
 
-void *
-valloc(size_t sz)
+static void *
+do_valloc(size_t sz)
 {
 	if (!want_debug(-1)) {
 		return jem_aligned_alloc(PAGE_SZ, sz == 0 ? 1 : sz);
@@ -877,6 +930,14 @@ valloc(size_t sz)
 	void *p = jem_aligned_alloc(PAGE_SZ, ext_sz);
 	hook_handle_alloc(__builtin_return_address(0), p, sz);
 
+	return p;
+}
+
+void *
+valloc(size_t sz)
+{
+	void *p = do_valloc(sz);
+	cf_assert(p, CF_ALLOC, "valloc failed sz %zu", sz);
 	return p;
 }
 
@@ -911,6 +972,7 @@ cf_rc_alloc(size_t sz)
 	size_t ext_sz = want_debug(-1) ? tot_sz + sizeof(uint32_t) : tot_sz;
 
 	cf_rc_header *head = jem_malloc(ext_sz);
+	cf_assert(head, CF_ALLOC, "rc_alloc failed sz %zu", sz);
 
 	if (want_debug(-1)) {
 		hook_handle_alloc(__builtin_return_address(0), head, tot_sz);

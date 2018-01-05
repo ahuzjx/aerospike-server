@@ -53,6 +53,7 @@
 #include "ai_obj.h"
 #include "ai_btree.h"
 #include "fault.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "base/datamodel.h"
@@ -166,7 +167,7 @@ as_sindex__destroy_fn(void *param)
 		}
 		// Free entire usage counter before tree destroy
 		cf_atomic64_sub(&si->ns->n_bytes_sindex_memory,
-				ai_btree_get_isize(si->imd) + ai_btree_get_nsize(si->imd));    
+				ai_btree_get_isize(si->imd) + ai_btree_get_nsize(si->imd));
 
 		// Cache the ibtr pointers
 		uint16_t nprts = si->imd->nprts;
@@ -196,11 +197,18 @@ as_sindex__destroy_fn(void *param)
 		char iname[AS_ID_INAME_SZ];
 		memset(iname, 0, AS_ID_INAME_SZ);
 		snprintf(iname, strlen(imd->iname) + 1, "%s", imd->iname);
-		shash_delete(si->ns->sindex_iname_hash, (void *)iname);
+		cf_shash_delete(si->ns->sindex_iname_hash, (void *)iname);
 
 
+		as_namespace *ns = si->ns;
 		si->ns      = NULL;
 		si->simatch = -1;
+
+		as_sindex_metadata *recreate_imd = NULL;
+		if (si->recreate_imd) {
+			recreate_imd = si->recreate_imd;
+			si->recreate_imd = NULL;
+		}
 
 		// remember this is going to release the write lock
 		// of meta-data first. This is the only special case
@@ -211,15 +219,14 @@ as_sindex__destroy_fn(void *param)
 		for (int i = 0; i < imd->nprts; i++) {
 			ai_btree_delete_ibtr(ibtr[i]);
 		}
-
-		if (si->new_imd) {
-			as_sindex_metadata *recreate_imd = si->new_imd;
-			as_sindex_update(recreate_imd);
-			si->new_imd = NULL;
-		}
-
 		as_sindex_imd_free(imd);
 		cf_rc_free(imd);
+
+		if (recreate_imd) {
+			as_sindex_create(ns, recreate_imd);
+			as_sindex_imd_free(recreate_imd);
+			cf_rc_free(recreate_imd);
+		}
 	}
 	return NULL;
 }
@@ -245,7 +252,7 @@ typedef struct gc_ctx_s {
 	uint32_t      ns_id;
 	as_sindex    *si;
 	uint16_t      pimd_idx;
-	
+
 	// stat
 	gc_stat      stat;
 
@@ -306,11 +313,11 @@ gc_getnext_si(gc_ctx *ctx)
 		}
 
 		as_sindex *si = &ns->sindex[si_idx];
-		
+
 		if (! can_gc_si(si, ctx->pimd_idx)) {
 			continue;
 		}
-		
+
 		AS_SINDEX_RESERVE(si);
 		ctx->si = si;
 		SINDEX_GRUNLOCK();
@@ -347,7 +354,7 @@ gc_create_list(as_sindex *si, as_sindex_pmetadata *pimd, cf_ll *gc_list,
 			&processed, &found, gc_list);
 
 	PIMD_RUNLOCK(&pimd->slock);
-	
+
 	statp->creation_time += (cf_getms() - start_time);
 	statp->processed += processed;
 	statp->found += found;
@@ -409,7 +416,7 @@ gc_throttle(gc_ctx *ctx)
 static void
 do_gc(gc_ctx *ctx)
 {
-	// SKEY + Digest offset 
+	// SKEY + Digest offset
 	gc_offset offset;
 	init_ai_obj(&offset.i_col);
 	offset.pos = 0;
@@ -420,11 +427,11 @@ do_gc(gc_ctx *ctx)
 
 	cf_ll gc_list;
 	cf_ll_init(&gc_list, &ll_sindex_gc_destroy_fn, false);
-	
+
 	while (true) {
-			
+
 		if (! gc_create_list(si, pimd, &gc_list, &offset, &ctx->stat)) {
-			break;	
+			break;
 		}
 
 		if (cf_ll_size(&gc_list) > 0) {
@@ -511,7 +518,7 @@ as_sindex__gc_fn(void *udata)
 					gc_throttle(&ctx);
 				}
 			}
-			
+
 			cf_info(AS_NSUP, "{%s} sindex-gc: Processed: %ld, found:%ld, deleted: %ld: Total time: %ld ms",
 					ns->name, ctx.stat.processed, ctx.stat.found, ctx.stat.deleted,
 					cf_getms() - start_time_ms);
@@ -642,33 +649,19 @@ as_sbld_build(as_sindex* si)
 
 	sbld_job* job = sbld_job_create(ns, set_id, si);
 
-	if (! job) {
-		cf_warning(AS_SINDEX, "sindex build %s ns %s set %s - job alloc failed", imd->iname, imd->ns_name, imd->set);
-		as_sindex_populate_done(si);
-		AS_SINDEX_RELEASE(si);
-		return -2;
-	}
-
 	// Can't fail for this kind of job.
 	as_job_manager_start_job(&g_sbld_manager, (as_job*)job);
 
 	return 0;
 }
 
-int
+void
 as_sbld_build_all(as_namespace* ns)
 {
 	sbld_job* job = sbld_job_create(ns, INVALID_SET_ID, NULL);
 
-	if (! job) {
-		cf_warning(AS_SINDEX, "sindex build-all ns %s - job alloc failed", ns->name);
-		return -2;
-	}
-
 	// Can't fail for this kind of job.
 	as_job_manager_start_job(&g_sbld_manager, (as_job*)job);
-
-	return 0;
 }
 
 void
@@ -729,10 +722,6 @@ sbld_job*
 sbld_job_create(as_namespace* ns, uint16_t set_id, as_sindex* si)
 {
 	sbld_job* job = cf_malloc(sizeof(sbld_job));
-
-	if (! job) {
-		return NULL;
-	}
 
 	as_job_init((as_job*)job, &sbld_job_vtable, &g_sbld_manager,
 			RSV_MIGRATE, 0, ns, set_id, AS_JOB_PRIORITY_MEDIUM);

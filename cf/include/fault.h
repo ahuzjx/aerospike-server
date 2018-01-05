@@ -153,6 +153,7 @@ typedef enum {
 	CF_RBUFFER,
 	CF_SOCKET,
 	CF_TLS,
+	CF_VMAPX,
 
 	AS_AGGR,
 	AS_AS,
@@ -172,7 +173,6 @@ typedef enum {
 	AS_INFO,
 	AS_INFO_PORT,
 	AS_JOB,
-	AS_LDT,
 	AS_MIGRATE,
 	AS_MON,
 	AS_NAMESPACE,
@@ -267,6 +267,10 @@ extern bool cf_fault_is_using_local_time();
 
 extern void cf_fault_log_millis(bool log_millis);
 extern bool cf_fault_is_logging_millis();
+
+// TODO: Rework cf_display_type-based logging to have a more useful
+// output format, instead of having this separate function.
+extern void cf_fault_hex_dump(const char *title, const void *data, size_t len);
 
 extern cf_fault_severity cf_fault_filter[];
 

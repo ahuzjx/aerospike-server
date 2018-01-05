@@ -48,6 +48,7 @@
 #include "base/as_stap.h"
 #include "base/batch.h"
 #include "base/cfg.h"
+#include "base/datamodel.h"
 #include "base/packet_compression.h"
 #include "base/proto.h"
 #include "base/security.h"
@@ -80,6 +81,7 @@ as_info_access g_access = {
 };
 
 cf_serv_cfg g_service_bind = { .n_cfgs = 0 };
+cf_tls_info *g_service_tls;
 
 static cf_sockets g_sockets;
 
@@ -121,7 +123,6 @@ demarshal_file_handle_init()
 
 		// Initialize the message pointer array and the unread byte counters.
 		g_file_handle_a = cf_calloc(rl.rlim_cur, sizeof(as_proto *));
-		cf_assert(g_file_handle_a, AS_DEMARSHAL, "allocation: %s", cf_strerror(errno));
 		g_file_handle_a_sz = rl.rlim_cur;
 
 		for (int i = 0; i < g_file_handle_a_sz; i++) {
@@ -209,7 +210,7 @@ thr_demarshal_reaper_fn(void *arg)
 
 		// Validate the system statistics.
 		if (g_stats.proto_connections_opened - g_stats.proto_connections_closed != inuse_cnt) {
-			cf_debug(AS_DEMARSHAL, "reaper: mismatched connection count:  %"PRIu64" in stats vs %u calculated",
+			cf_debug(AS_DEMARSHAL, "reaper: mismatched connection count:  %lu in stats vs %u calculated",
 					g_stats.proto_connections_opened - g_stats.proto_connections_closed,
 					inuse_cnt);
 		}
@@ -356,6 +357,22 @@ thr_demarshal_config_xdr(cf_socket *sock)
 	return 0;
 }
 
+bool
+peek_data_in_memory(const as_msg *m)
+{
+	as_msg_field *f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_NAMESPACE);
+
+	if (! f) {
+		// Should never happen, but don't bark here.
+		return false;
+	}
+
+	as_namespace *ns = as_namespace_get_bymsgfield(f);
+
+	// If ns is null, don't be the first to bark.
+	return ns && ns->storage_data_in_memory;
+}
+
 // Set of threads which talk to client over the connection for doing the needful
 // processing. Note that once fd is assigned to a thread all the work on that fd
 // is done by that thread. Fair fd usage is expected of the client. First thread
@@ -447,7 +464,7 @@ thr_demarshal(void *unused)
 
 				// Validate the limit of protocol connections we allow.
 				uint32_t conns_open = g_stats.proto_connections_opened - g_stats.proto_connections_closed;
-				cf_sock_cfg *cfg = ssock->data;
+				cf_sock_cfg *cfg = ssock->cfg;
 				if (cfg->owner != CF_SOCK_OWNER_XDR && conns_open > g_config.n_proto_fd_max) {
 					if ((last_fd_print + 5000L) < cf_getms()) { // no more than 5 secs
 						cf_warning(AS_DEMARSHAL, "dropping incoming client connection: hit limit %d connections", conns_open);
@@ -459,24 +476,14 @@ thr_demarshal(void *unused)
 					continue;
 				}
 
-				// Perform the TLS accept (no-op for non TLS sockets).
-				// NOTE - We can't do this until the non-blocking is
-				// set (inside cf_socket_accept above).
-				if (ssock->ssl) {
-					int rv = tls_socket_accept(ssock, &csock, &sa);
-					if (rv != 1) {
-						cf_socket_close(&csock);
-						cf_socket_term(&csock);
-						continue;
-					}
+				// Initialize the TLS part of the socket.
+				if (cfg->owner == CF_SOCK_OWNER_SERVICE_TLS) {
+					tls_socket_prepare_server(g_service_tls, &csock);
 				}
 
 				// Create as_file_handle and queue it up in epoll_fd for further
 				// communication on one of the demarshal threads.
 				as_file_handle *fd_h = cf_rc_alloc(sizeof(as_file_handle));
-				if (!fd_h) {
-					cf_crash(AS_DEMARSHAL, "malloc");
-				}
 
 				strcpy(fd_h->client, sa_str);
 				cf_socket_copy(&csock, &fd_h->sock);
@@ -555,6 +562,23 @@ thr_demarshal(void *unused)
 					goto NextEvent_FD_Cleanup;
 				}
 
+				if (tls_socket_needs_handshake(&fd_h->sock)) {
+					int32_t tls_ev = tls_socket_accept(&fd_h->sock);
+
+					if (tls_ev == EPOLLERR) {
+						goto NextEvent_FD_Cleanup;
+					}
+
+					if (tls_ev == 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "service handshake");
+						tls_ev = EPOLLIN;
+					}
+
+					cf_poll_modify_socket(fd_h->poll, &fd_h->sock,
+							tls_ev | EPOLLONESHOT | EPOLLRDHUP, fd_h);
+					goto NextEvent;
+				}
+
 				// If pointer is NULL, then we need to create a transaction and
 				// store it in the buffer.
 				if (fd_h->proto == NULL) {
@@ -576,6 +600,7 @@ thr_demarshal(void *unused)
 					fd_h->proto_unread -= recv_sz;
 
 					if (fd_h->proto_unread != 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "partial client read (size)");
 						thr_demarshal_rearm(fd_h);
 						goto NextEvent;
 					}
@@ -606,7 +631,7 @@ thr_demarshal(void *unused)
 					as_proto_swap(&fd_h->proto_hdr);
 
 					if (fd_h->proto_hdr.sz > PROTO_SIZE_MAX) {
-						cf_warning(AS_DEMARSHAL, "proto input from %s: msg greater than %d, likely request from non-Aerospike client, rejecting: sz %"PRIu64,
+						cf_warning(AS_DEMARSHAL, "proto input from %s: msg greater than %d, likely request from non-Aerospike client, rejecting: sz %lu",
 								fd_h->client, PROTO_SIZE_MAX, (uint64_t)fd_h->proto_hdr.sz);
 						goto NextEvent_FD_Cleanup;
 					}
@@ -614,7 +639,6 @@ thr_demarshal(void *unused)
 					// Allocate the complete message buffer.
 					fd_h->proto = cf_malloc(sizeof(as_proto) + fd_h->proto_hdr.sz);
 
-					cf_assert(fd_h->proto, AS_DEMARSHAL, "allocation: %zu %s", (sizeof(as_proto) + fd_h->proto_hdr.sz), cf_strerror(errno));
 					memcpy(fd_h->proto, &fd_h->proto_hdr, sizeof(as_proto));
 
 					fd_h->proto_unread = fd_h->proto->sz;
@@ -634,15 +658,17 @@ thr_demarshal(void *unused)
 					}
 
 					// Decrement bytes-unread counter.
-					cf_detail(AS_DEMARSHAL, "read fd %d (%d %"PRIu64")", CSFD(sock), recv_sz, fd_h->proto_unread);
+					cf_detail(AS_DEMARSHAL, "read fd %d (%d %lu)", CSFD(sock), recv_sz, fd_h->proto_unread);
 					fd_h->proto_unread -= recv_sz;
 
 					if (fd_h->proto_unread != 0) {
+						tls_socket_must_not_have_data(&fd_h->sock, "partial client read (body)");
 						thr_demarshal_rearm(fd_h);
 						goto NextEvent;
 					}
 				}
 
+				tls_socket_must_not_have_data(&fd_h->sock, "full client read");
 				cf_debug(AS_DEMARSHAL, "running on CPU %hu", cf_topo_current_cpu());
 
 				// fd_h->proto_unread == 0 - finished reading complete proto.
@@ -744,7 +770,8 @@ thr_demarshal(void *unused)
 
 				// Swap as_msg fields and bin-ops to host order, and flag
 				// which fields are present, to reduce re-parsing.
-				if (! as_transaction_demarshal_prepare(&tr)) {
+				if (! as_transaction_prepare(&tr, true)) {
+					cf_warning(AS_DEMARSHAL, "bad client msg");
 					as_transaction_demarshal_error(&tr, AS_PROTO_RESULT_FAIL_PARAMETER);
 					goto NextEvent;
 				}
@@ -755,7 +782,7 @@ thr_demarshal(void *unused)
 				if (g_config.n_namespaces_in_memory != 0 &&
 						(g_config.n_namespaces_not_in_memory == 0 ||
 								// Only peek if at least one of each config.
-								as_msg_peek_data_in_memory(&tr.msgp->msg))) {
+								peek_data_in_memory(&tr.msgp->msg))) {
 					// Data-in-memory namespace - process in this thread.
 					as_tsvc_process_transaction(&tr);
 				}
@@ -843,10 +870,6 @@ as_demarshal_start()
 	g_demarshal_args = dm;
 
 	g_freeslot = cf_queue_create(sizeof(int), true);
-
-	if (!g_freeslot) {
-		cf_crash(AS_DEMARSHAL, "Couldn't create reaper free list");
-	}
 
 	add_local(&g_service_bind, CF_SOCK_OWNER_SERVICE);
 	add_local(&g_service_bind, CF_SOCK_OWNER_SERVICE_TLS);

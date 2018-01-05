@@ -22,6 +22,7 @@
 
 #include "base/predexp.h"
 
+#include <inttypes.h>
 #include <regex.h>
 
 #include <aerospike/as_arraylist.h>
@@ -978,10 +979,6 @@ build_value(predexp_eval_t** stackpp, uint32_t len, uint8_t* pp, uint16_t tag)
 
 	if (mem_size != 0) {
 		dp->bin.particle = cf_malloc((size_t)mem_size);
-		if (! dp->bin.particle) {
-			// FIXME - Could this ever happen?
-			cf_crash(AS_PREDEXP, "cf_malloc failed");
-		}
 	}
 
 	int result = particle_vtable[type]->from_wire_fn(type,
@@ -1645,7 +1642,9 @@ eval_list_iter(predexp_eval_t* bp, predexp_args_t* argsp, wrapped_as_bin_t* wbin
 	while (as_arraylist_iterator_has_next(&it)) {
 		// Set our var to the element's value.
 		as_val* val = (as_val*) as_arraylist_iterator_next(&it);
+		int old_arena = cf_alloc_clear_ns_arena();
 		int rv = as_bin_particle_replace_from_asval(&var.bin, val);
+		cf_alloc_restore_ns_arena(old_arena);
 		if (rv != 0) {
 			cf_warning(AS_PREDEXP,
 					   "eval_list_iter: particle from asval failed");
@@ -1780,7 +1779,9 @@ eval_map_iter(predexp_eval_t* bp, predexp_args_t* argsp, wrapped_as_bin_t* wbinp
 					 dp->tag);
 		}
 
+		int old_arena = cf_alloc_clear_ns_arena();
 		int rv = as_bin_particle_replace_from_asval(&var.bin, val);
+		cf_alloc_restore_ns_arena(old_arena);
 		if (rv != 0) {
 			cf_warning(AS_PREDEXP, "eval_map_iter: particle from asval failed");
 			continue;

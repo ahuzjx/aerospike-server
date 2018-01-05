@@ -31,10 +31,10 @@
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_random.h"
-#include "citrusleaf/cf_shash.h"
 
 #include "fault.h"
 #include "msg.h"
+#include "shash.h"
 
 #include "base/cfg.h"
 #include "fabric/fabric.h"
@@ -200,8 +200,8 @@
  * over heartbeats.
  *
  * FIXME: Reduce the max to only the second max expression after the jump
- * version. This is for now a function of hb node timeout which will likely be set to a very
- * large value while protocol switch from paxos v3/4 to paxos v5.
+ * version. This is for now a function of hb node timeout which will likely be
+ * set to a very large value while protocol switch from paxos v3/4 to paxos v5.
  */
 #define QUANTUM_INTERVAL_MAX MAX(as_hb_node_timeout_get(),	\
 		MAX(5000, 2 * as_hb_tx_interval_get()))
@@ -613,6 +613,15 @@ typedef struct as_clustering_internal_event_s
 	as_clustering_internal_event_type type;
 
 	/*
+	 * ----- Quantum interval start event related fields
+	 */
+	/**
+	 * Indicates if this quantum interval start can be skipped by the event
+	 * handler.
+	 */
+	bool quantum_interval_is_skippable;
+
+	/*
 	 * ----- Message event related fields.
 	 */
 	/**
@@ -909,7 +918,7 @@ typedef struct as_clustering_s
 	 * was send . Used to prevent sending join request too quickly to the same
 	 * principal again and again.
 	 */
-	shash* join_request_blackout;
+	cf_shash* join_request_blackout;
 
 	/**
 	 * The principal to which the last join request was sent.
@@ -1113,7 +1122,6 @@ join_request_timeout()
 			(1 + 0.5 + (quantum_interval_skip_max() - 1)) * quantum_interval());
 }
 
-
 /**
  * Timeout for a retransmitting a join request.
  */
@@ -1122,7 +1130,6 @@ join_request_retransmit_timeout()
 {
 	return (uint32_t)(quantum_interval() / 2);
 }
-
 
 /**
  * The interval at which a node checks to see if it should join a cluster.
@@ -1228,17 +1235,6 @@ clustering_orphan_timeout()
  */
 
 /**
- * A lame wrapper called from macros to prevent asm build from failing. The asm
- * processor assumes the cf_malloc call is on its own line, which is not true
- * for macros.
- */
-static void*
-clustering_malloc(size_t size)
-{
-	return cf_malloc(size);
-}
-
-/**
  * Maximum memory size allocated on the call stack.
  */
 #define STACK_ALLOC_LIMIT() (16 * 1024)
@@ -1247,21 +1243,9 @@ clustering_malloc(size_t size)
  * Allocate a buffer on stack if possible. Larger buffers are heap allocated to
  * prevent stack overflows.
  */
-#define BUFFER_ALLOC(size) (								\
+#define BUFFER_ALLOC_OR_DIE(size) (							\
 		((size) > STACK_ALLOC_LIMIT()) ?					\
-				clustering_malloc(size) : alloca(size))
-
-/**
- * Allocate a buffer is possible on the stack.
- */
-#define BUFFER_ALLOC_OR_DIE(size, crash_msg, ...)	\
-({													\
-	uint8_t* retval = BUFFER_ALLOC((size));			\
-	if (!retval) {									\
-		CRASH(crash_msg, ##__VA_ARGS__);			\
-	}												\
-	retval;											\
-})
+				cf_malloc(size) : alloca(size))
 
 /**
  * Free the buffer allocated by BUFFER_ALLOC
@@ -1329,38 +1313,6 @@ as_clustering_log_cf_node_array(severity, AS_CLUSTERING, message,	\
 		nodes, node_count)
 #define log_cf_node_vector(message, nodes, severity) as_clustering_log_cf_node_vector(severity, AS_CLUSTERING, message,		\
 		nodes)
-
-/*
- * ----------------------------------------------------------------------------
- * Shash functions
- * ----------------------------------------------------------------------------
- */
-
-/**
- * Put a key to a hash or crash with an error message on failure.
- */
-#define SHASH_PUT_OR_DIE(hash, key, value, error, ...)							\
-if (SHASH_OK != shash_put(hash, key, value)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
- * Delete a key from hash or on failure crash with an error message. Key not
- * found is NOT considered an error.
- */
-#define SHASH_DELETE_OR_DIE(hash, key, error, ...)							\
-if (SHASH_ERR == shash_delete(hash, key)) {CRASH(error, ##__VA_ARGS__);}
-
-/**
- * Read value for a key and crash if there is an error. Key not found is NOT
- * considered an error.
- */
-#define SHASH_GET_OR_DIE(hash, key, value, error, ...)	\
-({														\
-	int retval = shash_get(hash, key, value);			\
-	if (retval == SHASH_ERR) {							\
-		CRASH(error, ##__VA_ARGS__);					\
-	}													\
-	retval;												\
-})
 
 /*
  * ----------------------------------------------------------------------------
@@ -1551,8 +1503,7 @@ vector_sort_unique(cf_vector* src, int
 	int element_count = cf_vector_size(src);
 	size_t value_len = VECTOR_ELEM_SZ(src);
 	size_t array_size = element_count * value_len;
-	void* element_array = BUFFER_ALLOC_OR_DIE(array_size,
-			"cannnot allocate space for sorting elements");
+	void* element_array = BUFFER_ALLOC_OR_DIE(array_size);
 
 	// A lame approach to sorting. Copying the elements to an array and invoking
 	// qsort.
@@ -2307,8 +2258,8 @@ clustering_hb_plugin_data_node_status(void* plugin_data,
 static void
 clustering_hb_plugin_set_fn(msg* msg)
 {
-	if (!clustering_is_running()) {
-		// Ignore this heartbeat.
+	if (!clustering_is_initialized()) {
+		// Clustering not initialized. Send no data at all.
 		return;
 	}
 
@@ -2380,7 +2331,7 @@ clustering_hb_plugin_parse_data_fn(msg* msg, cf_node source,
 		as_hb_plugin_node_data* plugin_data)
 {
 	// Lockless check to prevent deadlocks.
-	if (g_clustering.sys_state != AS_CLUSTERING_SYS_STATE_RUNNING) {
+	if (g_clustering.sys_state == AS_CLUSTERING_SYS_STATE_UNINITIALIZED) {
 		// Ignore this heartbeat.
 		plugin_data->data_size = 0;
 		return;
@@ -2415,12 +2366,6 @@ clustering_hb_plugin_parse_data_fn(msg* msg, cf_node source,
 
 		// Reallocate since we have outgrown existing capacity.
 		plugin_data->data = cf_realloc(plugin_data->data, data_capacity);
-
-		if (plugin_data->data == NULL) {
-			CRASH(
-					"error allocating space for storing succession list for node %"PRIx64,
-					source);
-		}
 		plugin_data->data_capacity = data_capacity;
 	}
 
@@ -2564,10 +2509,11 @@ quantum_interval_generator_timer_event_handle(
 
 	// Fire quantum interval start event if it is time, or if we have skipped
 	// quantum interval start for more that the max skip number of intervals.
+	bool is_skippable = g_quantum_interval_generator.last_quantum_start_time
+			+ (quantum_interval_skip_max() + 1) * quantum_interval() > now;
 	bool fire_quantum_event = earliest_quantum_start_time <= now
-			|| g_quantum_interval_generator.last_quantum_start_time
-					+ (quantum_interval_skip_max() + 1) * quantum_interval()
-					<= now;
+			|| !is_skippable;
+
 	if (fire_quantum_event) {
 		// Update the last quantum event start time.
 		g_quantum_interval_generator.last_quantum_start_time = now;
@@ -2578,6 +2524,7 @@ quantum_interval_generator_timer_event_handle(
 		as_clustering_internal_event timer_event;
 		memset(&timer_event, 0, sizeof(timer_event));
 		timer_event.type = AS_CLUSTERING_INTERNAL_EVENT_QUANTUM_INTERVAL_START;
+		timer_event.quantum_interval_is_skippable = is_skippable;
 		internal_event_dispatch(&timer_event);
 
 		// Reset for next interval generation.
@@ -3573,8 +3520,7 @@ msg_succession_list_set(msg* msg, cf_vector* succession_list)
 	}
 
 	size_t buffer_size = num_elements * sizeof(cf_node);
-	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size,
-			"cannot allocate memory for succession list buffer");
+	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size);
 
 	for (int i = 0; i < num_elements; i++) {
 		cf_vector_get(succession_list, i, &succession_buffer[i]);
@@ -3737,8 +3683,7 @@ msg_nodes_send(msg* msg, cf_vector* nodes)
 	}
 
 	int alloc_size = node_count * sizeof(cf_node);
-	cf_node* send_list = (cf_node*)BUFFER_ALLOC_OR_DIE(alloc_size,
-			"cannot allocate memory for node list while sending");
+	cf_node* send_list = (cf_node*)BUFFER_ALLOC_OR_DIE(alloc_size);
 
 	vector_array_cpy(send_list, nodes, node_count);
 
@@ -5702,7 +5647,7 @@ clustering_join_request_send(cf_node new_principal)
 
 	if (msg_node_send(msg, new_principal) == 0) {
 		cf_clock now = cf_getms();
-		shash_put(g_clustering.join_request_blackout, &new_principal, &now);
+		cf_shash_put(g_clustering.join_request_blackout, &new_principal, &now);
 
 		g_clustering.last_join_request_principal = new_principal;
 		g_clustering.last_join_request_sent_time =
@@ -5746,7 +5691,6 @@ clustering_join_request_retransmit(cf_node last_join_request_principal)
 	}
 }
 
-
 /**
  *  Remove nodes for which join requests are blocked.
  *
@@ -5762,8 +5706,8 @@ clustering_join_request_filter_blocked(cf_vector* requestees, cf_vector* target)
 	for (int i = 0; i < requestee_count; i++) {
 		cf_node requestee;
 		cf_vector_get(requestees, i, &requestee);
-		if (shash_get(g_clustering.join_request_blackout, &requestee,
-				&last_sent) != SHASH_OK) {
+		if (cf_shash_get(g_clustering.join_request_blackout, &requestee,
+				&last_sent) != CF_SHASH_OK) {
 			// The requestee is not marked for blackout
 			cf_vector_append(target, &requestee);
 		}
@@ -5936,9 +5880,9 @@ clustering_join_request_blackout_tend_reduce(const void* key, void* data,
 	cf_clock* join_request_send_time = (cf_clock*)data;
 	if (*join_request_send_time + join_request_blackout_interval()
 			< cf_getms()) {
-		return SHASH_REDUCE_DELETE;
+		return CF_SHASH_REDUCE_DELETE;
 	}
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -5949,7 +5893,7 @@ static void
 clustering_join_request_blackout_tend()
 {
 	CLUSTERING_LOCK();
-	shash_reduce_delete(g_clustering.join_request_blackout,
+	cf_shash_reduce(g_clustering.join_request_blackout,
 			clustering_join_request_blackout_tend_reduce, NULL);
 	CLUSTERING_UNLOCK();
 }
@@ -6201,7 +6145,8 @@ clustering_orphan_quantum_interval_start_handle()
  * @param nodeids the nodes to send move command to.
  */
 static void
-clustering_cluster_move_send(cf_node candidate_principal, as_cluster_key cluster_key, cf_vector* nodeids)
+clustering_cluster_move_send(cf_node candidate_principal,
+		as_cluster_key cluster_key, cf_vector* nodeids)
 {
 	msg* msg = msg_pool_get(AS_CLUSTERING_MSG_TYPE_MERGE_MOVE);
 
@@ -6228,7 +6173,7 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	shash* preferred_principal_votes = (shash*)udata;
+	cf_shash* preferred_principal_votes = (cf_shash*)udata;
 
 	CLUSTERING_LOCK();
 	if (!clustering_hb_plugin_data_is_obsolete(
@@ -6240,9 +6185,8 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 						plugin_data_size);
 
 		int current_votes = 0;
-		if (SHASH_GET_OR_DIE(preferred_principal_votes, preferred_principal_p,
-				&current_votes, "error reading the preferred principal hash")
-				== SHASH_OK) {
+		if (cf_shash_get(preferred_principal_votes, preferred_principal_p,
+				&current_votes) == CF_SHASH_OK) {
 			current_votes++;
 		}
 		else {
@@ -6250,8 +6194,8 @@ clustering_principal_preferred_principal_votes_count(cf_node nodeid,
 			current_votes = 0;
 		}
 
-		SHASH_PUT_OR_DIE(preferred_principal_votes, preferred_principal_p,
-				&current_votes, "error updating preferred principal hash");
+		cf_shash_put(preferred_principal_votes, preferred_principal_p,
+				&current_votes);
 	}
 	else {
 		DETAIL(
@@ -6285,10 +6229,10 @@ clustering_principal_preferred_principal_majority_find(const void* key,
 	if (is_majority) {
 		*majority_preferred_principal = *current_preferred_principal;
 		// Majority found, halt reduce.
-		return SHASH_ERR_FOUND;
+		return CF_SHASH_ERR_FOUND;
 	}
 
-	return SHASH_OK;
+	return CF_SHASH_OK;
 }
 
 /**
@@ -6301,13 +6245,9 @@ clustering_principal_majority_preferred_principal_get()
 {
 	// A hash from each unique non null vinfo to a vector of partition ids
 	// having the vinfo.
-	shash* preferred_principal_votes;
-
-	if (shash_create(&preferred_principal_votes, cf_nodeid_shash_fn,
-			sizeof(cf_node), sizeof(int),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
-		CRASH("error creating preferred principal hash");
-	}
+	cf_shash* preferred_principal_votes = cf_shash_create(cf_nodeid_shash_fn,
+			sizeof(cf_node), sizeof(int), AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT,
+			0);
 
 	CLUSTERING_LOCK();
 
@@ -6321,13 +6261,13 @@ clustering_principal_majority_preferred_principal_get()
 
 	// Find the majority preferred principal.
 	cf_node preferred_principal = 0;
-	shash_reduce(preferred_principal_votes,
+	cf_shash_reduce(preferred_principal_votes,
 			clustering_principal_preferred_principal_majority_find,
 			&preferred_principal);
 
 	CLUSTERING_UNLOCK();
 
-	shash_destroy(preferred_principal_votes);
+	cf_shash_destroy(preferred_principal_votes);
 
 	DETAIL("preferred principal is %"PRIx64, preferred_principal);
 
@@ -6505,7 +6445,7 @@ Exit:
  * Handle quantum interval start when self node is the principal of its cluster.
  */
 static void
-clustering_principal_quantum_interval_start_handle()
+clustering_principal_quantum_interval_start_handle(as_clustering_internal_event* event)
 {
 	DETAIL("principal node quantum wakeup");
 
@@ -6549,7 +6489,7 @@ clustering_principal_quantum_interval_start_handle()
 	clustering_succession_list_clique_evict(new_succession_list,
 			"clique based evicted nodes at quantum start:");
 
-	if (cf_vector_size(dead_nodes) != 0
+	if (event->quantum_interval_is_skippable && cf_vector_size(dead_nodes) != 0
 			&& !quantum_interval_is_adjacency_fault_seen()) {
 		// There is an imminent adjacency fault that has not been seen by the
 		// quantum interval generator, lets not take any action.
@@ -6802,7 +6742,7 @@ clustering_non_principal_quantum_interval_start_handle()
  * Handle quantum interval start.
  */
 static void
-clustering_quantum_interval_start_handle()
+clustering_quantum_interval_start_handle(as_clustering_internal_event* event)
 {
 	CLUSTERING_LOCK();
 
@@ -6812,7 +6752,7 @@ clustering_quantum_interval_start_handle()
 		clustering_orphan_quantum_interval_start_handle();
 		break;
 	case AS_CLUSTERING_STATE_PRINCIPAL:
-		clustering_principal_quantum_interval_start_handle();
+		clustering_principal_quantum_interval_start_handle(event);
 		break;
 	case AS_CLUSTERING_STATE_NON_PRINCIPAL:
 		clustering_non_principal_quantum_interval_start_handle();
@@ -7253,7 +7193,7 @@ clustering_event_handle(as_clustering_internal_event* event)
 		clustering_timer_event_handle();
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_QUANTUM_INTERVAL_START:
-		clustering_quantum_interval_start_handle();
+		clustering_quantum_interval_start_handle(event);
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_HB:
 		clustering_hb_event_handle(event);
@@ -7320,8 +7260,7 @@ clustering_hb_plugin_data_change_listener(cf_node changed_node_id)
 	if (clustering_hb_plugin_data_get(changed_node_id, &plugin_data,
 			&change_event.plugin_data_changed_hlc_ts,
 			&change_event.plugin_data_changed_ts) != 0) {
-		// Not possible. We should be able to read the plugin data that
-		// changed.
+		// Not possible. We should be able to read the plugin data that changed.
 		return;
 	}
 	internal_event_dispatch(&change_event);
@@ -7388,7 +7327,8 @@ clustering_cluster_reform()
 				cf_vector_size(new_nodes));
 
 		if (!clustering_is_principal()) {
-			rv = 1; // common case - command will likely be sent to all nodes
+			// Common case - command will likely be sent to all nodes.
+			rv = 1;
 		}
 
 		goto Exit;
@@ -7443,11 +7383,9 @@ clustering_init()
 	g_clustering.state = AS_CLUSTERING_STATE_ORPHAN;
 	g_clustering.orphan_state_start_time = cf_getms();
 
-	if (shash_create(&g_clustering.join_request_blackout, cf_nodeid_shash_fn,
+	g_clustering.join_request_blackout = cf_shash_create(cf_nodeid_shash_fn,
 			sizeof(cf_node), sizeof(cf_clock),
-			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0) != SHASH_OK) {
-		CRASH("error creating join blackout hash");
-	}
+			AS_CLUSTERING_CLUSTER_MAX_SIZE_SOFT, 0);
 
 	vector_lockless_init(&g_clustering.pending_join_requests, cf_node);
 
@@ -7645,60 +7583,6 @@ as_clustering_init()
 void
 as_clustering_start()
 {
-	clustering_start();
-}
-
-/**
- * Start clustering subsystem via a switchover.
- *
- * @param cluster_key the existing cluster key.
- * @param cluster_size the current cluster size.
- * @param succession_list the current succession list.
- * @param sequence_numer the existing paxos sequence number, which is hlc
- * timestamp converted to seconds.
- */
-void
-as_clustering_switchover(uint64_t cluster_key, uint32_t cluster_size,
-		cf_node* succession_list, uint32_t sequence_number)
-{
-	if (clustering_is_running()) {
-		WARNING("clustering running - cannot switchover");
-		return;
-	}
-
-	// Prime the clustering state to start with the current cluster membership.
-	CLUSTERING_LOCK();
-
-	// Prime the register.
-	g_register.cluster_key = cluster_key;
-	g_register.sequence_number = (as_hlc_timestamp)(sequence_number * 1000);
-
-	vector_clear(&g_register.succession_list);
-	for (uint32_t i = 0; i < cluster_size; i++) {
-		cf_vector_append(&g_register.succession_list, &succession_list[i]);
-	}
-	g_register.cluster_modified_time = cf_getms();
-	g_register.cluster_modified_hlc_ts = as_hlc_timestamp_now();
-
-	g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCED;
-
-	// Prime the clustering state.
-	if (clustering_is_principal()) {
-		g_clustering.state = AS_CLUSTERING_STATE_PRINCIPAL;
-	}
-	else {
-		g_clustering.state = AS_CLUSTERING_STATE_NON_PRINCIPAL;
-	}
-	g_clustering.has_integrity = true;
-	g_clustering.preferred_principal = 0;
-
-	// Reset the proposer and acceptor out of paranoia.
-	paxos_proposer_reset();
-	paxos_acceptor_reset();
-
-	CLUSTERING_UNLOCK();
-
-	// Start clustering.
 	clustering_start();
 }
 

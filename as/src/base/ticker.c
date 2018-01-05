@@ -64,7 +64,7 @@
 
 
 //==========================================================
-// Forward Declarations.
+// Forward declarations.
 //
 
 extern int as_nsup_queue_get_size();
@@ -83,15 +83,12 @@ void log_line_batch_index();
 
 void log_line_objects(as_namespace* ns, uint64_t n_objects,
 		repl_stats* mp);
-void log_line_sub_objects(as_namespace* ns, uint64_t n_sub_objects,
-		repl_stats* mp);
 void log_line_tombstones(as_namespace* ns, uint64_t n_tombstones,
 		repl_stats* mp);
 void log_line_migrations(as_namespace* ns);
 void log_line_memory_usage(as_namespace* ns, size_t total_mem, size_t index_mem,
 		size_t sindex_mem, size_t data_mem);
 void log_line_device_usage(as_namespace* ns);
-void log_line_ldt_gc(as_namespace* ns);
 
 void log_line_client(as_namespace* ns);
 void log_line_batch_sub(as_namespace* ns);
@@ -182,11 +179,9 @@ log_ticker_frame(uint64_t delta_time)
 		as_namespace* ns = g_config.namespaces[i];
 
 		uint64_t n_objects = ns->n_objects;
-		uint64_t n_sub_objects = ns->n_sub_objects;
 		uint64_t n_tombstones = ns->n_tombstones;
 
-		size_t index_mem = as_index_size_get(ns) *
-				(n_objects + n_sub_objects + n_tombstones);
+		size_t index_mem = as_index_size_get(ns) * (n_objects + n_tombstones);
 		size_t sindex_mem = ns->n_bytes_sindex_memory;
 		size_t data_mem = ns->n_bytes_memory;
 		size_t total_mem = index_mem + sindex_mem + data_mem;
@@ -197,12 +192,10 @@ log_ticker_frame(uint64_t delta_time)
 		as_partition_get_replica_stats(ns, &mp);
 
 		log_line_objects(ns, n_objects, &mp);
-		log_line_sub_objects(ns, n_sub_objects, &mp);
 		log_line_tombstones(ns, n_tombstones, &mp);
 		log_line_migrations(ns);
 		log_line_memory_usage(ns, total_mem, index_mem, sindex_mem, data_mem);
 		log_line_device_usage(ns);
-		log_line_ldt_gc(ns);
 
 		log_line_client(ns);
 		log_line_batch_sub(ns);
@@ -380,26 +373,6 @@ log_line_objects(as_namespace* ns, uint64_t n_objects, repl_stats* mp)
 
 
 void
-log_line_sub_objects(as_namespace* ns, uint64_t n_sub_objects, repl_stats* mp)
-{
-	if ((n_sub_objects |
-			mp->n_master_sub_objects |
-			mp->n_prole_sub_objects |
-			mp->n_non_replica_sub_objects) == 0) {
-		return;
-	}
-
-	cf_info(AS_INFO, "{%s} sub-objects: all %lu master %lu prole %lu non-replica %lu",
-			ns->name,
-			n_sub_objects,
-			mp->n_master_sub_objects,
-			mp->n_prole_sub_objects,
-			mp->n_non_replica_sub_objects
-			);
-}
-
-
-void
 log_line_tombstones(as_namespace* ns, uint64_t n_tombstones, repl_stats* mp)
 {
 	if ((n_tombstones |
@@ -509,30 +482,6 @@ log_line_device_usage(as_namespace* ns)
 				ns->cache_read_pct
 				);
 	}
-}
-
-
-void
-log_line_ldt_gc(as_namespace* ns)
-{
-	if (! ns->ldt_enabled) {
-		return;
-	}
-
-	uint64_t cnt = ns->lstats.ldt_gc_processed;
-	uint64_t io = ns->lstats.ldt_gc_io;
-	uint64_t gc = ns->lstats.ldt_gc_cnt;
-	uint64_t no_esr = ns->lstats.ldt_gc_no_esr_cnt;
-	uint64_t no_parent = ns->lstats.ldt_gc_no_parent_cnt;
-	uint64_t version_mismatch = ns->lstats.ldt_gc_parent_version_mismatch_cnt;
-
-	cf_info(AS_INFO, "{%s} ldt-gc: cnt %lu io %lu gc %lu (%lu,%lu,%lu)",
-			ns->name,
-			cnt,
-			io,
-			gc,
-			no_esr, no_parent, version_mismatch
-			);
 }
 
 
@@ -772,14 +721,6 @@ dump_global_histograms()
 	}
 
 	as_query_histogram_dumpall();
-
-	if (g_config.ldt_benchmarks) {
-		histogram_dump(g_stats.ldt_multiop_prole_hist);
-		histogram_dump(g_stats.ldt_update_record_cnt_hist);
-		histogram_dump(g_stats.ldt_io_record_cnt_hist);
-		histogram_dump(g_stats.ldt_update_io_bytes_hist);
-		histogram_dump(g_stats.ldt_hist);
-	}
 }
 
 
