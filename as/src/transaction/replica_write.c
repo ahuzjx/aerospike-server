@@ -62,7 +62,7 @@
 uint32_t pack_info_bits(as_transaction* tr);
 void send_repl_write_ack(cf_node node, msg* m, uint32_t result);
 uint32_t parse_result_code(msg* m);
-int drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
+void drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 		bool is_nsup_delete, bool is_xdr_op, cf_node master);
 
 
@@ -258,13 +258,13 @@ repl_write_handle_op(cf_node node, msg* m)
 	}
 
 	if (repl_write_pickle_is_drop(rr.record_buf, info)) {
-		result = drop_replica(&rsv, keyd,
+		drop_replica(&rsv, keyd,
 				(info & RW_INFO_NSUP_DELETE) != 0,
 				(info & RW_INFO_XDR) != 0,
 				node);
 
 		as_partition_release(&rsv);
-		send_repl_write_ack(node, m, result);
+		send_repl_write_ack(node, m, AS_PROTO_RESULT_OK);
 
 		return;
 	}
@@ -300,9 +300,8 @@ repl_write_handle_op(cf_node node, msg* m)
 	// If source didn't touch sindex, may not need to touch it locally.
 	bool skip_sindex = (info & RW_INFO_SINDEX_TOUCHED) == 0;
 
-	result = as_record_replace_if_better(&rr,
-			AS_NAMESPACE_CONFLICT_RESOLUTION_POLICY_LAST_UPDATE_TIME,
-			skip_sindex, do_xdr_write);
+	result = (uint32_t)as_record_replace_if_better(&rr, true, skip_sindex,
+			do_xdr_write);
 
 	as_partition_release(&rsv);
 	send_repl_write_ack(node, m, result);
@@ -475,7 +474,7 @@ parse_result_code(msg* m)
 }
 
 
-int
+void
 drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 		bool is_nsup_delete, bool is_xdr_op, cf_node master)
 {
@@ -487,7 +486,7 @@ drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 	r_ref.skip_lock = false;
 
 	if (as_record_get(tree, keyd, &r_ref) != 0) {
-		return AS_PROTO_RESULT_FAIL_NOT_FOUND;
+		return; // not found is ok from master's perspective.
 	}
 
 	as_record* r = r_ref.r;
@@ -505,6 +504,4 @@ drop_replica(as_partition_reservation* rsv, cf_digest* keyd,
 	if (xdr_must_ship_delete(ns, is_nsup_delete, is_xdr_op)) {
 		xdr_write(ns, keyd, 0, master, XDR_OP_TYPE_DROP, set_id, NULL);
 	}
-
-	return AS_PROTO_RESULT_OK;
 }

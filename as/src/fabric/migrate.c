@@ -1447,8 +1447,7 @@ immigration_handle_insert_request(cf_node src, msg *m)
 		cf_warning_digest(AS_MIGRATE, rr.keyd, "handle insert: binless pickle ");
 	}
 	else {
-		int rv = as_record_replace_if_better(&rr,
-				immig->rsv.ns->conflict_resolution_policy, false, false);
+		int rv = as_record_replace_if_better(&rr, false, false, false);
 
 		// If replace failed, don't ack - it will be retransmitted.
 		if (! (rv == AS_PROTO_RESULT_OK ||

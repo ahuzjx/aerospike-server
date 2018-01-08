@@ -360,8 +360,8 @@ as_record_pickle(as_storage_rd *rd, size_t *len_r)
 
 // If remote record is better than local record, replace local with remote.
 int
-as_record_replace_if_better(as_remote_record *rr,
-		conflict_resolution_pol policy, bool skip_sindex, bool do_xdr_write)
+as_record_replace_if_better(as_remote_record *rr, bool is_repl_write,
+		bool skip_sindex, bool do_xdr_write)
 {
 	as_namespace *ns = rr->rsv->ns;
 
@@ -387,6 +387,12 @@ as_record_replace_if_better(as_remote_record *rr,
 	as_index *r = r_ref.r;
 
 	int result;
+
+	conflict_resolution_pol policy = ns->conflict_resolution_policy;
+
+	if (is_repl_write) {
+		policy = AS_NAMESPACE_CONFLICT_RESOLUTION_POLICY_LAST_UPDATE_TIME;
+	}
 
 	// If local record is better, no-op or fail.
 	if (! is_create && (result = as_record_resolve_conflict(policy,

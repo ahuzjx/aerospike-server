@@ -547,8 +547,8 @@ apply_winner(rw_request* rw)
 	msg_get_buf(m, RW_FIELD_KEY, (uint8_t **)&rr.key, &rr.key_size,
 			MSG_GET_DIRECT);
 
-	rw->result_code = (uint8_t)as_record_replace_if_better(&rr,
-			rw->rsv.ns->conflict_resolution_policy, false, false);
+	rw->result_code = (uint8_t)as_record_replace_if_better(&rr, false, false,
+			false);
 
 	// Duplicate resolution just treats these errors as successful no-ops:
 	if (rw->result_code == AS_PROTO_RESULT_FAIL_RECORD_EXISTS ||
