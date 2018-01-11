@@ -779,8 +779,8 @@ thr_demarshal(void *unused)
 				ASD_TRANS_DEMARSHAL(nodeid, (uint64_t) tr.msgp, as_transaction_trid(&tr));
 
 				// Directly process or queue the transaction.
-				if (g_config.n_namespaces_in_memory != 0 &&
-						(g_config.n_namespaces_not_in_memory == 0 ||
+				if (g_config.n_namespaces_inlined != 0 &&
+						(g_config.n_namespaces_not_inlined == 0 ||
 								// Only peek if at least one of each config.
 								peek_data_in_memory(&tr.msgp->msg))) {
 					// Data-in-memory namespace - process in this thread.

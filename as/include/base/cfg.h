@@ -240,9 +240,9 @@ typedef struct as_config_s {
 	struct as_namespace_s* namespaces[AS_NAMESPACE_SZ];
 	uint32_t		n_namespaces;
 
-	// To speed up transaction enqueue's determination of data-in-memory:
-	uint32_t		n_namespaces_in_memory;
-	uint32_t		n_namespaces_not_in_memory;
+	// To speed up transaction enqueue's determination of whether to "inline":
+	uint32_t		n_namespaces_inlined;
+	uint32_t		n_namespaces_not_inlined;
 
 } as_config;
 

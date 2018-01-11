@@ -2997,10 +2997,10 @@ as_config_init(const char* config_file)
 				}
 				if (ns->storage_data_in_memory) {
 					ns->storage_post_write_queue = 0; // override default (or configuration mistake)
-					c->n_namespaces_in_memory++;
+					c->n_namespaces_inlined++;
 				}
 				else {
-					c->n_namespaces_not_in_memory++;
+					c->n_namespaces_not_inlined++;
 				}
 				ns = NULL;
 				cfg_end_context(&state);
@@ -3573,7 +3573,7 @@ as_config_post_process(as_config* c, const char* config_file)
 		// If there's at least one SSD namespace, use CPU count. Otherwise, be
 		// modest - only proxies, internal retries, and background scans & queries
 		// will use these queues & threads.
-		c->n_transaction_queues = g_config.n_namespaces_not_in_memory != 0 ? n_cpus : 4;
+		c->n_transaction_queues = g_config.n_namespaces_not_inlined != 0 ? n_cpus : 4;
 	}
 
 	// Allocate and initialize the record locks (olocks). Maybe not the best

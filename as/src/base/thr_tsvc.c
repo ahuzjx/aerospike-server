@@ -137,7 +137,7 @@ as_tsvc_enqueue(as_transaction *tr)
 	uint32_t qid;
 
 	if (g_config.auto_pin == CF_TOPO_AUTO_PIN_NONE ||
-			g_config.n_namespaces_not_in_memory == 0) {
+			g_config.n_namespaces_not_inlined == 0) {
 		cf_debug(AS_TSVC, "no CPU pinning - dispatching transaction round-robin");
 		// Transaction can go on any queue - distribute evenly.
 		qid = (g_current_q++) % g_config.n_transaction_queues;
@@ -521,7 +521,7 @@ run_tsvc(void *arg)
 	uint32_t qid = (uint32_t)(uint64_t)arg;
 
 	if (g_config.auto_pin != CF_TOPO_AUTO_PIN_NONE &&
-			g_config.n_namespaces_not_in_memory != 0) {
+			g_config.n_namespaces_not_inlined != 0) {
 		cf_detail(AS_TSVC, "pinning thread to CPU %u", qid);
 		cf_topo_pin_to_cpu((cf_topo_cpu_index)qid);
 	}

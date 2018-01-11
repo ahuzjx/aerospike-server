@@ -750,9 +750,9 @@ as_batch_queue_task(as_transaction* btr)
 	uint32_t tran_row = 0;
 	uint8_t info = *data++;  // allow transaction inline.
 
-	bool allow_inline = (g_config.n_namespaces_in_memory != 0 && info);
-	bool check_inline = (allow_inline && g_config.n_namespaces_not_in_memory != 0);
-	bool should_inline = (allow_inline && g_config.n_namespaces_not_in_memory == 0);
+	bool allow_inline = (g_config.n_namespaces_inlined != 0 && info);
+	bool check_inline = (allow_inline && g_config.n_namespaces_not_inlined != 0);
+	bool should_inline = (allow_inline && g_config.n_namespaces_not_inlined == 0);
 
 	// Split batch rows into separate single record read transactions.
 	// The read transactions are located in the same memory block as
