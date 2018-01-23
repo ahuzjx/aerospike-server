@@ -74,6 +74,7 @@ typedef struct xdr_config_s {
 	uint32_t	xdr_info_port;
 	uint32_t	xdr_max_ship_throughput;
 	uint32_t	xdr_max_ship_bandwidth;
+	uint32_t	xdr_min_dlog_free_pct;
 	uint32_t	xdr_hotkey_time_ms;
 	uint32_t	xdr_read_threads;
 	uint32_t	xdr_write_timeout;

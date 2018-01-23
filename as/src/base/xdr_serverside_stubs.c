@@ -109,12 +109,17 @@ bool is_xdr_delete_shipping_enabled()
 	return false;
 }
 
-bool is_xdr_nsup_deletes_enabled()
+bool is_xdr_digestlog_low(as_namespace *ns)
 {
 	return false;
 }
 
 bool is_xdr_forwarding_enabled()
+{
+	return false;
+}
+
+bool is_xdr_nsup_deletes_enabled()
 {
 	return false;
 }

@@ -686,6 +686,7 @@ typedef enum {
 	CASE_XDR_INFO_TIMEOUT,
 	CASE_XDR_MAX_SHIP_BANDWIDTH,
 	CASE_XDR_MAX_SHIP_THROUGHPUT,
+	CASE_XDR_MIN_DIGESTLOG_FREE_PCT,
 	CASE_XDR_NSUP_DELETES_ENABLED,
 	CASE_XDR_READ_THREADS,
 	CASE_XDR_SHIP_BINS,
@@ -1194,6 +1195,7 @@ const cfg_opt XDR_OPTS[] = {
 		{ "xdr-info-timeout",				CASE_XDR_INFO_TIMEOUT },
 		{ "xdr-max-ship-bandwidth",			CASE_XDR_MAX_SHIP_BANDWIDTH },
 		{ "xdr-max-ship-throughput",		CASE_XDR_MAX_SHIP_THROUGHPUT },
+		{ "xdr-min-digestlog-free-pct",		CASE_XDR_MIN_DIGESTLOG_FREE_PCT },
 		{ "xdr-nsup-deletes-enabled",		CASE_XDR_NSUP_DELETES_ENABLED },
 		{ "xdr-read-threads",				CASE_XDR_READ_THREADS},
 		{ "xdr-ship-bins",					CASE_XDR_SHIP_BINS },
@@ -3400,6 +3402,9 @@ as_config_init(const char* config_file)
 				break;
 			case CASE_XDR_MAX_SHIP_THROUGHPUT:
 				g_xcfg.xdr_max_ship_throughput = cfg_u32_no_checks(&line);
+				break;
+			case CASE_XDR_MIN_DIGESTLOG_FREE_PCT:
+				g_xcfg.xdr_min_dlog_free_pct = cfg_u32(&line, 0, 100);
 				break;
 			case CASE_XDR_NSUP_DELETES_ENABLED:
 				g_xcfg.xdr_nsup_deletes_enabled = cfg_bool(&line);

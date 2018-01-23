@@ -54,6 +54,7 @@
 #include "base/thr_sindex.h"
 #include "base/thr_tsvc.h"
 #include "base/transaction.h"
+#include "base/xdr_serverside.h"
 #include "fabric/partition.h"
 #include "storage/storage.h"
 
@@ -1158,10 +1159,10 @@ eval_stop_writes(as_namespace *ns)
 	// Compute the high-watermark.
 	uint64_t mem_stop_writes = (ns->memory_size * ns->stop_writes_pct) / 100;
 
-	// Compute disk available percent for namespace.
-	int disk_avail_pct = 0;
+	// Compute device available percent for namespace.
+	int device_avail_pct = 0;
 
-	as_storage_stats(ns, &disk_avail_pct, NULL);
+	as_storage_stats(ns, &device_avail_pct, NULL);
 
 	// Compute memory usage for namespace.
 	uint64_t index_sz = ns->n_objects * as_index_size_get(ns);
@@ -1172,7 +1173,14 @@ eval_stop_writes(as_namespace *ns)
 
 	// Possible reasons for eviction or stopping writes.
 	static const char* reasons[] = {
-		NULL, "(memory)", "(disk avail-pct)", "(memory & disk avail-pct)"
+			NULL,									// 0x0
+			"(memory)",								// 0x1
+			"(device-avail-pct)",					// 0x2
+			"(memory & device-avail-pct)",			// 0x3 (0x1 | 0x2)
+			"(xdr-log)",							// 0x4
+			"(memory & xdr-log)",					// 0x5 (0x1 | 0x4)
+			"(device-avail-pct & xdr-log)",			// 0x6 (0x2 | 0x4)
+			"(memory & device-avail-pct & xdr-log)"	// 0x7 (0x1 | 0x2 | 0x4)
 	};
 
 	// Check if the writes should be stopped.
@@ -1184,22 +1192,27 @@ eval_stop_writes(as_namespace *ns)
 		why_stopped = 0x1;
 	}
 
-	if (disk_avail_pct < (int)ns->storage_min_avail_pct) {
+	if (device_avail_pct < (int)ns->storage_min_avail_pct) {
 		stop_writes = true;
 		why_stopped |= 0x2;
+	}
+
+	if (is_xdr_digestlog_low(ns)) {
+		stop_writes = true;
+		why_stopped |= 0x4;
 	}
 
 	if (stop_writes) {
 		cf_warning(AS_NSUP, "{%s} breached stop-writes limit %s, memory sz:%lu (%lu + %lu) limit:%lu, disk avail-pct:%d",
 				ns->name, reasons[why_stopped],
 				memory_sz, index_sz, data_in_memory_sz, mem_stop_writes,
-				disk_avail_pct);
+				device_avail_pct);
 	}
 	else {
 		cf_debug(AS_NSUP, "{%s} stop-writes limit not breached, memory sz:%lu (%lu + %lu) limit:%lu, disk avail-pct:%d",
 				ns->name,
 				memory_sz, index_sz, data_in_memory_sz, mem_stop_writes,
-				disk_avail_pct);
+				device_avail_pct);
 	}
 
 	cf_atomic32_set(&ns->stop_writes, stop_writes ? 1 : 0);

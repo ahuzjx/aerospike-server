@@ -38,6 +38,7 @@ void xdr_config_defaults()
 	c->xdr_info_port = 0;
 	c->xdr_max_ship_throughput = 0;		// XDR TPS limit
 	c->xdr_max_ship_bandwidth = 0;		// XDR bandwidth limit
+	c->xdr_min_dlog_free_pct = 0;		// Namespace writes are stopped below this limit
 	c->xdr_hotkey_time_ms = 100;		// Expiration time for the de-duplication cache
 	c->xdr_read_threads = 4;			// Number of XDR read threads.
 	c->xdr_write_timeout = 10000;		// Timeout for each element that is shipped.

@@ -80,7 +80,8 @@ bool as_xdr_set_config(char *params);
 bool as_xdr_set_config_ns(char *ns_name, char *params);
 
 bool is_xdr_delete_shipping_enabled();
-bool is_xdr_nsup_deletes_enabled();
+bool is_xdr_digestlog_low(as_namespace *ns);
 bool is_xdr_forwarding_enabled();
+bool is_xdr_nsup_deletes_enabled();
 
 void xdr_cfg_add_int_ext_mapping(dc_config_opt *dc_cfg, char* orig, char* alt);
