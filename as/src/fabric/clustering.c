@@ -198,13 +198,8 @@
  * Maximum quantum interval duration, should be at least two heartbeat
  * intervals, to ensure there is at least one exchange of clustering information
  * over heartbeats.
- *
- * FIXME: Reduce the max to only the second max expression after the jump
- * version. This is for now a function of hb node timeout which will likely be
- * set to a very large value while protocol switch from paxos v3/4 to paxos v5.
  */
-#define QUANTUM_INTERVAL_MAX MAX(as_hb_node_timeout_get(),	\
-		MAX(5000, 2 * as_hb_tx_interval_get()))
+#define QUANTUM_INTERVAL_MAX MAX(5000, 2 * as_hb_tx_interval_get())
 
 /**
  * Block size for allocating node plugin data. Ensure the allocation is in
@@ -390,6 +385,11 @@ typedef struct as_paxos_proposer_s
 	cf_clock learn_send_time;
 
 	/**
+	 * Indicates if learn message needs retransmit.
+	 */
+	bool learn_retransmit_needed;
+
+	/**
 	 * The set of acceptor nodes including self.
 	 */
 	cf_vector acceptors;
@@ -525,7 +525,7 @@ typedef enum
 	 * Sentinel value to keep track of the number of message fields.
 	 */
 	AS_CLUSTERING_MGS_SENTINEL
-} as_clustering_msg_fields;
+} as_clustering_msg_field;
 
 /**
  * Internal clustering event type.
@@ -611,6 +611,11 @@ typedef struct as_clustering_internal_event_s
 	 * The event type.
 	 */
 	as_clustering_internal_event_type type;
+
+	/**
+	 * The event qualifier.
+	 */
+	as_clustering_event_qualifier qualifier;
 
 	/*
 	 * ----- Quantum interval start event related fields
@@ -732,6 +737,53 @@ typedef enum
 } as_clustering_sys_state;
 
 /**
+ * Type of quantum interval fault. Ensure the vtable in quantum iterval table is
+ * updated for each type.
+ */
+typedef enum as_clustering_quantum_fault_type_e
+{
+	/**
+	 * A new node arrived.
+	 */
+	QUANTUM_FAULT_NODE_ARRIVED,
+
+	/**
+	 * A node not our principal departed from the cluster.
+	 */
+	QUANTUM_FAULT_NODE_DEPARTED,
+
+	/**
+	 * We are in a cluster and out principal departed.
+	 */
+	QUANTUM_FAULT_PRINCIPAL_DEPARTED,
+
+	/**
+	 * A member node's adjacency list has changed.
+	 */
+	QUANTUM_FAULT_PEER_ADJACENCY_CHANGED,
+
+	/**
+	 * Join request accepted.
+	 */
+	QUANTUM_FAULT_JOIN_ACCEPTED,
+
+	/**
+	 * We have seen a principal who might send us a merge request.
+	 */
+	QUANTUM_FAULT_INBOUND_MERGE_CANDIDATE_SEEN,
+
+	/**
+	 * A node in our cluster has been orphaned.
+	 */
+	QUANTUM_FAULT_CLUSTER_MEMBER_ORPHANED,
+
+	/**
+	 * Sentinel value. Should be the last in the enum.
+	 */
+	QUANTUM_FAULT_TYPE_SENTINEL
+} as_clustering_quantum_fault_type;
+
+/**
  * Fault information for for first fault event detected in a quantum interval.
  */
 typedef struct as_clustering_quantum_fault_s
@@ -741,7 +793,35 @@ typedef struct as_clustering_quantum_fault_s
 	 * monotonic clock. Should be initialized to zero at quantum start / end.
 	 */
 	cf_clock event_ts;
+
+	/**
+	 * Last time the fault event was detected in current quantum based on
+	 * monotonic clock. Should be initialized to zero at quantum start / end.
+	 */
+	cf_clock last_event_ts;
 } as_clustering_quantum_fault;
+
+/**
+ * Function to determine the minimum wait time after given fault happens.
+ */
+typedef uint32_t
+(as_clustering_quantum_fault_wait_fn)(as_clustering_quantum_fault* fault);
+
+/**
+ * Vtable for different types of faults.
+ */
+typedef struct as_clustering_quantum_fault_vtable_s
+{
+	/**
+	 * String used to log this fault type.
+	 */
+	char *fault_log_str;
+
+	/**
+	 * Function providing the wait time for this fault type.
+	 */
+	as_clustering_quantum_fault_wait_fn* wait_fn;
+} as_clustering_quantum_fault_vtable;
 
 /**
  * Generates quantum intervals.
@@ -749,24 +829,30 @@ typedef struct as_clustering_quantum_fault_s
 typedef struct as_clustering_quantum_interval_generator_s
 {
 	/**
-	 * Consider change to neighboring cluster as a quantum interval fault.
+	 * Quantum interval fault vtable.
 	 */
-	as_clustering_quantum_fault adjacency_fault;
+	as_clustering_quantum_fault_vtable vtable[QUANTUM_FAULT_TYPE_SENTINEL];
 
 	/**
-	 * Consider change to neighboring cluster as a quantum interval fault.
+	 * Quantum interval faults.
 	 */
-	as_clustering_quantum_fault neighboring_fault;
-
-	/**
-	 * Consider join request as a fault event.
-	 */
-	as_clustering_quantum_fault join_request_fault;
+	as_clustering_quantum_fault fault[QUANTUM_FAULT_TYPE_SENTINEL];
 
 	/**
 	 * Time quantum interval last started.
 	 */
 	cf_clock last_quantum_start_time;
+
+	/**
+	 * For quantum interval being skippable respect the last quantum interval
+	 * since quantum_interval() will be affected by changes to hb config.
+	 */
+	uint32_t last_quantum_interval;
+
+	/**
+	 * Indicates if current quantum interval should be postponed.
+	 */
+	bool is_interval_postponed;
 } as_clustering_quantum_interval_generator;
 
 /**
@@ -778,16 +864,6 @@ typedef enum
 	 * The register contents are in synced with all cluster members.
 	 */
 	AS_CLUSTERING_REGISTER_STATE_SYNCED,
-
-	/**
-	 * The register contents have changed and may not be in sync with other
-	 * cluster members. This is a small wait state before sending the change
-	 * applied messages. The wait state waits for the learn message to propagate
-	 * to all cluster members before sending the change applied message. There
-	 * is no guarantee that this will indeed happen. If it does not retries,
-	 * will still achieve the sync.
-	 */
-	AS_CLUSTERING_REGISTER_STATE_SYNC_WAIT,
 
 	/**
 	 * The register contents are being synced with other cluster members.
@@ -816,6 +892,12 @@ typedef struct as_clustering_register_s
 	cf_vector succession_list;
 
 	/**
+	 * Indicates if this node has transitioned to orphan state after being in a
+	 * valid cluster.
+	 */
+	bool has_orphan_transitioned;
+
+	/**
 	 * The sequence number for the current cluster.
 	 */
 	as_paxos_sequence_number sequence_number;
@@ -824,6 +906,29 @@ typedef struct as_clustering_register_s
 	 * Nodes pending sync.
 	 */
 	cf_vector sync_pending;
+
+	/**
+	 * Nodes that send a sync applied for an unexpected cluster. Store it in
+	 * case this is an imminent cluster change we will see in the future. All
+	 * the nodes in this vector have sent the same cluster key and the same
+	 * succession list.
+	 */
+	cf_vector ooo_change_applied_received;
+
+	/**
+	 * Cluster key sent by nodes in ooo_change_applied_received vector.
+	 */
+	as_cluster_key ooo_cluster_key;
+
+	/**
+	 * Succession sent by nodes in ooo_change_applied_received vector.
+	 */
+	cf_vector ooo_succession_list;
+
+	/**
+	 * Timestamp of the first ooo change applied message.
+	 */
+	as_hlc_timestamp ooo_hlc_timestamp;
 
 	/**
 	 * The time cluster last changed.
@@ -839,11 +944,6 @@ typedef struct as_clustering_register_s
 	 * The last time the register sync was checked in the syncing state.
 	 */
 	cf_clock last_sync_check_time;
-
-	/**
-	 * Monotonic timestamp for snc wait state.
-	 */
-	cf_clock sync_wait_start_time;
 } as_clustering_register;
 
 /**
@@ -1018,6 +1118,8 @@ static bool
 clustering_is_our_principal(cf_node nodeid);
 static bool
 clustering_is_principal();
+static bool
+clustering_is_cluster_member(cf_node nodeid);
 
 /*
  * ----------------------------------------------------------------------------
@@ -1095,16 +1197,6 @@ register_sync_check_interval()
 }
 
 /**
- * Wait interval before starting the register sync, to give the paxos learn
- * message to propagate.
- */
-static uint32_t
-register_sync_wait_interval()
-{
-	return MAX(network_rtt_max(), timer_tick_interval());
-}
-
-/**
  * Timeout for a join request, should definitely be larger than a quantum
  * interval to prevent the requesting node from making new requests before the
  * current requested principal node can finish the paxos round.
@@ -1128,7 +1220,7 @@ join_request_timeout()
 static uint32_t
 join_request_retransmit_timeout()
 {
-	return (uint32_t)(quantum_interval() / 2);
+	return (uint32_t)(MIN(as_hb_tx_interval_get() / 2, quantum_interval() / 2));
 }
 
 /**
@@ -1138,27 +1230,6 @@ static uint32_t
 join_cluster_check_interval()
 {
 	return timer_tick_interval();
-}
-
-/**
- * The amount of time to wait for further join requests from nodes all resulting
- * from the same underlying fault event.
- * Wait for the join check interval + one network latency interval for all
- * affected nodes to send us a join requets + two hb tx intervals - so that we
- * see the hb data change as well.
- */
-static uint32_t
-join_fault_wait_interval()
-{
-	// If the join request falls in the second half of the qunatum interval then
-	// it will result in a push forward, else it will not push the quantum
-	// interval forward.
-	// This is likely in the cluster merge cases where the join request will
-	// happen much later than the node arrival, because merge join request are
-	// sent only at quantum interval starts.
-	return MAX(quantum_interval() / 2,
-			join_cluster_check_interval() + network_latency_max()
-					+ (2 * as_hb_tx_interval_get()));
 }
 
 /**
@@ -1214,7 +1285,7 @@ paxos_proposal_timeout()
 static uint32_t
 paxos_msg_timeout()
 {
-	return MAX(MAX(quantum_interval() / 4, 150), network_rtt_max());
+	return MAX(MIN(quantum_interval() / 4, 100), network_rtt_max());
 }
 
 /**
@@ -1243,9 +1314,8 @@ clustering_orphan_timeout()
  * Allocate a buffer on stack if possible. Larger buffers are heap allocated to
  * prevent stack overflows.
  */
-#define BUFFER_ALLOC_OR_DIE(size) (							\
-		((size) > STACK_ALLOC_LIMIT()) ?					\
-				cf_malloc(size) : alloca(size))
+#define BUFFER_ALLOC_OR_DIE(size)									\
+(((size) > STACK_ALLOC_LIMIT()) ? cf_malloc(size) : alloca(size))
 
 /**
  * Free the buffer allocated by BUFFER_ALLOC
@@ -1278,32 +1348,6 @@ if (((size) > STACK_ALLOC_LIMIT()) && buffer) {cf_free(buffer);}
 #endif
 
 #define CF_TRACE CF_FAULT_SEVERITY_UNDEF
-
-#define LOG(severity, context, format, ...)				\
-({														\
-	switch (severity) {									\
-	case CF_CRITICAL:									\
-		cf_crash(context, format, ##__VA_ARGS__);		\
-		break;											\
-	case CF_WARNING:									\
-		cf_warning(context, format, ##__VA_ARGS__);		\
-		break;											\
-	case CF_INFO:										\
-		cf_info(context, format, ##__VA_ARGS__);		\
-		break;											\
-	case CF_DEBUG:										\
-		cf_debug(context, format, ##__VA_ARGS__);		\
-		break;											\
-	case CF_DETAIL:										\
-		cf_detail(context, format, ##__VA_ARGS__);		\
-		break;											\
-	case CF_TRACE:										\
-		TRACE_LOG(context, format, ##__VA_ARGS__);		\
-		break;											\
-	default:											\
-		break;											\
-	}													\
-})
 
 #define ASSERT(expression, message, ...)				\
 if (!(expression)) {WARNING(message, ##__VA_ARGS__);}
@@ -1692,15 +1736,23 @@ static as_clustering_quantum_interval_generator g_quantum_interval_generator;
 /**
  * Message template for heart beat messages.
  */
-static msg_template g_clustering_msg_template[] = { {
-	AS_CLUSTERING_MSG_ID,
-	M_FT_UINT32 }, { AS_CLUSTERING_MSG_TYPE, M_FT_UINT32 }, {
-	AS_CLUSTERING_MSG_HLC_TIMESTAMP,
-	M_FT_UINT64 }, { AS_CLUSTERING_MSG_SEQUENCE_NUMBER, M_FT_UINT64 }, {
-	AS_CLUSTERING_MSG_CLUSTER_KEY,
-	M_FT_UINT64 }, { AS_CLUSTERING_MSG_SUCCESSION_LIST, M_FT_BUF }, {
-	AS_CLUSTERING_MSG_PROPOSED_PRINCIPAL,
-	M_FT_UINT64 } };
+static msg_template g_clustering_msg_template[] = {
+
+{ AS_CLUSTERING_MSG_ID, M_FT_UINT32 },
+
+{ AS_CLUSTERING_MSG_TYPE, M_FT_UINT32 },
+
+{ AS_CLUSTERING_MSG_HLC_TIMESTAMP, M_FT_UINT64 },
+
+{ AS_CLUSTERING_MSG_SEQUENCE_NUMBER, M_FT_UINT64 },
+
+{ AS_CLUSTERING_MSG_CLUSTER_KEY, M_FT_UINT64 },
+
+{ AS_CLUSTERING_MSG_SUCCESSION_LIST, M_FT_BUF },
+
+{ AS_CLUSTERING_MSG_PROPOSED_PRINCIPAL, M_FT_UINT64 }
+
+};
 
 /*
  * ----------------------------------------------------------------------------
@@ -2406,6 +2458,123 @@ clustering_hb_succession_list_matches(cf_node* succession_list,
  */
 
 /**
+ * Time taken for the effect of a fault to get propogated via HB.
+ */
+static uint32_t
+quantum_interval_hb_fault_comm_delay()
+{
+	return as_hb_tx_interval_get() + network_latency_max();
+}
+
+/**
+ * Quantum wait time after node arrived event.
+ */
+static uint32_t
+quantum_interval_node_arrived_wait_time(as_clustering_quantum_fault* fault)
+{
+	return MIN(quantum_interval(),
+			(fault->last_event_ts - fault->event_ts) / 2
+					+ 2 * quantum_interval_hb_fault_comm_delay()
+					+ quantum_interval() / 2);
+}
+
+/**
+ * Quantum wait time after node departs.
+ */
+static uint32_t
+quantum_interval_node_departed_wait_time(as_clustering_quantum_fault* fault)
+{
+	return MIN(quantum_interval(),
+			as_hb_node_timeout_get()
+					+ 2 * quantum_interval_hb_fault_comm_delay()
+					+ quantum_interval() / 4);
+}
+
+/**
+ * Quantum wait time after a peer nodes adjacency changed.
+ */
+static uint32_t
+quantum_interval_peer_adjacency_changed_wait_time(
+		as_clustering_quantum_fault* fault)
+{
+	return MIN(quantum_interval(), quantum_interval_hb_fault_comm_delay());
+}
+
+/**
+ * Quantum wait time after accepting a join request.
+ */
+static uint32_t
+quantum_interval_join_accepted_wait_time(as_clustering_quantum_fault* fault)
+{
+	// Ensure we wait for atleast one heartbeat interval to receive the latest
+	// heartbeat after the last join request and for other nodes to send their
+	// join requests as well.
+	return MIN(quantum_interval(),
+			(fault->last_event_ts - fault->event_ts)
+					+ join_cluster_check_interval() + network_latency_max()
+					+ as_hb_tx_interval_get());
+}
+
+/**
+ * Quantum wait time after principal node departs.
+ */
+static uint32_t
+quantum_interval_principal_departed_wait_time(
+		as_clustering_quantum_fault* fault)
+{
+	// Anticipate an incoming join request from other orphaned cluster members.
+	return MIN(quantum_interval(),
+			as_hb_node_timeout_get()
+					+ 2 * quantum_interval_hb_fault_comm_delay()
+					+ MAX(quantum_interval() / 4,
+							quantum_interval_join_accepted_wait_time(fault)));
+}
+
+/**
+ * Quantum wait time after seeing a cluster that might send us a join request.
+ */
+static uint32_t
+quantum_interval_inbound_merge_candidate_wait_time(
+		as_clustering_quantum_fault* fault)
+{
+	return quantum_interval();
+}
+
+/**
+ * Quantum wait time after a cluster member has been orphaned.
+ */
+static uint32_t
+quantum_interval_member_orphaned_wait_time(as_clustering_quantum_fault* fault)
+{
+	return quantum_interval();
+}
+
+/**
+ * Marks the current quantum interval as skipped. A kludge to allow quantum to
+ * allow quantum interval generator to mark quantum intervals as postponed.
+ */
+static void
+quantum_interval_mark_postponed()
+{
+	CLUSTERING_LOCK();
+	g_quantum_interval_generator.is_interval_postponed = true;
+	CLUSTERING_UNLOCK();
+}
+
+/**
+ * Update the vtable for a fault.
+ */
+static void
+quantum_interval_vtable_update(as_clustering_quantum_fault_type type,
+		char *fault_log_str, as_clustering_quantum_fault_wait_fn wait_fn)
+{
+	CLUSTERING_LOCK();
+	g_quantum_interval_generator.vtable[type].fault_log_str = fault_log_str;
+	g_quantum_interval_generator.vtable[type].wait_fn = wait_fn;
+	CLUSTERING_UNLOCK();
+}
+
+/**
  * Initialize quantum interval generator.
  */
 static void
@@ -2414,33 +2583,28 @@ quantum_interval_generator_init()
 	CLUSTERING_LOCK();
 	memset(&g_quantum_interval_generator, 0,
 			sizeof(g_quantum_interval_generator));
-	CLUSTERING_UNLOCK();
-}
-
-/**
- * Start quantum interval generator.
- */
-static void
-quantum_interval_generator_start()
-{
-	CLUSTERING_LOCK();
 	g_quantum_interval_generator.last_quantum_start_time = cf_getms();
-	CLUSTERING_UNLOCK();
-}
+	g_quantum_interval_generator.last_quantum_interval = quantum_interval();
 
-/**
- * Reset the state for the next quantum interval.
- */
-static void
-quantum_interval_generator_reset()
-{
-	CLUSTERING_LOCK();
-	memset(&g_quantum_interval_generator.join_request_fault, 0,
-			sizeof(g_quantum_interval_generator.join_request_fault));
-	memset(&g_quantum_interval_generator.adjacency_fault, 0,
-			sizeof(g_quantum_interval_generator.adjacency_fault));
-	memset(&g_quantum_interval_generator.neighboring_fault, 0,
-			sizeof(g_quantum_interval_generator.neighboring_fault));
+	// Initialize the vtable.
+	quantum_interval_vtable_update(QUANTUM_FAULT_NODE_ARRIVED, "node arrived",
+			quantum_interval_node_arrived_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_NODE_DEPARTED, "node departed",
+			quantum_interval_node_departed_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_PRINCIPAL_DEPARTED,
+			"principal departed",
+			quantum_interval_principal_departed_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_PEER_ADJACENCY_CHANGED,
+			"peer adjacency changed",
+			quantum_interval_peer_adjacency_changed_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_JOIN_ACCEPTED,
+			"join request accepted", quantum_interval_join_accepted_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_INBOUND_MERGE_CANDIDATE_SEEN,
+			"merge candidate seen",
+			quantum_interval_inbound_merge_candidate_wait_time);
+	quantum_interval_vtable_update(QUANTUM_FAULT_CLUSTER_MEMBER_ORPHANED,
+			"member orphaned", quantum_interval_member_orphaned_wait_time);
+
 	CLUSTERING_UNLOCK();
 }
 
@@ -2457,41 +2621,99 @@ static cf_clock
 quantum_interval_earliest_start_time()
 {
 	CLUSTERING_LOCK();
+	cf_clock fault_event_time = 0;
+	for (int i = 0; i < QUANTUM_FAULT_TYPE_SENTINEL; i++) {
+		if (g_quantum_interval_generator.fault[i].event_ts) {
+			fault_event_time = MAX(fault_event_time,
+					g_quantum_interval_generator.fault[i].event_ts
+							+ g_quantum_interval_generator.vtable[i].wait_fn(
+									&g_quantum_interval_generator.fault[i]));
+		}
 
-	// Push the quantum interval for a smaller amount for join requests.
-	// These are a result of other fault events. The idea is to wait for any
-	// furtuer join requests.
-	cf_clock fault_event_time =
-			g_quantum_interval_generator.join_request_fault.event_ts ?
-					g_quantum_interval_generator.join_request_fault.event_ts
-							+ join_fault_wait_interval() : 0;
+		TRACE("Fault:%s event_ts:%"PRIu64,
+				g_quantum_interval_generator.vtable[i].fault_log_str,
+				g_quantum_interval_generator.fault[i].event_ts);
+	}
 
-	// For change in adjacency push forward by an entire interval.
-	fault_event_time = MAX(fault_event_time,
-			g_quantum_interval_generator.adjacency_fault.event_ts ?
-					g_quantum_interval_generator.adjacency_fault.event_ts
-							+ quantum_interval() : 0);
+	TRACE("Last Quantum interval:%"PRIu64,
+			g_quantum_interval_generator.last_quantum_start_time);
 
-	// For change in neighboring clusters push forward by an entire interval.
-	fault_event_time = MAX(fault_event_time,
-			g_quantum_interval_generator.neighboring_fault.event_ts ?
-					g_quantum_interval_generator.neighboring_fault.event_ts
-							+ quantum_interval() : 0);
-
-	cf_clock start_time = MAX(
-			g_quantum_interval_generator.last_quantum_start_time
-					+ quantum_interval(), fault_event_time);
-
-	TRACE(
-			"quantum fault times j:%lu, a:%lu n:%lu l:%lu - starting quantum at:%lu",
-			g_quantum_interval_generator.join_request_fault.event_ts,
-			g_quantum_interval_generator.adjacency_fault.event_ts,
-			g_quantum_interval_generator.neighboring_fault.event_ts,
-			g_quantum_interval_generator.last_quantum_start_time, start_time);
-
+	cf_clock start_time = g_quantum_interval_generator.last_quantum_start_time
+			+ quantum_interval();
+	if (fault_event_time) {
+		// Ensure we have at least 1/2 quantum interval of separation between
+		// quantum intervals to give chance to multiple fault events that  are
+		// resonably close in time.
+		start_time = MAX(
+				g_quantum_interval_generator.last_quantum_start_time
+						+ quantum_interval() / 2, fault_event_time);
+	}
 	CLUSTERING_UNLOCK();
 
 	return start_time;
+}
+
+/**
+ * Reset quantum interval fault.
+ * @param fault_type the fault type.
+ */
+static void
+quantum_interval_fault_reset(as_clustering_quantum_fault_type fault_type)
+{
+	CLUSTERING_LOCK();
+	memset(&g_quantum_interval_generator.fault[fault_type], 0,
+			sizeof(g_quantum_interval_generator.fault[fault_type]));
+	CLUSTERING_UNLOCK();
+}
+
+/**
+ * Update a fault event based on the current fault ts.
+ * @param fault the fault to update.
+ * @param fault_ts the new fault timestamp
+ * @param src_nodeid the fault causing nodeid, 0 if the nodeid is not known.
+ */
+static void
+quantum_interval_fault_update(as_clustering_quantum_fault_type fault_type,
+		cf_clock fault_ts, cf_node src_nodeid)
+{
+	CLUSTERING_LOCK();
+	as_clustering_quantum_fault* fault =
+			&g_quantum_interval_generator.fault[fault_type];
+	if (fault->event_ts == 0
+			|| fault_ts - fault->event_ts > quantum_interval() / 2) {
+		// Fault event detected first time in this quantum or we are seeing the
+		// effect of a different event more than half quantum apart.
+		fault->event_ts = fault_ts;
+		DETAIL("updated '%s' fault with ts %"PRIu64" for node %"PRIx64,
+				g_quantum_interval_generator.vtable[fault_type].fault_log_str, fault_ts, src_nodeid);
+	}
+
+	fault->last_event_ts = fault_ts;
+	CLUSTERING_UNLOCK();
+}
+
+/**
+ * Reset the state for the next quantum interval.
+ */
+static void
+quantum_interval_generator_reset(cf_clock last_quantum_start_time)
+{
+	CLUSTERING_LOCK();
+	if (!g_quantum_interval_generator.is_interval_postponed) {
+		// Update last quantum interval.
+		g_quantum_interval_generator.last_quantum_interval = MAX(0,
+				last_quantum_start_time
+						- g_quantum_interval_generator.last_quantum_start_time);
+
+		g_quantum_interval_generator.last_quantum_start_time =
+				last_quantum_start_time;
+		for (int i = 0; i < QUANTUM_FAULT_TYPE_SENTINEL; i++) {
+			quantum_interval_fault_reset(i);
+		}
+	}
+	g_quantum_interval_generator.is_interval_postponed = false;
+
+	CLUSTERING_UNLOCK();
 }
 
 /**
@@ -2507,17 +2729,27 @@ quantum_interval_generator_timer_event_handle(
 	cf_clock earliest_quantum_start_time =
 			quantum_interval_earliest_start_time();
 
+	cf_clock expected_quantum_start_time =
+			g_quantum_interval_generator.last_quantum_start_time
+					+ g_quantum_interval_generator.last_quantum_interval;
+
+	// Provide a buffer for current quantum interval to finish gracefully as
+	// long as it is less than half a quantum interval.
+	cf_clock quantum_wait_buffer = MIN(
+			earliest_quantum_start_time > expected_quantum_start_time ?
+					earliest_quantum_start_time - expected_quantum_start_time :
+					0, g_quantum_interval_generator.last_quantum_interval / 2);
+
 	// Fire quantum interval start event if it is time, or if we have skipped
 	// quantum interval start for more that the max skip number of intervals.
+	// Add a buffer of wait time to ensure we wait a bit more if we can cover
+	// the waiting time.
 	bool is_skippable = g_quantum_interval_generator.last_quantum_start_time
-			+ (quantum_interval_skip_max() + 1) * quantum_interval() > now;
+			+ (quantum_interval_skip_max() + 1)
+					* g_quantum_interval_generator.last_quantum_interval
+			+ quantum_wait_buffer > now;
 	bool fire_quantum_event = earliest_quantum_start_time <= now
 			|| !is_skippable;
-
-	if (fire_quantum_event) {
-		// Update the last quantum event start time.
-		g_quantum_interval_generator.last_quantum_start_time = now;
-	}
 	CLUSTERING_UNLOCK();
 
 	if (fire_quantum_event) {
@@ -2528,26 +2760,7 @@ quantum_interval_generator_timer_event_handle(
 		internal_event_dispatch(&timer_event);
 
 		// Reset for next interval generation.
-		quantum_interval_generator_reset();
-	}
-}
-
-/**
- * Update a fault event based on the current fault ts.
- * @param fault the fault to update.
- * @param fault_ts the new fault timestamp
- * @param src_nodeid the fault causing nodeid, 0 if the nodeid is not known.
- * @param fault_name for debug logging.
- */
-static void
-quantum_interval_fault_update(as_clustering_quantum_fault* fault,
-		cf_clock fault_ts, cf_node src_nodeid, char* fault_name)
-{
-	if (fault->event_ts == 0) {
-		// Fault event detected first time in this quantum
-		fault->event_ts = fault_ts;
-		DETAIL("updated '%s' fault with ts to %"PRIu64" for node %"PRIx64,
-				fault_name, fault_ts, src_nodeid);
+		quantum_interval_generator_reset(now);
 	}
 }
 
@@ -2561,8 +2774,27 @@ static bool
 quantum_interval_is_adjacency_fault_seen()
 {
 	CLUSTERING_LOCK();
-	bool is_fault_seen = g_quantum_interval_generator.adjacency_fault.event_ts
-			!= 0;
+	bool is_fault_seen =
+			g_quantum_interval_generator.fault[QUANTUM_FAULT_NODE_ARRIVED].event_ts
+					|| g_quantum_interval_generator.fault[QUANTUM_FAULT_NODE_DEPARTED].event_ts
+					|| g_quantum_interval_generator.fault[QUANTUM_FAULT_PRINCIPAL_DEPARTED].event_ts;
+	CLUSTERING_UNLOCK();
+	return is_fault_seen;
+}
+
+/**
+ * Check if the interval generator has seen a peer node adjacency changed fault
+ * in current quantum interval.
+ * @return true if the quantum interval generator has seen a peer node adjacency
+ * changed fault,
+ * false otherwise.
+ */
+static bool
+quantum_interval_is_peer_adjacency_fault_seen()
+{
+	CLUSTERING_LOCK();
+	bool is_fault_seen =
+			g_quantum_interval_generator.fault[QUANTUM_FAULT_PEER_ADJACENCY_CHANGED].event_ts;
 	CLUSTERING_UNLOCK();
 	return is_fault_seen;
 }
@@ -2577,23 +2809,51 @@ quantum_interval_generator_hb_event_handle(
 {
 	CLUSTERING_LOCK();
 
-	cf_clock min_event_time = 0;
-	cf_node min_event_node = 0;
+	cf_clock min_event_time[AS_HB_NODE_EVENT_SENTINEL];
+	cf_clock min_event_node[AS_HB_NODE_EVENT_SENTINEL];
 
+	memset(min_event_time, 0, sizeof(min_event_time));
+	memset(min_event_node, 0, sizeof(min_event_node));
+
+	as_hb_event_node* events = hb_event->hb_events;
 	for (int i = 0; i < hb_event->hb_n_events; i++) {
-		if (min_event_time == 0
-				|| min_event_time > hb_event->hb_events[i].event_time) {
-			min_event_time = hb_event->hb_events[i].event_time;
-			min_event_node = hb_event->hb_events[i].nodeid;
+		if (min_event_time[events[i].evt] == 0
+				|| min_event_time[events[i].evt] > events[i].event_time) {
+			min_event_time[events[i].evt] = events[i].event_time;
+			min_event_node[events[i].evt] = events[i].nodeid;
+		}
+
+		if (events[i].evt == AS_HB_NODE_DEPART
+				&& clustering_is_our_principal(events[i].nodeid)) {
+			quantum_interval_fault_update(QUANTUM_FAULT_PRINCIPAL_DEPARTED,
+					events[i].event_time, events[i].nodeid);
 		}
 	}
 
-	if (min_event_time > 0) {
-		quantum_interval_fault_update(
-				&g_quantum_interval_generator.adjacency_fault, min_event_time,
-				min_event_node, "adjacency changed");
-	}
+	for (int i = 0; i < AS_HB_NODE_EVENT_SENTINEL; i++) {
+		if (min_event_time[i]) {
+			switch (i) {
+			case AS_HB_NODE_ARRIVE:
+				quantum_interval_fault_update(QUANTUM_FAULT_NODE_ARRIVED,
+						min_event_time[i], min_event_node[i]);
+				break;
+			case AS_HB_NODE_DEPART:
+				quantum_interval_fault_update(QUANTUM_FAULT_NODE_DEPARTED,
+						min_event_time[i], min_event_node[i]);
+				break;
+			case AS_HB_NODE_ADJACENCY_CHANGED:
+				if (clustering_is_cluster_member(min_event_node[i])) {
+					quantum_interval_fault_update(
+							QUANTUM_FAULT_PEER_ADJACENCY_CHANGED,
+							min_event_time[i], min_event_node[i]);
+				}
+				break;
+			default:
+				break;
+			}
 
+		}
+	}
 	CLUSTERING_UNLOCK();
 }
 
@@ -2628,12 +2888,30 @@ quantum_interval_generator_hb_plugin_data_changed_handle(
 					change_event->plugin_data->data,
 					change_event->plugin_data->data_size);
 
-	bool neighboring_cluster_changed = false;
-
 	if (*succession_list_length_p > 0
-			&& !clustering_is_our_principal(succession_list_p[0])) {
-		// We are seeing a new principal.
-		neighboring_cluster_changed = true;
+			&& !clustering_is_our_principal(succession_list_p[0])
+			&& clustering_is_principal()) {
+		if (succession_list_p[0] < config_self_nodeid_get()) {
+			// We are seeing a new principal who could potentially merge with
+			// this cluster.
+			if (g_quantum_interval_generator.fault[QUANTUM_FAULT_INBOUND_MERGE_CANDIDATE_SEEN].event_ts
+					!= 1) {
+				quantum_interval_fault_update(
+						QUANTUM_FAULT_INBOUND_MERGE_CANDIDATE_SEEN, cf_getms(),
+						change_event->plugin_data_changed_nodeid);
+			}
+		}
+		else {
+			// We see a cluster with higher nodeid and most probably we will not
+			// be the principal of the merged cluster. Reset the fault
+			// timestamp, however set it to 1 to differentiate between no fault
+			// and a fault to be ingnored in this quantum interval. A value of 1
+			// for practical purposes will never push the quantum interval
+			// forward.
+			quantum_interval_fault_update(
+					QUANTUM_FAULT_INBOUND_MERGE_CANDIDATE_SEEN, 1,
+					change_event->plugin_data_changed_nodeid);
+		}
 	}
 	else {
 		if (clustering_is_principal() && *succession_list_length_p == 0
@@ -2641,21 +2919,14 @@ quantum_interval_generator_hb_plugin_data_changed_handle(
 						&change_event->plugin_data_changed_nodeid) >= 0) {
 			// One of our cluster members switched to orphan state. Most likely
 			// a quick restart.
-			neighboring_cluster_changed = true;
+			quantum_interval_fault_update(QUANTUM_FAULT_CLUSTER_MEMBER_ORPHANED,
+					cf_getms(), change_event->plugin_data_changed_nodeid);
 		}
 		else {
 			// A node becoming an orphan node or seeing a succession with our
 			// principal does not mean we have seen a new cluster.
 		}
 	}
-
-	if (neighboring_cluster_changed) {
-		quantum_interval_fault_update(
-				&g_quantum_interval_generator.neighboring_fault, cf_getms(),
-				change_event->plugin_data_changed_nodeid,
-				"neighboring cluster changed");
-	}
-
 Exit:
 	CLUSTERING_UNLOCK();
 }
@@ -2668,14 +2939,8 @@ static void
 quantum_interval_generator_join_request_accepted_handle(
 		as_clustering_internal_event* join_request_event)
 {
-	CLUSTERING_LOCK();
-
-	quantum_interval_fault_update(
-			&g_quantum_interval_generator.join_request_fault, cf_getms(),
-			join_request_event->join_request_source_nodeid,
-			"join reqest received");
-
-	CLUSTERING_UNLOCK();
+	quantum_interval_fault_update(QUANTUM_FAULT_JOIN_ACCEPTED, cf_getms(),
+			join_request_event->join_request_source_nodeid);
 }
 
 /**
@@ -2700,6 +2965,17 @@ quantum_interval_generator_event_dispatch(as_clustering_internal_event* event)
 	default:
 		break;
 	}
+}
+
+/**
+ * Start quantum interval generator.
+ */
+static void
+quantum_interval_generator_start()
+{
+	CLUSTERING_LOCK();
+	g_quantum_interval_generator.last_quantum_start_time = cf_getms();
+	CLUSTERING_UNLOCK();
 }
 
 /*
@@ -2817,6 +3093,18 @@ clustering_is_our_principal(cf_node nodeid)
 	CLUSTERING_UNLOCK();
 
 	return is_principal;
+}
+
+/**
+ * Indicates if a node is our cluster member.
+ */
+static bool
+clustering_is_cluster_member(cf_node nodeid)
+{
+	CLUSTERING_LOCK();
+	bool is_member = vector_find(&g_register.succession_list, &nodeid) >= 0;
+	CLUSTERING_UNLOCK();
+	return is_member;
 }
 
 /**
@@ -2942,63 +3230,6 @@ clustering_dead_nodes_find(cf_vector* dead_nodes)
 	}
 
 	CLUSTERING_UNLOCK();
-}
-
-/**
- * Indicates if a node is an orphan.
- */
-static bool
-clustering_node_is_orphan(cf_node nodeid)
-{
-	if (nodeid == config_self_nodeid_get()) {
-		return clustering_is_orphan();
-	}
-
-	CLUSTERING_LOCK();
-	bool is_orphan = false;
-	as_hlc_msg_timestamp hb_msg_hlc_ts;
-	cf_clock msg_recv_ts = 0;
-	as_hb_plugin_node_data plugin_data = { 0 };
-	if (clustering_hb_plugin_data_get(nodeid, &plugin_data, &hb_msg_hlc_ts,
-			&msg_recv_ts) != 0
-			|| clustering_hb_plugin_data_is_obsolete(
-					g_register.cluster_modified_hlc_ts,
-					g_register.cluster_modified_time, plugin_data.data,
-					plugin_data.data_size, msg_recv_ts, &hb_msg_hlc_ts)) {
-		INFO(
-				"orphan check skipped - found obsolete plugin data for node %"PRIx64,
-				nodeid);
-		is_orphan = false;
-		goto Exit;
-	}
-
-	// We have clustering data from the node after the current cluster change.
-	// Check protocol identifier.
-	as_cluster_proto_identifier* proto_p = clustering_hb_plugin_proto_get(
-			plugin_data.data, plugin_data.data_size);
-
-	if (proto_p == NULL
-			|| !clustering_versions_are_compatible(*proto_p,
-					clustering_protocol_identifier_get())) {
-		DEBUG("for node %"PRIx64" protocol version mismatch - expected: %"PRIx32" but was : %"PRIx32,
-				nodeid, clustering_protocol_identifier_get(),
-				proto_p != NULL ? *proto_p : 0);
-		is_orphan = false;
-		goto Exit;
-	}
-
-	as_cluster_key* cluster_key_p = clustering_hb_plugin_cluster_key_get(
-			plugin_data.data, plugin_data.data_size);
-	if (cluster_key_p == NULL || *cluster_key_p == 0) {
-		DEBUG("for node %"PRIx64" cluster key mismatch - expected: %"PRIx64" but was : %"PRIx64,
-				nodeid, g_register.cluster_key, cluster_key_p != NULL ? *cluster_key_p : 0);
-		is_orphan = true;
-		goto Exit;
-	}
-
-Exit:
-	CLUSTERING_UNLOCK();
-	return is_orphan;
 }
 
 /**
@@ -3299,22 +3530,23 @@ clustering_neighboring_nodes_get(cf_vector* neighboring_nodes)
 /**
  * Evict nodes not forming a clique from the succession list.
  */
-static void
+static uint32_t
 clustering_succession_list_clique_evict(cf_vector* succession_list,
 		char* evict_msg)
 {
+	uint32_t num_evicted = 0;
 	if (g_config.clustering_config.clique_based_eviction_enabled) {
 		// Remove nodes that do not form a clique.
 		cf_vector* evicted_nodes = vector_stack_lockless_create(cf_node);
 		as_hb_maximal_clique_evict(succession_list, evicted_nodes);
-
+		num_evicted = cf_vector_size(evicted_nodes);
 		log_cf_node_vector(evict_msg, evicted_nodes,
-				cf_vector_size(evicted_nodes) > 0 ? CF_INFO : CF_DEBUG);
+				num_evicted > 0 ? CF_INFO : CF_DEBUG);
 
 		vector_subtract(succession_list, evicted_nodes);
-
 		cf_vector_destroy(evicted_nodes);
 	}
+	return num_evicted;
 }
 
 /*
@@ -3474,6 +3706,22 @@ msg_sequence_number_get(msg* msg, as_paxos_sequence_number* sequence_number)
 }
 
 /**
+ * Set the cluster key for an outgoing message field.
+ * @param msg the outgoing message.
+ * @param cluster_key the cluster key to set.
+ * @param field the field to set the cluster key to.
+ */
+static void
+msg_cluster_key_field_set(msg* msg, as_cluster_key cluster_key,
+		as_clustering_msg_field field)
+{
+	// Set the cluster key.
+	if (msg_set_uint64(msg, field, cluster_key) != 0) {
+		CRASH("error setting cluster key on msg");
+	}
+}
+
+/**
  * Set the cluster key for an outgoing message.
  * @param msg the outgoing message.
  * @param cluster_key the cluster key to set.
@@ -3481,10 +3729,25 @@ msg_sequence_number_get(msg* msg, as_paxos_sequence_number* sequence_number)
 static void
 msg_cluster_key_set(msg* msg, as_cluster_key cluster_key)
 {
-	// Set the message type.
-	if (msg_set_uint64(msg, AS_CLUSTERING_MSG_CLUSTER_KEY, cluster_key) != 0) {
-		CRASH("error setting cluster key on msg");
+	msg_cluster_key_field_set(msg, cluster_key, AS_CLUSTERING_MSG_CLUSTER_KEY);
+}
+
+/**
+ * Read cluster key from a message field.
+ * @param msg the incoming message.
+ * @param cluster_key the output cluster key.
+ * @param field the field to set the cluster key to.
+ * @return 0 if the cluster key could be parsed -1 on failure.
+ */
+static int
+msg_cluster_key_field_get(msg* msg, as_cluster_key* cluster_key,
+		as_clustering_msg_field field)
+{
+	if (msg_get_uint64(msg, field, cluster_key) != 0) {
+		return -1;
 	}
+
+	return 0;
 }
 
 /**
@@ -3496,11 +3759,35 @@ msg_cluster_key_set(msg* msg, as_cluster_key cluster_key)
 static int
 msg_cluster_key_get(msg* msg, as_cluster_key* cluster_key)
 {
-	if (msg_get_uint64(msg, AS_CLUSTERING_MSG_CLUSTER_KEY, cluster_key) != 0) {
-		return -1;
+	return msg_cluster_key_field_get(msg, cluster_key,
+			AS_CLUSTERING_MSG_CLUSTER_KEY);
+}
+
+/**
+ * Set the succession list for an outgoing message in a particular field.
+ * @param msg the outgoing message.
+ * @param succession_list the succession list to set.
+ * @param field the field to set for the succession list.
+ */
+static void
+msg_succession_list_field_set(msg* msg, cf_vector* succession_list,
+		as_clustering_msg_field field)
+
+{
+	int num_elements = cf_vector_size(succession_list);
+	size_t buffer_size = num_elements * sizeof(cf_node);
+	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size);
+
+	for (int i = 0; i < num_elements; i++) {
+		cf_vector_get(succession_list, i, &succession_buffer[i]);
 	}
 
-	return 0;
+	if (msg_set_buf(msg, field, (uint8_t*)succession_buffer, buffer_size,
+			MSG_SET_COPY) != 0) {
+		CRASH("error setting succession list on msg");
+	}
+
+	BUFFER_FREE(succession_buffer, buffer_size);
 }
 
 /**
@@ -3519,35 +3806,26 @@ msg_succession_list_set(msg* msg, cf_vector* succession_list)
 		return;
 	}
 
-	size_t buffer_size = num_elements * sizeof(cf_node);
-	cf_node* succession_buffer = (cf_node*)BUFFER_ALLOC_OR_DIE(buffer_size);
-
-	for (int i = 0; i < num_elements; i++) {
-		cf_vector_get(succession_list, i, &succession_buffer[i]);
-	}
-
-	if (msg_set_buf(msg, AS_CLUSTERING_MSG_SUCCESSION_LIST,
-			(uint8_t*)succession_buffer, buffer_size, MSG_SET_COPY) != 0) {
-		CRASH("error setting succession list on msg");
-	}
-
-	BUFFER_FREE(succession_buffer, buffer_size);
+	msg_succession_list_field_set(msg, succession_list,
+			AS_CLUSTERING_MSG_SUCCESSION_LIST);
 }
 
 /**
- * Read succession list from the message.
+ * Read succession list from a message field.
  * @param msg the incoming message.
  * @param succession_list the output succession list.
+ * @param field the field to read from.
  * @return 0 if the succession list could be parsed -1 on failure.
  */
 static int
-msg_succession_list_get(msg* msg, cf_vector* succession_list)
+msg_succession_list_field_get(msg* msg, cf_vector* succession_list,
+		as_clustering_msg_field field)
 {
 	vector_clear(succession_list);
 	cf_node* succession_buffer;
 	size_t buffer_size;
-	if (msg_get_buf(msg, AS_CLUSTERING_MSG_SUCCESSION_LIST,
-			(uint8_t**)&succession_buffer, &buffer_size, MSG_GET_DIRECT) != 0) {
+	if (msg_get_buf(msg, field, (uint8_t**)&succession_buffer, &buffer_size,
+			MSG_GET_DIRECT) != 0) {
 		// Empty succession list should not be allowed.
 		return -1;
 	}
@@ -3562,6 +3840,19 @@ msg_succession_list_get(msg* msg, cf_vector* succession_list)
 	vector_sort_unique(succession_list, clustering_nodeid_comparator_desc);
 
 	return 0;
+}
+
+/**
+ * Read succession list from the message.
+ * @param msg the incoming message.
+ * @param succession_list the output succession list.
+ * @return 0 if the succession list could be parsed -1 on failure.
+ */
+static int
+msg_succession_list_get(msg* msg, cf_vector* succession_list)
+{
+	return msg_succession_list_field_get(msg, succession_list,
+			AS_CLUSTERING_MSG_SUCCESSION_LIST);
 }
 
 /**
@@ -3635,7 +3926,8 @@ msg_is_obsolete(as_hlc_timestamp cluster_modified_hlc_ts,
 	// MSG should be atleast after cluster formation time + one hb interval to
 	// send out our cluster state + one network delay for our information to
 	// reach the remote node + one hb for the other node to send out the his
-	// updated state + one network delay for the updated  state to reach us.
+	// updated state +
+	// one network delay for the updated  state to reach us.
 	if (cluster_modified_time + 2 * as_hb_tx_interval_get()
 			+ 2 * g_config.fabric_latency_max_ms > msg_recv_ts) {
 		return true;
@@ -3777,7 +4069,7 @@ paxos_proposer_dump(bool verbose)
 }
 
 /**
- * Reset state on the completion of a paxos round, successful or otherwise.
+ * Reset state on failure of a paxos round.
  */
 static void
 paxos_proposer_reset()
@@ -3790,6 +4082,7 @@ paxos_proposer_reset()
 
 	g_proposer.proposed_value.cluster_key = 0;
 	vector_clear(&g_proposer.proposed_value.succession_list);
+
 	vector_clear(&g_proposer.acceptors);
 
 	DETAIL("paxos round over for proposal id %"PRIx64":%"PRIu64,
@@ -4031,11 +4324,12 @@ paxos_proposer_success()
 {
 	CLUSTERING_LOCK();
 
-	// Send out learn messages.
-	paxos_proposer_learn_send();
-
 	// Set the proposer to back idle state.
 	g_proposer.state = AS_PAXOS_PROPOSER_STATE_IDLE;
+
+	// Send out learn message and enable retransmits of learn message.
+	g_proposer.learn_retransmit_needed = true;
+	paxos_proposer_learn_send();
 
 	// Retain the sequence_number, cluster key and succession list for
 	// retransmits of the learn message.
@@ -4173,7 +4467,7 @@ Exit:
  * Handle an incoming message.
  */
 static void
-paxos_proposer_msg_event_handle(as_clustering_internal_event *msg_event)
+paxos_proposer_msg_event_handle(as_clustering_internal_event* msg_event)
 {
 	switch (msg_event->msg_type) {
 	case AS_CLUSTERING_MSG_TYPE_PAXOS_PROMISE:
@@ -4191,6 +4485,31 @@ paxos_proposer_msg_event_handle(as_clustering_internal_event *msg_event)
 	default:	// Other message types are not of interest.
 		break;
 	}
+}
+
+/**
+ * Handle heartbeat event.
+ */
+static void
+paxos_proposer_hb_event_handle(as_clustering_internal_event* hb_event)
+{
+	if (!paxos_proposer_proposal_is_active()) {
+		return;
+	}
+
+	CLUSTERING_LOCK();
+	for (int i = 0; i < hb_event->hb_n_events; i++) {
+		if (hb_event->hb_events[i].evt == AS_HB_NODE_DEPART) {
+			cf_node departed_node = hb_event->hb_events[i].nodeid;
+			if (vector_find(&g_proposer.acceptors, &departed_node)) {
+				// One of the acceptors has departed. Abort the paxos proposal.
+				INFO("paxos acceptor %"PRIx64" departed - aborting current paxos proposal", departed_node);
+				paxos_proposer_fail();
+				break;
+			}
+		}
+	}
+	CLUSTERING_UNLOCK();
 }
 
 /**
@@ -4219,8 +4538,7 @@ paxos_proposer_accept_check_retransmit()
 	cf_clock now = cf_getms();
 	if (g_proposer.state == AS_PAXOS_PROPOSER_STATE_ACCEPT_SENT
 			&& g_proposer.accept_send_time + paxos_msg_timeout() < now) {
-		paxos_proposer_accept_send(config_self_nodeid_get(),
-				g_proposer.sequence_number);
+		paxos_proposer_accept_send();
 	}
 	CLUSTERING_UNLOCK();
 }
@@ -4234,16 +4552,12 @@ paxos_proposer_learn_check_retransmit()
 {
 	CLUSTERING_LOCK();
 	cf_clock now = cf_getms();
-	bool learn_timedout = (g_proposer.state == AS_PAXOS_PROPOSER_STATE_IDLE)
+	bool learn_timedout = g_proposer.learn_retransmit_needed
+			&& (g_proposer.state == AS_PAXOS_PROPOSER_STATE_IDLE)
 			&& (g_proposer.proposed_value.cluster_key != 0)
 			&& (g_proposer.learn_send_time + paxos_msg_timeout() < now);
 
-	// Layer violation by checking the register, but checking register seems the
-	// best way to prevent unnecessary retransmits.
-	bool register_synced = (g_register.state
-			== AS_CLUSTERING_REGISTER_STATE_SYNCED);
-
-	if (learn_timedout && !register_synced) {
+	if (learn_timedout) {
 		// If the register is not synced, most likely the learn message did not
 		// make it through, retransmit the learn message to move the paxos
 		// acceptor forward and start register sync.
@@ -4275,6 +4589,18 @@ paxos_proposer_timer_event_handle()
 }
 
 /**
+ * Handle register getting synched.
+ */
+static void
+paxos_proposer_register_synched()
+{
+	CLUSTERING_LOCK();
+	// Register synched we no longer need learn messages to be retransmitted.
+	g_proposer.learn_retransmit_needed = false;
+	CLUSTERING_UNLOCK();
+}
+
+/**
  * Initialize paxos proposer state.
  */
 static void
@@ -4301,7 +4627,6 @@ paxos_proposer_init()
 
 	// Initialize the proposed value.
 	vector_lockless_init(&g_proposer.proposed_value.succession_list, cf_node);
-
 	g_proposer.proposed_value.cluster_key = 0;
 
 	CLUSTERING_UNLOCK();
@@ -4350,6 +4675,9 @@ paxos_result_log(as_paxos_start_result result, cf_vector* new_succession_list)
  *
  * @param new_succession_list the new succession list.
  * @param acceptor_list the list of nodes to use for paxos acceptors.
+ * @param current_cluster_key the current cluster key
+ * @param current_succession_list the current succession list, can be null if
+ * this node is an orphan.
  */
 static as_paxos_start_result
 paxos_proposer_proposal_start(cf_vector* new_succession_list,
@@ -4830,10 +5158,9 @@ paxos_acceptor_learn_handle(as_clustering_internal_event* event)
 		goto Exit;
 	}
 
-	// Get new cluster key
 	as_cluster_key new_cluster_key = 0;
-
 	cf_vector* new_succession_list = vector_stack_lockless_create(cf_node);
+
 	if (msg_cluster_key_get(msg, &new_cluster_key) != 0) {
 		INFO("ignoring paxos learn from node %"PRIx64" without cluster key",
 				src_nodeid);
@@ -4852,6 +5179,7 @@ paxos_acceptor_learn_handle(as_clustering_internal_event* event)
 			// never happen.
 			CRASH("duplicate cluster key %"PRIx64" generated for different paxos rounds - disastrous", new_cluster_key);
 		}
+
 		INFO("ignoring duplicate paxos learn from node %"PRIx64, src_nodeid);
 		goto Exit_destory_succession;
 	}
@@ -5027,6 +5355,15 @@ paxos_msg_event_handle(as_clustering_internal_event* msg_event)
 }
 
 /**
+ * Handle heartbeat event.
+ */
+static void
+paxos_hb_event_handle(as_clustering_internal_event* hb_event)
+{
+	paxos_proposer_hb_event_handle(hb_event);
+}
+
+/**
  * Dispatch clustering events.
  */
 static void
@@ -5039,6 +5376,11 @@ paxos_event_dispatch(as_clustering_internal_event* event)
 	case AS_CLUSTERING_INTERNAL_EVENT_MSG:
 		paxos_msg_event_handle(event);
 		break;
+	case AS_CLUSTERING_INTERNAL_EVENT_HB:
+		paxos_hb_event_handle(event);
+		break;
+	case AS_CLUSTERING_INTERNAL_EVENT_REGISTER_CLUSTER_SYNCED:
+		paxos_proposer_register_synched();
 	default:	// Not of interest for paxos.
 		break;
 	}
@@ -5226,9 +5568,6 @@ register_dump(bool verbose)
 	case AS_CLUSTERING_REGISTER_STATE_SYNCED:
 		INFO("CL: register: synced");
 		break;
-	case AS_CLUSTERING_REGISTER_STATE_SYNC_WAIT:
-		INFO("CL: register: sync wait");
-		break;
 	case AS_CLUSTERING_REGISTER_STATE_SYNCING:
 		INFO("CL: register: syncing");
 		break;
@@ -5260,6 +5599,8 @@ register_init()
 	memset(&g_register, 0, sizeof(g_register));
 	vector_lockless_init(&g_register.succession_list, cf_node);
 	vector_lockless_init(&g_register.sync_pending, cf_node);
+	vector_lockless_init(&g_register.ooo_change_applied_received, cf_node);
+	vector_lockless_init(&g_register.ooo_succession_list, cf_node);
 
 	// We are in the orphan state but that will be considered as sync state.
 	g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCED;
@@ -5288,7 +5629,8 @@ static void
 register_check_and_switch_synced()
 {
 	CLUSTERING_LOCK();
-	if (!register_is_sycn_pending()) {
+	if (!register_is_sycn_pending()
+			&& g_register.state != AS_CLUSTERING_REGISTER_STATE_SYNCED) {
 		g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCED;
 		// Generate internal cluster changed synced.
 		as_clustering_internal_event cluster_synced;
@@ -5304,12 +5646,13 @@ register_check_and_switch_synced()
  * Update register to become an orphan node.
  */
 static void
-register_become_orphan()
+register_become_orphan(as_clustering_event_qualifier qualifier)
 {
 	CLUSTERING_LOCK();
 	g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCED;
 	g_register.cluster_key = 0;
 	g_register.sequence_number = 0;
+	g_register.has_orphan_transitioned = true;
 	g_clustering.has_integrity = false;
 	vector_clear(&g_register.succession_list);
 	vector_clear(&g_register.sync_pending);
@@ -5321,6 +5664,7 @@ register_become_orphan()
 	as_clustering_internal_event orphaned_event;
 	memset(&orphaned_event, 0, sizeof(orphaned_event));
 	orphaned_event.type = AS_CLUSTERING_INTERNAL_EVENT_REGISTER_ORPHANED;
+	orphaned_event.qualifier = qualifier;
 	internal_event_dispatch(&orphaned_event);
 
 	CLUSTERING_UNLOCK();
@@ -5351,7 +5695,7 @@ register_syncing_timer_event_handle()
 			if (clustering_node_is_sync(pending)) {
 				cf_vector_delete(&g_register.sync_pending, i);
 
-				// Cmopensate the index for the delete.
+				// Compensate the index for the delete.
 				i--;
 
 				// Adjust vector size.
@@ -5396,29 +5740,6 @@ register_cluster_change_applied_msg_send()
 }
 
 /**
- * Handle timer event in sync wait state.
- */
-static void
-register_sync_wait_timer_event_handle()
-{
-	cf_clock now = cf_getms();
-
-	CLUSTERING_LOCK();
-	bool send_change_applied_msg = g_register.sync_wait_start_time
-			+ register_sync_wait_interval() <= now;
-	if (send_change_applied_msg) {
-		// Wait over. Move to syncing state.
-		g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCING;
-
-		// Initialize pending list with all cluster members.
-		vector_clear(&g_register.sync_pending);
-		vector_copy(&g_register.sync_pending, &g_register.succession_list);
-		register_cluster_change_applied_msg_send();
-	}
-	CLUSTERING_UNLOCK();
-}
-
-/**
  * Validate cluster state. For now ensure the cluster size is greater than the
  * min cluster size.
  */
@@ -5432,7 +5753,7 @@ register_validate_cluster()
 		WARNING(
 				"cluster size %d less than required minimum size %d - switching to orphan state",
 				cluster_size, g_config.clustering_config.cluster_size_min);
-		register_become_orphan();
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
 	}
 	CLUSTERING_UNLOCK();
 }
@@ -5447,9 +5768,6 @@ register_timer_event_handle()
 	switch (g_register.state) {
 	case AS_CLUSTERING_REGISTER_STATE_SYNCED:
 		register_validate_cluster();
-		break;
-	case AS_CLUSTERING_REGISTER_STATE_SYNC_WAIT:
-		register_sync_wait_timer_event_handle();
 		break;
 	case AS_CLUSTERING_REGISTER_STATE_SYNCING:
 		register_syncing_timer_event_handle();
@@ -5467,6 +5785,8 @@ register_paxos_acceptor_success_handle(
 {
 	CLUSTERING_LOCK();
 
+	g_register.has_orphan_transitioned = false;
+
 	g_register.cluster_key = paxos_success_event->new_cluster_key;
 	g_register.sequence_number = paxos_success_event->new_sequence_number;
 
@@ -5478,8 +5798,24 @@ register_paxos_acceptor_success_handle(
 	g_register.cluster_modified_time = cf_getms();
 	g_register.cluster_modified_hlc_ts = as_hlc_timestamp_now();
 
-	g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNC_WAIT;
-	g_register.sync_wait_start_time = cf_getms();
+	// Initialize pending list with all cluster members.
+	g_register.state = AS_CLUSTERING_REGISTER_STATE_SYNCING;
+	vector_clear(&g_register.sync_pending);
+	vector_copy(&g_register.sync_pending, &g_register.succession_list);
+	register_cluster_change_applied_msg_send();
+
+	if (g_register.cluster_key == g_register.ooo_cluster_key
+			&& vector_equals(&g_register.succession_list,
+					&g_register.ooo_succession_list)) {
+		// We have already received change applied message from these node
+		// account for them.
+		vector_subtract(&g_register.sync_pending,
+				&g_register.ooo_change_applied_received);
+	}
+	vector_clear(&g_register.ooo_change_applied_received);
+	vector_clear(&g_register.ooo_succession_list);
+	g_register.ooo_cluster_key = 0;
+	g_register.ooo_hlc_timestamp = 0;
 
 	INFO("applied new cluster key %"PRIx64,
 			paxos_success_event->new_cluster_key);
@@ -5493,6 +5829,9 @@ register_paxos_acceptor_success_handle(
 	cluster_changed.type =
 			AS_CLUSTERING_INTERNAL_EVENT_REGISTER_CLUSTER_CHANGED;
 	internal_event_dispatch(&cluster_changed);
+
+	// Send change appied message. Its alright even if they are out of order.
+	register_cluster_change_applied_msg_send();
 
 	CLUSTERING_UNLOCK();
 }
@@ -5509,6 +5848,8 @@ register_cluster_change_applied_msg_handle(
 	msg_cluster_key_get(msg_event->msg, &msg_cluster_key);
 	cf_vector *msg_succession_list = vector_stack_lockless_create(cf_node);
 	msg_succession_list_get(msg_event->msg, msg_succession_list);
+	as_hlc_timestamp msg_hlc_timestamp = 0;
+	msg_send_ts_get(msg_event->msg, &msg_hlc_timestamp);
 
 	DEBUG("received cluster change applied message from node %"PRIx64,
 			msg_event->msg_src_nodeid);
@@ -5523,6 +5864,25 @@ register_cluster_change_applied_msg_handle(
 			cf_vector_delete(&g_register.sync_pending, found_at);
 		}
 
+	}
+	else if (g_register.ooo_cluster_key == msg_cluster_key
+			&& vector_equals(&g_register.ooo_succession_list,
+					msg_succession_list)) {
+		DEBUG("received ooo cluster change applied message from node %"PRIx64" with cluster key %"PRIx64, msg_event->msg_src_nodeid, msg_cluster_key);
+		cf_vector_append_unique(&g_register.ooo_change_applied_received,
+				&msg_event->msg_src_nodeid);
+
+	}
+	else if (g_register.ooo_hlc_timestamp < msg_hlc_timestamp) {
+		// Prefer a later version of OOO message.
+		g_register.ooo_cluster_key = msg_cluster_key;
+		g_register.ooo_hlc_timestamp = msg_hlc_timestamp;
+		vector_clear(&g_register.ooo_succession_list);
+		vector_copy(&g_register.ooo_succession_list, msg_succession_list);
+		vector_clear(&g_register.ooo_change_applied_received);
+		cf_vector_append_unique(&g_register.ooo_change_applied_received,
+				&msg_event->msg_src_nodeid);
+		DEBUG("received ooo cluster change applied message from node %"PRIx64" with cluster key %"PRIx64, msg_event->msg_src_nodeid, msg_cluster_key);
 	}
 	else {
 		INFO(
@@ -5544,8 +5904,7 @@ register_msg_event_handle(as_clustering_internal_event* msg_event)
 	as_clustering_msg_type type;
 	msg_type_get(msg_event->msg, &type);
 
-	if (g_register.state == AS_CLUSTERING_REGISTER_STATE_SYNCING
-			&& type == AS_CLUSTERING_MSG_TYPE_CLUSTER_CHANGE_APPLIED) {
+	if (type == AS_CLUSTERING_MSG_TYPE_CLUSTER_CHANGE_APPLIED) {
 		register_cluster_change_applied_msg_handle(msg_event);
 	}
 	CLUSTERING_UNLOCK();
@@ -6067,8 +6426,9 @@ clustering_join_or_form_cluster()
 
 	if (paxos_proposer_proposal_is_active()) {
 		// There is an active paxos round with this node as the proposed
-		// principal. Skip join cluster attempt and give current paxos round a
-		// chance to form the cluster.
+		// principal.
+		// Skip join cluster attempt and give current paxos round a chance to
+		// form the cluster.
 		return;
 	}
 
@@ -6297,16 +6657,19 @@ clustering_is_merge_candidate(cf_node nodeid, cf_node* node_succession_list,
 		return false;
 	}
 
-	// Node is the principal of its cluster. Create the new succession list.
 	cf_vector* new_succession_list = vector_stack_lockless_create(cf_node);
-
-	for (int i = 0; i < node_succession_list_length; i++) {
-		cf_vector_append_unique(new_succession_list, &node_succession_list[i]);
-	}
 
 	CLUSTERING_LOCK();
 	vector_copy_unique(new_succession_list, &g_register.succession_list);
 	CLUSTERING_UNLOCK();
+
+	bool is_candidate = false;
+
+	// Node is the principal of its cluster. Create the new succession list.
+	for (int i = 0; i < node_succession_list_length; i++) {
+		cf_vector_append_unique(new_succession_list, &node_succession_list[i]);
+	}
+
 	int expected_cluster_size = cf_vector_size(new_succession_list);
 
 	// Find and evict the nodes that  are not well connected.
@@ -6315,8 +6678,9 @@ clustering_is_merge_candidate(cf_node nodeid, cf_node* node_succession_list,
 	int new_cluster_size = cf_vector_size(new_succession_list);
 
 	// If no nodes need to be evicted then the merge is fine.
-	bool is_candidate = (expected_cluster_size == new_cluster_size);
+	is_candidate = (expected_cluster_size == new_cluster_size);
 
+	// Exit:
 	cf_vector_destroy(new_succession_list);
 
 	return is_candidate;
@@ -6445,7 +6809,8 @@ Exit:
  * Handle quantum interval start when self node is the principal of its cluster.
  */
 static void
-clustering_principal_quantum_interval_start_handle(as_clustering_internal_event* event)
+clustering_principal_quantum_interval_start_handle(
+		as_clustering_internal_event* event)
 {
 	DETAIL("principal node quantum wakeup");
 
@@ -6486,7 +6851,8 @@ clustering_principal_quantum_interval_start_handle(as_clustering_internal_event*
 	cf_vector_append_unique(new_succession_list, &self_nodeid);
 
 	vector_sort_unique(new_succession_list, clustering_nodeid_comparator_desc);
-	clustering_succession_list_clique_evict(new_succession_list,
+	uint32_t num_evicted = clustering_succession_list_clique_evict(
+			new_succession_list,
 			"clique based evicted nodes at quantum start:");
 
 	if (event->quantum_interval_is_skippable && cf_vector_size(dead_nodes) != 0
@@ -6494,6 +6860,17 @@ clustering_principal_quantum_interval_start_handle(as_clustering_internal_event*
 		// There is an imminent adjacency fault that has not been seen by the
 		// quantum interval generator, lets not take any action.
 		DEBUG("adjacency fault imminent - skipping quantum interval handling");
+		quantum_interval_mark_postponed();
+		goto Exit;
+	}
+
+	if (event->quantum_interval_is_skippable && num_evicted != 0
+			&& !quantum_interval_is_peer_adjacency_fault_seen()) {
+		// There is an imminent adjacency fault that has not been seen by the
+		// quantum interval generator, lets not take any action.
+		DEBUG(
+				"peer adjacency fault imminent - skipping quantum interval handling");
+		quantum_interval_mark_postponed();
 		goto Exit;
 	}
 
@@ -6523,7 +6900,7 @@ clustering_principal_quantum_interval_start_handle(as_clustering_internal_event*
 		// forming a larger cluster.
 		WARNING(
 				"all cluster members are part of different cluster - changing state to orphan");
-		register_become_orphan();
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
 		goto Exit;
 	}
 
@@ -6545,7 +6922,7 @@ clustering_principal_quantum_interval_start_handle(as_clustering_internal_event*
 	// cluster.
 	// Tentatively yes....
 	if (result == AS_PAXOS_RESULT_CLUSTER_TOO_SMALL) {
-		register_become_orphan();
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
 	}
 
 	paxos_proposal_started = (result == AS_PAXOS_RESULT_STARTED);
@@ -6640,7 +7017,7 @@ Exit:
 		// This node has been evicted from the cluster.
 		WARNING("evicted from cluster by principal node %"PRIx64"- changing state to orphan",
 				principal_nodeid);
-		register_become_orphan();
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
 	}
 
 	CLUSTERING_UNLOCK();
@@ -6852,19 +7229,8 @@ clustering_join_request_handle(as_clustering_internal_event* msg_event)
 		goto Exit;
 	}
 
-	// Check if this node is already part of our cluster or already has a
-	// pending join request.
-	if (vector_find(&g_register.succession_list, &src_nodeid) >= 0) {
-		if (!clustering_node_is_orphan(src_nodeid)) {
-			INFO("ignoring join request from node %"PRIx64" since it is already part of the cluster",
-					src_nodeid);
-			clustering_join_reject_send(src_nodeid);
-			goto Exit;
-		}
-	}
-
 	if (vector_find(&g_clustering.pending_join_requests, &src_nodeid) >= 0) {
-		INFO("ignoring join request from node %"PRIx64" since a request is already pending",
+		DEBUG("ignoring join request from node %"PRIx64" since a request is already pending",
 				src_nodeid);
 		goto Exit;
 	}
@@ -6991,7 +7357,7 @@ clustering_merge_move_handle(as_clustering_internal_event* event)
 	}
 
 	// Switch to orphan cluster state so that we move to the new principal.
-	register_become_orphan();
+	register_become_orphan (AS_CLUSTERING_ATTEMPTING_MERGE);
 
 	// Send a join request to a the new principal
 	clustering_principal_join_request_attempt(new_principal);
@@ -7097,13 +7463,14 @@ clustering_register_cluster_changed_handle()
  * cluster changed event to external sub systems.
  */
 static void
-clustering_register_cluster_synced_handle()
+clustering_register_cluster_synced_handle(as_clustering_internal_event* event)
 {
 	CLUSTERING_LOCK();
 
 	// Queue the cluster change event for publishing.
 	as_clustering_event cluster_change_event;
 	cluster_change_event.type = AS_CLUSTERING_CLUSTER_CHANGED;
+	cluster_change_event.qualifier = event->qualifier;
 	cluster_change_event.cluster_key = g_register.cluster_key;
 	cluster_change_event.succession_list = &g_register.succession_list;
 	external_event_queue(&cluster_change_event);
@@ -7117,7 +7484,7 @@ clustering_register_cluster_synced_handle()
  * Handle the register going to orphaned state.
  */
 static void
-clustering_register_orphaned_handle()
+clustering_register_orphaned_handle(as_clustering_internal_event* event)
 {
 	CLUSTERING_LOCK();
 	g_clustering.state = AS_CLUSTERING_STATE_ORPHAN;
@@ -7127,6 +7494,7 @@ clustering_register_orphaned_handle()
 	// Queue the cluster change event for publishing.
 	as_clustering_event orphaned_event;
 	orphaned_event.type = AS_CLUSTERING_ORPHANED;
+	orphaned_event.qualifier = event->qualifier;
 	orphaned_event.cluster_key = 0;
 	orphaned_event.succession_list = NULL;
 	external_event_queue(&orphaned_event);
@@ -7163,7 +7531,7 @@ clustering_hb_event_handle(as_clustering_internal_event* hb_event)
 			// Our principal is no longer visible.
 			INFO("principal node %"PRIx64" departed - switching to orphan state",
 					hb_event->hb_events[i].nodeid);
-			register_become_orphan();
+			register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
 		}
 	}
 }
@@ -7205,13 +7573,13 @@ clustering_event_handle(as_clustering_internal_event* event)
 		clustering_msg_event_handle(event);
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_REGISTER_ORPHANED:
-		clustering_register_orphaned_handle();
+		clustering_register_orphaned_handle(event);
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_REGISTER_CLUSTER_CHANGED:
 		clustering_register_cluster_changed_handle();
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_REGISTER_CLUSTER_SYNCED:
-		clustering_register_cluster_synced_handle();
+		clustering_register_cluster_synced_handle(event);
 		break;
 	case AS_CLUSTERING_INTERNAL_EVENT_PAXOS_PROPOSER_FAIL:	// Send reject message to all
 		clustering_paxos_proposer_fail_handle();
@@ -7611,7 +7979,7 @@ as_clustering_cluster_reform()
  * Return the quantum interval, i.e., the interval at which cluster change
  * decisions are taken. The unit is milliseconds.
  */
-uint32_t
+uint64_t
 as_clustering_quantum_interval()
 {
 	return quantum_interval();
@@ -7692,16 +8060,19 @@ as_clustering_cluster_size_min_set(uint32_t new_cluster_size_min)
  *
  * @param context the logging context.
  * @param severity the log severity.
+ * @param file_name the source file name for the log line.
+ * @param line the source file line number for the log line.
  * @param message the message prefix for each log line. Message and node list
  * will be separated with a space. Can be NULL for no prefix.
  * @param nodes the vector of nodes.
  */
 void
-as_clustering_log_cf_node_vector(cf_fault_severity severity,
-		cf_fault_context context, char* message, cf_vector* nodes)
+as_clustering_cf_node_vector_event(cf_fault_severity severity,
+		cf_fault_context context, char* file_name, int line, char* message,
+		cf_vector* nodes)
 {
-	as_clustering_log_cf_node_array(severity, context, message,
-			vector_to_array(nodes), cf_vector_size(nodes));
+	as_clustering_cf_node_array_event(severity, context, file_name, line,
+			message, vector_to_array(nodes), cf_vector_size(nodes));
 }
 
 /**
@@ -7711,14 +8082,17 @@ as_clustering_log_cf_node_vector(cf_fault_severity severity,
  *
  * @param context the logging context.
  * @param severity the log severity.
+ * @param file_name the source file name for the log line.
+ * @param line the source file line number for the log line.
  * @param message the message prefix for each log line. Message and node list
  * will be separated with a space. Can be NULL for no prefix.
  * @param nodes the array of nodes.
  * @param node_count the count of nodes in the array.
  */
 void
-as_clustering_log_cf_node_array(cf_fault_severity severity,
-		cf_fault_context context, char* message, cf_node* nodes, int node_count)
+as_clustering_cf_node_array_event(cf_fault_severity severity,
+		cf_fault_context context, char* file_name, int line, char* message,
+		cf_node* nodes, int node_count)
 {
 	if (!cf_context_at_severity(context, severity) && severity != CF_TRACE) {
 		return;
@@ -7734,8 +8108,7 @@ as_clustering_log_cf_node_array(cf_fault_severity severity,
 		// Limit the message length to allow at least one node to fit in the log
 		// line. Accounting for the separator between message and node list.
 		message_length = MIN(strnlen(message, LOG_LENGTH_MAX() - 1),
-				LOG_LENGTH_MAX() - 1
-				- node_str_len) + 1;
+		LOG_LENGTH_MAX() - 1 - node_str_len) + 1;
 
 		// Truncate the message.
 		strncpy(copied_message, message, message_length);
@@ -7769,13 +8142,14 @@ as_clustering_log_cf_node_array(cf_fault_severity severity,
 		// is atleast one node output
 		if (buffer != node_buffer_start) {
 			*(buffer - 1) = 0;
-			LOG(severity, context, "%s", log_buffer);
+			cf_fault_event(context, severity, file_name, line, "%s",
+					log_buffer);
 		}
 	}
 
 	// Handle the empty vector case.
 	if (output_node_count == 0) {
 		sprintf(node_buffer_start, "(empty)");
-		LOG(severity, context, "%s", log_buffer);
+		cf_fault_event(context, severity, file_name, line, "%s", log_buffer);
 	}
 }

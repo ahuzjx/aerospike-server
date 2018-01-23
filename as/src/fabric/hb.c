@@ -27,7 +27,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
-#include <sys/param.h> // For MAX() and MIN().
+#include <sys/param.h>
 #include <sys/types.h>
 #include <zlib.h>
 
@@ -308,12 +308,6 @@
 #define HB_PROTOCOL_STR_MAX_LEN 16
 
 /**
- * Interval at which heartbeat subsystem publishes node events to external
- * listeners.
- */
-#define HB_EVENT_PUBLISH_INTERVAL 10
-
-/**
  * Default allocation size for plugin data.
  */
 #define HB_PLUGIN_DATA_DEFAULT_SIZE 128
@@ -363,16 +357,22 @@
 #define ADJACENCY_TEND_INTERVAL (PULSE_TRANSMIT_INTERVAL())
 
 /**
+ * Intervals at which adjacency tender runs in anticipation of addtional node
+ * depart events.
+ */
+#define ADJACENCY_FAST_TEND_INTERVAL (MIN(ADJACENCY_TEND_INTERVAL, 10))
+
+/**
  * Acquire a lock on the external event publisher.
  */
-#define EXTERNAL_EVENT_PUBLISH_LOCK()						\
-	(pthread_mutex_lock(&g_external_event_publish_lock))
+#define EXTERNAL_EVENT_PUBLISH_LOCK()					\
+(pthread_mutex_lock(&g_external_event_publish_lock))
 
 /**
  * Relinquish the lock on the external event publisher.
  */
-#define EXTERNAL_EVENT_PUBLISH_UNLOCK()						\
-	(pthread_mutex_unlock(&g_external_event_publish_lock))
+#define EXTERNAL_EVENT_PUBLISH_UNLOCK()					\
+(pthread_mutex_unlock(&g_external_event_publish_lock))
 
 /**
  * Acquire a lock on the heartbeat main module.
@@ -383,6 +383,12 @@
  * Relinquish the lock on the  heartbeat main module.
  */
 #define HB_UNLOCK() (pthread_mutex_unlock(&g_hb_lock))
+
+/**
+ * Weightage of current latency over current moving average. For now weigh
+ * recent values heavily over older values.
+ */
+#define ALPHA (0.65)
 
 /*
  * ----------------------------------------------------------------------------
@@ -1068,7 +1074,6 @@ typedef struct as_hb_channel_event_s
 	 * The hlc timestamp for message receipt.
 	 */
 	as_hlc_msg_timestamp msg_hlc_ts;
-
 } as_hb_channel_event;
 
 /*
@@ -1095,7 +1100,8 @@ typedef enum
 {
 	AS_HB_INTERNAL_NODE_ARRIVE,
 	AS_HB_INTERNAL_NODE_DEPART,
-	AS_HB_INTERNAL_NODE_EVICT
+	AS_HB_INTERNAL_NODE_EVICT,
+	AS_HB_INTERNAL_NODE_ADJACENCY_CHANGED
 } as_hb_internal_event_type;
 
 /**
@@ -1171,7 +1177,7 @@ typedef struct as_hb_adjacent_node_s
 	cf_clock last_updated_monotonic_ts;
 
 	/**
-	 * Timestamp for the last pulse message.
+	 * HLC timestamp for the last pulse message.
 	 */
 	as_hlc_msg_timestamp last_msg_hlc_ts;
 
@@ -1180,6 +1186,10 @@ typedef struct as_hb_adjacent_node_s
 	 */
 	uint32_t cluster_name_mismatch_count;
 
+	/**
+	 * Moving average of the latency in ms.
+	 */
+	uint64_t avg_latency;
 } as_hb_adjacent_node;
 
 /**
@@ -1256,11 +1266,6 @@ typedef struct as_hb_external_events_s
 	 * Events are batched and published. Queue of unpublished heartbeat events.
 	 */
 	cf_queue external_events_queue;
-
-	/**
-	 * Time when the last events publish was done.
-	 */
-	cf_clock external_events_published_last;
 
 	/**
 	 * Count of event listeners.
@@ -1452,17 +1457,17 @@ typedef struct as_hb_seed_host_list_udata_s
 static as_hb g_hb;
 
 /**
+ * Global heartbeat events listener instance.
+ */
+static as_hb_external_events g_hb_event_listeners;
+
+/**
  * The big fat lock for all external event publishing. This ensures that a batch
  * of external events are published atomically to preserve the order of external
  * events.
  */
 static pthread_mutex_t g_external_event_publish_lock =
-	PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-
-/**
- * Global heartbeat events listener instance.
- */
-static as_hb_external_events g_hb_event_listeners;
+		PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 /**
  * Global lock to serialize all read and writes to the heartbeat subsystem.
@@ -1510,7 +1515,9 @@ static msg_template g_hb_msg_template[] = {
 		{ AS_HB_MSG_INFO_REPLY, M_FT_BUF },
 		{ AS_HB_MSG_FABRIC_DATA, M_FT_BUF },
 		{ AS_HB_MSG_HB_DATA, M_FT_BUF },
-		{ AS_HB_MSG_PAXOS_DATA, M_FT_BUF } };
+		{ AS_HB_MSG_PAXOS_DATA, M_FT_BUF },
+		{ AS_HB_MSG_SKEW_MONITOR_DATA, M_FT_UINT64 }
+};
 
 /*
  * ----------------------------------------------------------------------------
@@ -1530,7 +1537,7 @@ static int msg_compression_threshold(int mtu);
 static int msg_endpoint_list_get(msg* msg, as_endpoint_list** endpoint_list);
 static int msg_id_get(msg* msg, uint32_t* id);
 static int msg_nodeid_get(msg* msg, cf_node* nodeid);
-static int msg_send_ts_get(msg* msg, as_hlc_timestamp* send_ts);
+static int msg_send_hlc_ts_get(msg* msg, as_hlc_timestamp* send_ts);
 static int msg_type_get(msg* msg, as_hb_msg_type* type);
 static int msg_cluster_name_get(msg* msg, char** cluster_name);
 static int msg_node_list_get(msg* msg, int field_id, cf_node** adj_list, size_t* adj_length);
@@ -2315,7 +2322,7 @@ Exit:
 /**
  * Call the iterate method on plugin data for all nodes in the input vector. The
  * iterate function will be invoked for all nodes in the input vector even if
- * they are not in the adjacency list of have no plugin data. Plugin data will
+ * they are not in the adjacency list or they have no plugin data. Plugin data will
  * be NULL with size zero in such cases.
  *
  * @param nodes the iterate on.
@@ -2451,6 +2458,20 @@ void
 as_hb_maximal_clique_evict(cf_vector* nodes, cf_vector* nodes_to_evict)
 {
 	hb_maximal_clique_evict(nodes, nodes_to_evict);
+}
+
+/**
+ * Read the hlc timestamp for the message.
+ * Note: A protected API for the sole benefit of skew monitor.
+ *
+ * @param msg the incoming message.
+ * @param send_ts the output hlc timestamp.
+ * @return 0 if the time stamp could be parsed -1 on failure.
+ */
+int
+as_hb_msg_send_hlc_ts_get(msg* msg, as_hlc_timestamp* send_ts)
+{
+	return msg_send_hlc_ts_get(msg, send_ts);
 }
 
 /*
@@ -2701,7 +2722,7 @@ msg_nodeid_get(msg* msg, cf_node* nodeid)
  * @return 0 if the time stamp could be parsed -1 on failure.
  */
 static int
-msg_send_ts_get(msg* msg, as_hlc_timestamp* send_ts)
+msg_send_hlc_ts_get(msg* msg, as_hlc_timestamp* send_ts)
 {
 	if (msg_get_uint64(msg, AS_HB_MSG_HLC_TIMESTAMP, send_ts) != 0) {
 		return -1;
@@ -2956,7 +2977,7 @@ msg_src_fields_fill(msg* msg)
 		mesh_published_endpoints_process(msg_published_endpoints_fill, &udata);
 	}
 
-	// Set the send timestamp
+	// Set the send hlc timestamp
 	if (msg_set_uint64(msg, AS_HB_MSG_HLC_TIMESTAMP, as_hlc_timestamp_now())
 			!= 0) {
 		CRASH("error setting send timestamp on msg");
@@ -4276,7 +4297,7 @@ channel_msg_sanity_check(as_hb_channel_event* msg_event)
 	}
 
 	as_hlc_timestamp send_ts;
-	if (msg_send_ts_get(msg, &send_ts) != 0) {
+	if (msg_send_hlc_ts_get(msg, &send_ts) != 0) {
 		TICKER_WARNING("received message without HLC time from node %" PRIx64,
 				src_nodeid);
 		rv = -1;
@@ -4487,7 +4508,7 @@ channel_msg_read(cf_socket* socket)
 
 	// Update hlc and store update message timestamp for the event.
 	as_hlc_timestamp send_ts = 0;
-	msg_send_ts_get(msg, &send_ts);
+	msg_send_hlc_ts_get(msg, &send_ts);
 	as_hlc_timestamp_update(event.nodeid, send_ts, &event.msg_hlc_ts);
 
 	// Process received message to update channel state.
@@ -5217,7 +5238,7 @@ channel_dump_reduce(const void* key, void* data, void* udata)
 	cf_socket** socket = (cf_socket**)key;
 	as_hb_channel* channel = (as_hb_channel*)data;
 
-	INFO("HB Channel (%s): Node: %" PRIx64 ", Fd: %d, Endpoint: %s, Polarity: %s, Last Received: %" PRIu64,
+	INFO("HB Channel (%s): node-id %" PRIx64 " fd %d endpoint %s polarity %s last-received %" PRIu64,
 			channel->is_multicast ? "multicast" : "mesh", channel->nodeid,
 			CSFD(*socket), (cf_sock_addr_is_any(&channel->endpoint_addr))
 			? "unknown"
@@ -7447,7 +7468,7 @@ mesh_dump_reduce(const void* key, void* data, void* udata)
 	as_endpoint_list_to_string(mesh_node->endpoint_list, endpoint_list_str,
 			sizeof(endpoint_list_str));
 
-	INFO("HB Mesh Node (%s): Node: %" PRIx64", Status: %s, Last updated: %" PRIu64 ", Endpoints: {%s}",
+	INFO("HB Mesh Node (%s): node-id %" PRIx64" status %s last-updated %" PRIu64 " endpoints {%s}",
 			mesh_node->is_seed ? "seed" : "non-seed", mesh_node->nodeid,
 			mesh_node_status_string(mesh_node->status),
 			mesh_node->last_status_updated, endpoint_list_str);
@@ -7796,6 +7817,10 @@ hb_event_queue(as_hb_internal_event_type event_type, const cf_node* nodes,
 			event.evt = AS_HB_NODE_DEPART;
 			event.event_time = event.event_detected_time;
 			break;
+		case AS_HB_INTERNAL_NODE_ADJACENCY_CHANGED:
+			event.evt = AS_HB_NODE_ADJACENCY_CHANGED;
+			event.event_time = event.event_detected_time;
+			break;
 		}
 
 		DEBUG("queuing event of type %d for node %" PRIx64, event.evt,
@@ -7805,20 +7830,14 @@ hb_event_queue(as_hb_internal_event_type event_type, const cf_node* nodes,
 }
 
 /**
- * Publish all pending events.
+ * Publish all pending events. Should be invoked outside hb locks.
  */
 static void
 hb_event_publish_pending()
 {
 	EXTERNAL_EVENT_PUBLISH_LOCK();
-	cf_clock now = cf_getms();
-	cf_clock last_published;
-	HB_LOCK();
-	last_published = g_hb_event_listeners.external_events_published_last;
-	HB_UNLOCK();
-
 	int num_events = cf_queue_sz(&g_hb_event_listeners.external_events_queue);
-	if (last_published + HB_EVENT_PUBLISH_INTERVAL > now || num_events <= 0) {
+	if (num_events <= 0) {
 		// Events need not be published.
 		goto Exit;
 	}
@@ -7844,11 +7863,6 @@ hb_event_publish_pending()
 
 Exit:
 	EXTERNAL_EVENT_PUBLISH_UNLOCK();
-
-	HB_LOCK();
-	// update last published.
-	g_hb_event_listeners.external_events_published_last = now;
-	HB_UNLOCK();
 }
 
 /**
@@ -8106,6 +8120,13 @@ hb_plugin_msg_parse(msg* msg, as_hb_adjacent_node* adjacent_node,
 }
 
 /**
+ * Adjacency list for an adjacent node changed.
+ */
+static void hb_plugin_data_change_listener(cf_node changed_node_id) {
+	hb_event_queue(AS_HB_INTERNAL_NODE_ADJACENCY_CHANGED, &changed_node_id, 1);
+}
+
+/**
  * Initialize the plugin specific data structures.
  */
 static void
@@ -8121,6 +8142,7 @@ hb_plugin_init()
 	self_plugin.wire_size_per_node = sizeof(cf_node);
 	self_plugin.set_fn = hb_plugin_set_fn;
 	self_plugin.parse_fn = hb_plugin_parse_data_fn;
+	self_plugin.change_listener = hb_plugin_data_change_listener;
 	hb_plugin_register(&self_plugin);
 }
 
@@ -8303,15 +8325,27 @@ hb_adjacency_tender(void* arg)
 	DETAIL("adjacency tender started");
 
 	cf_clock last_time = 0;
+	cf_clock last_depart_time = 0;
 
 	while (hb_is_running()) {
 		cf_clock curr_time = cf_getms();
+		uint32_t adjacency_tend_interval = ADJACENCY_TEND_INTERVAL;
+		// Interval after node depart where we tend faster to detect additional
+		// node departures.
+		uint32_t fast_check_interval = 2 * config_tx_interval_get();
+		if (last_depart_time + fast_check_interval > curr_time) {
+			adjacency_tend_interval = ADJACENCY_FAST_TEND_INTERVAL;
+		}
 
-		if ((curr_time - last_time) < ADJACENCY_TEND_INTERVAL) {
+		if ((curr_time - last_time) < adjacency_tend_interval) {
+			// Publish any pendng events.
+			hb_event_publish_pending();
+
 			// Interval has not been reached for sending heartbeats
-			usleep(MIN(AS_HB_TX_INTERVAL_MS_MIN,
-					(last_time + ADJACENCY_TEND_INTERVAL) - curr_time)
-					* 1000);
+			usleep(
+					MIN(AS_HB_TX_INTERVAL_MS_MIN,
+							(last_time + adjacency_tend_interval) - curr_time)
+							* 1000);
 			continue;
 		}
 
@@ -8332,15 +8366,17 @@ hb_adjacency_tender(void* arg)
 				&adjacency_tender_udata);
 
 		if (adjacency_tender_udata.dead_node_count > 0) {
+			last_depart_time = curr_time;
 			// Queue events for dead nodes.
 			hb_event_queue(AS_HB_INTERNAL_NODE_DEPART, dead_nodes,
 					adjacency_tender_udata.dead_node_count);
 		}
 
 		if (adjacency_tender_udata.evicted_node_count > 0) {
+			last_depart_time = curr_time;
 			// Queue events for evicted nodes.
 			hb_event_queue(AS_HB_INTERNAL_NODE_EVICT, evicted_nodes,
-						   adjacency_tender_udata.evicted_node_count);
+					adjacency_tender_udata.evicted_node_count);
 		}
 		HB_UNLOCK();
 
@@ -8431,8 +8467,6 @@ hb_init()
 	cf_queue_init(&g_hb_event_listeners.external_events_queue,
 			sizeof(as_hb_event_node),
 			AS_HB_CLUSTER_MAX_SIZE_SOFT, true);
-
-	g_hb_event_listeners.external_events_published_last = 0;
 
 	// Initialize the mode specific state.
 	hb_mode_init();
@@ -8618,7 +8652,14 @@ hb_channel_on_pulse(as_hb_channel_event* msg_event)
 	// Update the last updated time.
 	adjacent_node.last_updated_monotonic_ts = cf_getms();
 	memcpy(&adjacent_node.last_msg_hlc_ts, &msg_event->msg_hlc_ts,
-			sizeof(as_hlc_msg_timestamp));
+			sizeof(adjacent_node.last_msg_hlc_ts));
+
+	// Update the latency.
+	int64_t latency = as_hlc_timestamp_diff_ms(msg_event->msg_hlc_ts.send_ts,
+			msg_event->msg_hlc_ts.recv_ts);
+	latency = latency < 0 ? -latency : latency;
+	adjacent_node.avg_latency = ALPHA * latency
+			+ (1 - ALPHA) * adjacent_node.avg_latency;
 
 	// Reset the cluster-name mismatch conter to zero.
 	adjacent_node.cluster_name_mismatch_count = 0;
@@ -8634,6 +8675,9 @@ hb_channel_on_pulse(as_hb_channel_event* msg_event)
 
 Exit:
 	HB_UNLOCK();
+
+	// Publish any pending node arrival events.
+	hb_event_publish_pending();
 
 	// Call plugin change listeners outside of a lock to prevent deadlocks.
 	for (int i = 0; i < AS_HB_PLUGIN_SENTINEL; i++) {
@@ -8743,9 +8787,9 @@ hb_dump_reduce(const void* key, void* data, void* udata)
 	as_endpoint_list_to_string(adjacent_node->endpoint_list, endpoint_list_str,
 			sizeof(endpoint_list_str));
 
-	INFO("HB Adjacent Node: Node: %" PRIx64", Protocol: %" PRIu32", Endpoints: {%s}, Last Updated: %" PRIu64,
+	INFO("HB Adjacent Node: node %" PRIx64" protocol %" PRIu32" endpoints {%s} last-updated %" PRIu64 " latency-ms %" PRIu64 ,
 			*nodeid, adjacent_node->protocol_version, endpoint_list_str,
-			adjacent_node->last_updated_monotonic_ts);
+			adjacent_node->last_updated_monotonic_ts, adjacent_node->avg_latency);
 
 	return CF_SHASH_OK;
 }

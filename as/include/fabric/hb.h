@@ -82,7 +82,8 @@ typedef enum
 {
 	AS_HB_NODE_ARRIVE,
 	AS_HB_NODE_DEPART,
-	AS_HB_AUTO_RESET
+	AS_HB_NODE_ADJACENCY_CHANGED,
+	AS_HB_NODE_EVENT_SENTINEL
 } as_hb_event_type;
 
 /**
@@ -106,6 +107,10 @@ typedef enum
 	 * The clustering subsystem.
 	 */
 	AS_HB_PLUGIN_CLUSTERING,
+	/**
+	 * The skew monitor.
+	 */
+	AS_HB_PLUGIN_SKEW_MONITOR,
 	/**
 	 * Dummy sentinel enum value. Should be the last.
 	 */
@@ -180,7 +185,12 @@ typedef enum
 	/**
 	 * Contains the cluster key and succession list.
 	 */
-	AS_HB_MSG_PAXOS_DATA
+	AS_HB_MSG_PAXOS_DATA,
+
+	/**
+	 * Local physical clock monotonic timestamp for when the message was sent.
+	 */
+	AS_HB_MSG_SKEW_MONITOR_DATA
 } as_hb_msg_fields;
 
 /**
@@ -346,7 +356,7 @@ typedef struct as_hb_plugin_s
 	size_t wire_size_fixed;
 
 	/**
-	 * Fixed plugin data size on wire.
+	 * Additional plugin data size on wire per node in the adjacency list.
 	 */
 	size_t wire_size_per_node;
 
