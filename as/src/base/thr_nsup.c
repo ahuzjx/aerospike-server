@@ -1197,7 +1197,7 @@ eval_stop_writes(as_namespace *ns)
 		why_stopped |= 0x2;
 	}
 
-	if (is_xdr_digestlog_low(ns)) {
+	if (g_xcfg.xdr_section_configured && is_xdr_digestlog_low(ns)) {
 		stop_writes = true;
 		why_stopped |= 0x4;
 	}
