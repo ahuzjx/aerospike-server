@@ -2472,8 +2472,11 @@ fabric_heartbeat_event(int nevents, as_hb_event_node *events, void *udata)
 			cf_info(AS_FABRIC, "fabric: node %lx departed", events[i].nodeid);
 			fabric_node_disconnect(events[i].nodeid);
 			break;
+		case AS_HB_NODE_ADJACENCY_CHANGED:
+			// Not relevant to fabric.
+			break;
 		default:
-			cf_warning(AS_FABRIC, "fabric: received unknown event type %d %lx", i, events[i].nodeid);
+			cf_warning(AS_FABRIC, "fabric: received unknown event type %d %lx", events[i].evt, events[i].nodeid);
 			break;
 		}
 	}
