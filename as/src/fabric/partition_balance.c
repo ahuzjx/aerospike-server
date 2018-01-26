@@ -115,8 +115,8 @@ void apply_single_replica_limit(as_namespace* ns);
 uint32_t rack_count(const as_namespace* ns);
 void fill_translation(int translation[], const as_namespace* ns);
 void fill_namespace_rows(const cf_node* full_node_seq, const sl_ix_t* full_sl_ix, cf_node* ns_node_seq, sl_ix_t* ns_sl_ix, const as_namespace* ns, const int translation[]);
-void rack_aware_adjust_rows(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix, const as_namespace* ns, uint32_t n_racks);
-bool is_rack_distinct_before_n(const sl_ix_t* ns_sl_ix, const as_namespace* ns, uint32_t rack_id, uint32_t n);
+void rack_aware_adjust_row(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix, uint32_t replication_factor, const uint32_t* rack_ids, uint32_t n_ids, uint32_t n_racks, uint32_t start_n);
+bool is_rack_distinct_before_n(const sl_ix_t* ns_sl_ix, const uint32_t* rack_ids, uint32_t rack_id, uint32_t n);
 uint32_t find_self(const cf_node* ns_node_seq, const as_namespace* ns);
 int find_working_master(const as_partition* p, const sl_ix_t* ns_sl_ix, const as_namespace* ns);
 uint32_t find_duplicates(const as_partition* p, const cf_node* ns_node_seq, const sl_ix_t* ns_sl_ix, const as_namespace* ns, uint32_t working_master_n, cf_node dupls[]);
@@ -153,20 +153,20 @@ is_family_same(const as_partition_version* v1, const as_partition_version* v2)
 static inline int
 compare_hashed_nodes(const void* pa, const void* pb)
 {
-	const uint64_t* a = (const uint64_t*)pa;
-	const uint64_t* b = (const uint64_t*)pb;
+	uint64_t a = *(const uint64_t*)pa;
+	uint64_t b = *(const uint64_t*)pb;
 
-	return *a > *b ? -1 : (*a == *b ? 0 : 1);
+	return a > b ? -1 : (a == b ? 0 : 1);
 }
 
 // A comparison_fn_t used with qsort().
 static inline int
 compare_rack_ids(const void* pa, const void* pb)
 {
-	const uint32_t* a = (const uint32_t*)pa;
-	const uint32_t* b = (const uint32_t*)pb;
+	uint32_t a = *(const uint32_t*)pa;
+	uint32_t b = *(const uint32_t*)pb;
 
-	return *a > *b ? -1 : (*a == *b ? 0 : 1);
+	return a > b ? -1 : (a == b ? 0 : 1);
 }
 
 // Define macros for accessing the full node-seq and sl-ix arrays.
@@ -177,7 +177,7 @@ compare_rack_ids(const void* pa, const void* pb)
 #define INPUT_VERSION(_n) (&ns->cluster_versions[ns_sl_ix[_n]][p->id])
 
 // Get the rack-id that was input by exchange.
-#define RACK_ID(_n) (ns->rack_ids[ns_sl_ix[_n]])
+#define RACK_ID(_n) (rack_ids[ns_sl_ix[_n]])
 
 
 //==========================================================
@@ -794,7 +794,9 @@ fill_global_tables()
 void
 balance_namespace(as_namespace* ns, cf_queue* mq)
 {
-	if (ns->cluster_size != g_cluster_size) {
+	bool ns_less_than_global = ns->cluster_size != g_cluster_size;
+
+	if (ns_less_than_global) {
 		cf_info(AS_PARTITION, "{%s} is on %u of %u nodes", ns->name,
 				ns->cluster_size, g_cluster_size);
 	}
@@ -806,14 +808,13 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 	// If a namespace is not on all nodes or is rack aware, it can't use the
 	// global node sequence and index tables.
-	bool ns_not_equal_global =
-			ns->cluster_size != g_cluster_size || n_racks != 1;
+	bool ns_not_equal_global = ns_less_than_global || n_racks != 1;
 
 	// The translation array is used to convert global table rows to namespace
 	// rows, if  necessary.
-	int translation[ns_not_equal_global ? g_cluster_size : 0];
+	int translation[ns_less_than_global ? g_cluster_size : 0];
 
-	if (ns_not_equal_global) {
+	if (ns_less_than_global) {
 		fill_translation(translation, ns);
 	}
 
@@ -845,7 +846,9 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 					ns_sl_ix, ns, translation);
 
 			if (n_racks != 1) {
-				rack_aware_adjust_rows(ns_node_seq, ns_sl_ix, ns, n_racks);
+				rack_aware_adjust_row(ns_node_seq, ns_sl_ix,
+						ns->replication_factor, ns->rack_ids, ns->cluster_size,
+						n_racks, 1);
 			}
 		}
 
@@ -1038,7 +1041,8 @@ fill_namespace_rows(const cf_node* full_node_seq, const sl_ix_t* full_sl_ix,
 		const int translation[])
 {
 	if (ns->cluster_size == g_cluster_size) {
-		// Rack-aware but namespace is on all nodes - just copy.
+		// Rack-aware but namespace is on all nodes - just copy. Rack-aware will
+		// rearrange the copies - we can't rearrange the global originals.
 		memcpy(ns_node_seq, full_node_seq, g_cluster_size * sizeof(cf_node));
 		memcpy(ns_sl_ix, full_sl_ix, g_cluster_size * sizeof(sl_ix_t));
 
@@ -1060,7 +1064,7 @@ fill_namespace_rows(const cf_node* full_node_seq, const sl_ix_t* full_sl_ix,
 }
 
 
-// rack_aware_adjust_rows()
+// rack_aware_adjust_row()
 //
 // When "rack aware", nodes are in "racks".
 //
@@ -1091,29 +1095,31 @@ fill_namespace_rows(const cf_node* full_node_seq, const sl_ix_t* full_sl_ix,
 //
 // To adjust a table row, we swap the prole with the first non-replica.
 void
-rack_aware_adjust_rows(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix,
-		const as_namespace* ns, uint32_t n_racks)
+rack_aware_adjust_row(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix,
+		uint32_t replication_factor, const uint32_t* rack_ids, uint32_t n_ids,
+		uint32_t n_racks, uint32_t start_n)
 {
-	uint32_t n_needed = n_racks < ns->replication_factor ?
-			n_racks : ns->replication_factor;
+	uint32_t n_needed = n_racks < replication_factor ?
+			n_racks : replication_factor;
 
 	uint32_t next_n = n_needed; // next candidate index to swap with
 
-	for (uint32_t cur_n = 1; cur_n < n_needed; cur_n++) {
+	for (uint32_t cur_n = start_n; cur_n < n_needed; cur_n++) {
 		uint32_t cur_rack_id = RACK_ID(cur_n);
 
 		// If cur_rack_id is unique for nodes < cur_i, continue to next node.
-		if (is_rack_distinct_before_n(ns_sl_ix, ns, cur_rack_id, cur_n)) {
+		if (is_rack_distinct_before_n(ns_sl_ix, rack_ids, cur_rack_id, cur_n)) {
 			continue;
 		}
 
 		// Find group after cur_i that's unique for rack-ids before cur_i.
 		uint32_t swap_n = cur_n; // if swap cannot be found then no change
 
-		while (next_n < ns->cluster_size) {
+		while (next_n < n_ids) {
 			uint32_t next_rack_id = RACK_ID(next_n);
 
-			if (is_rack_distinct_before_n(ns_sl_ix, ns, next_rack_id, cur_n)) {
+			if (is_rack_distinct_before_n(ns_sl_ix, rack_ids, next_rack_id,
+					cur_n)) {
 				swap_n = next_n;
 				next_n++;
 				break;
@@ -1125,8 +1131,8 @@ rack_aware_adjust_rows(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix,
 		if (swap_n == cur_n) {
 			// No other distinct rack-ids found - shouldn't be possible.
 			// We should reach n_needed first.
-			cf_crash(AS_PARTITION, "can't find a diff cur:%u swap:%u repl:%u clsz:%u",
-					cur_n, swap_n, ns->replication_factor, ns->cluster_size);
+			cf_crash(AS_PARTITION, "can't find a diff cur:%u swap:%u repl:%u seqsz:%u",
+					cur_n, swap_n, replication_factor, n_ids);
 		}
 
 		// Now swap cur_n with swap_n.
@@ -1148,7 +1154,7 @@ rack_aware_adjust_rows(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix,
 
 // Returns true if rack_id is unique within nodes list indices less than n.
 bool
-is_rack_distinct_before_n(const sl_ix_t* ns_sl_ix, const as_namespace* ns,
+is_rack_distinct_before_n(const sl_ix_t* ns_sl_ix, const uint32_t* rack_ids,
 		uint32_t rack_id, uint32_t n)
 {
 	for (uint32_t cur_n = 0; cur_n < n; cur_n++) {
