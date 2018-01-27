@@ -1047,12 +1047,9 @@ compare_rack_nodes(const void* pa, const void* pb)
 }
 
 void
-namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
+namespace_rack_info(as_namespace *ns, cf_dyn_buf *db, uint32_t *rack_ids,
+		uint32_t n_nodes, const char *tag)
 {
-	as_exchange_info_lock();
-
-	uint32_t n_nodes = ns->cluster_size;
-
 	if (n_nodes == 0) {
 		return;
 	}
@@ -1060,17 +1057,15 @@ namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 	rack_node rack_nodes[n_nodes];
 
 	for (uint32_t i = 0; i < n_nodes; i++) {
-		rack_nodes[i].rack_id = ns->rack_ids[i];
+		rack_nodes[i].rack_id = rack_ids[i];
 		rack_nodes[i].node = ns->succession[i];
 	}
-
-	as_exchange_info_unlock();
 
 	qsort(rack_nodes, n_nodes, sizeof(rack_node), compare_rack_nodes);
 
 	uint32_t cur_id = rack_nodes[0].rack_id;
 
-	cf_dyn_buf_append_string(db, "rack_");
+	cf_dyn_buf_append_string(db, tag);
 	cf_dyn_buf_append_uint32(db, cur_id);
 	cf_dyn_buf_append_char(db, '=');
 	cf_dyn_buf_append_uint64_x(db, rack_nodes[0].node);
@@ -1085,7 +1080,7 @@ namespace_rack_info(as_namespace *ns, cf_dyn_buf *db)
 		cur_id = rack_nodes[i].rack_id;
 
 		cf_dyn_buf_append_char(db, ':');
-		cf_dyn_buf_append_string(db, "rack_");
+		cf_dyn_buf_append_string(db, tag);
 		cf_dyn_buf_append_uint32(db, cur_id);
 		cf_dyn_buf_append_char(db, '=');
 		cf_dyn_buf_append_uint64_x(db, rack_nodes[i].node);
@@ -1116,7 +1111,9 @@ info_command_racks(char *name, char *params, cf_dyn_buf *db)
 			return 0;
 		}
 
-		namespace_rack_info(ns, db);
+		as_exchange_info_lock();
+		namespace_rack_info(ns, db, ns->rack_ids, ns->cluster_size, "rack_");
+		as_exchange_info_unlock();
 
 		return 0;
 	}
@@ -1128,7 +1125,9 @@ info_command_racks(char *name, char *params, cf_dyn_buf *db)
 		cf_dyn_buf_append_string(db, ns->name);
 		cf_dyn_buf_append_char(db, ':');
 
-		namespace_rack_info(ns, db);
+		as_exchange_info_lock();
+		namespace_rack_info(ns, db, ns->rack_ids, ns->cluster_size, "rack_");
+		as_exchange_info_unlock();
 
 		cf_dyn_buf_append_char(db, ';');
 	}
