@@ -873,16 +873,12 @@ update_stats(as_namespace* ns, uint64_t n_master, uint64_t n_0_void_time,
 		uint32_t evict_ttl, uint32_t n_general_waits, uint32_t n_clear_waits,
 		uint64_t start_ms)
 {
-	if (n_expired_objects != 0) {
-		cf_atomic64_add(&ns->n_expired_objects, n_expired_objects);
-	}
-
-	if (n_evicted_objects != 0) {
-		cf_atomic64_set(&ns->evict_ttl, evict_ttl);
-		cf_atomic64_add(&ns->n_evicted_objects, n_evicted_objects);
-	}
-
 	ns->non_expirable_objects = n_0_void_time;
+
+	cf_atomic64_add(&ns->n_expired_objects, n_expired_objects);
+	cf_atomic64_add(&ns->n_evicted_objects, n_evicted_objects);
+
+	cf_atomic64_set(&ns->evict_ttl, evict_ttl);
 
 	uint64_t total_duration_ms = cf_getms() - start_ms;
 
