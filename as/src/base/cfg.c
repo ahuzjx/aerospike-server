@@ -2237,7 +2237,7 @@ as_config_init(const char* config_file)
 				c->scan_max_udf_transactions = cfg_u32_no_checks(&line);
 				break;
 			case CASE_SERVICE_SCAN_THREADS:
-				c->scan_threads = cfg_u32(&line, 0, 32);
+				c->scan_threads = cfg_u32(&line, 0, 128);
 				break;
 			case CASE_SERVICE_SERVICE_THREADS:
 				c->n_service_threads = cfg_u32(&line, 1, MAX_DEMARSHAL_THREADS);

@@ -1935,7 +1935,7 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "scan-threads", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
 				goto Error;
-			if (val < 0 || val > 32) {
+			if (val < 0 || val > 128) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of scan-threads from %d to %d ", g_config.scan_threads, val);
