@@ -93,6 +93,20 @@ send_rw_messages(rw_request* rw)
 }
 
 
+void
+send_rw_messages_forget(rw_request* rw)
+{
+	for (uint32_t i = 0; i < rw->n_dest_nodes; i++) {
+		msg_incr_ref(rw->dest_msg);
+
+		if (as_fabric_send(rw->dest_nodes[i], rw->dest_msg,
+				AS_FABRIC_CHANNEL_RW) != AS_FABRIC_SUCCESS) {
+			as_fabric_msg_put(rw->dest_msg);
+		}
+	}
+}
+
+
 int
 set_set_from_msg(as_record* r, as_namespace* ns, as_msg* m)
 {

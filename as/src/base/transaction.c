@@ -402,11 +402,6 @@ as_multi_rec_transaction_error(as_transaction* tr, uint32_t error_code)
 		}
 		cf_atomic64_incr(&g_stats.n_tsvc_client_error);
 		break;
-	case FROM_PROXY:
-	case FROM_BATCH:
-	case FROM_IUDF:
-	case FROM_NSUP:
-		// It should be impossible for non-client origins to get here.
 	default:
 		cf_crash(AS_PROTO, "unexpected transaction origin %u", tr->origin);
 		break;

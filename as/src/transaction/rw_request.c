@@ -91,7 +91,6 @@ rw_request_create(cf_digest* keyd)
 	rw->wait_queue_depth = 0;
 
 	rw->is_set_up = false;
-	rw->respond_client_on_master_completion = false;
 
 	rw->pickled_buf = NULL;
 	rw->pickled_sz = 0;

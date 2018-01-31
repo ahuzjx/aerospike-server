@@ -182,8 +182,7 @@ repl_write_setup_rw(rw_request* rw, as_transaction* tr,
 void
 repl_write_reset_rw(rw_request* rw, as_transaction* tr, repl_write_done_cb cb)
 {
-	// Reset rw->from.any which was set null in tr setup. (And note that
-	// tr->from.any will be null here in respond-on-master-complete mode.)
+	// Reset rw->from.any which was set null in tr setup.
 	rw->from.any = tr->from.any;
 
 	// Needed for response to origin.
@@ -243,10 +242,6 @@ repl_write_handle_op(cf_node node, msg* m)
 		return;
 	}
 
-	uint32_t info = 0;
-
-	msg_get_uint32(m, RW_FIELD_INFO, &info);
-
 	as_remote_record rr = { .src = node, .rsv = &rsv, .keyd = keyd };
 
 	if (msg_get_buf(m, RW_FIELD_RECORD, (uint8_t**)&rr.record_buf,
@@ -256,6 +251,10 @@ repl_write_handle_op(cf_node node, msg* m)
 		send_repl_write_ack(node, m, AS_PROTO_RESULT_FAIL_UNKNOWN);
 		return;
 	}
+
+	uint32_t info = 0;
+
+	msg_get_uint32(m, RW_FIELD_INFO, &info);
 
 	if (repl_write_pickle_is_drop(rr.record_buf, info)) {
 		drop_replica(&rsv, keyd,
@@ -356,8 +355,10 @@ repl_write_handle_ack(cf_node node, msg* m)
 		return;
 	}
 
-	if (! rw->from.any && rw->origin != FROM_NSUP &&
-			! rw->respond_client_on_master_completion) {
+	// Paranoia - remove eventually.
+	cf_assert(rw->origin != FROM_NSUP, AS_RW, "nsup delete got repl-write ack");
+
+	if (! rw->from.any) {
 		// Lost race against timeout in retransmit thread.
 		pthread_mutex_unlock(&rw->lock);
 		rw_request_release(rw);
@@ -407,10 +408,8 @@ repl_write_handle_ack(cf_node node, msg* m)
 		}
 	}
 
-	if (! rw->respond_client_on_master_completion) {
-		// Success for all replicas.
-		rw->repl_write_cb(rw);
-	}
+	// Success for all replicas.
+	rw->repl_write_cb(rw);
 
 	rw->repl_write_complete = true;
 
@@ -439,7 +438,11 @@ pack_info_bits(as_transaction* tr)
 	}
 
 	if (as_transaction_is_nsup_delete(tr)) {
-		info |= RW_INFO_NSUP_DELETE;
+		info |= (RW_INFO_NSUP_DELETE | RW_INFO_NO_REPL_ACK);
+	}
+
+	if (respond_on_master_complete(tr)) {
+		info |= RW_INFO_NO_REPL_ACK;
 	}
 
 	return info;
@@ -449,6 +452,15 @@ pack_info_bits(as_transaction* tr)
 void
 send_repl_write_ack(cf_node node, msg* m, uint32_t result)
 {
+	uint32_t info = 0;
+
+	msg_get_uint32(m, RW_FIELD_INFO, &info);
+
+	if ((info & RW_INFO_NO_REPL_ACK) != 0) {
+		as_fabric_msg_put(m);
+		return;
+	}
+
 	msg_preserve_fields(m, 3, RW_FIELD_NS_ID, RW_FIELD_DIGEST, RW_FIELD_TID);
 
 	msg_set_uint32(m, RW_FIELD_OP, RW_OP_WRITE_ACK);

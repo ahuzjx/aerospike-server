@@ -77,7 +77,7 @@ typedef enum {
 #define RW_OP_DUP_ACK 4
 
 #define RW_INFO_XDR				0x0001
-#define RW_INFO_UNUSED_2		0x0002 // was RW_INFO_MIGRATE
+#define RW_INFO_NO_REPL_ACK		0x0002
 #define RW_INFO_NSUP_DELETE		0x0004
 #define RW_INFO_UNUSED_8		0x0008 // was LDT dummy (no data)
 #define RW_INFO_UNUSED_10		0x0010 // was LDT parent record

@@ -5525,8 +5525,6 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	info_append_uint64(db, "retransmit_udf_sub_dup_res", ns->n_retransmit_udf_sub_dup_res);
 	info_append_uint64(db, "retransmit_udf_sub_repl_write", ns->n_retransmit_udf_sub_repl_write);
 
-	info_append_uint64(db, "retransmit_nsup_repl_write", ns->n_retransmit_nsup_repl_write);
-
 	// Scan stats.
 
 	info_append_uint64(db, "scan_basic_complete", ns->n_scan_basic_complete);

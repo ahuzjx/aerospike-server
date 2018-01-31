@@ -104,8 +104,10 @@ bool log_callback(as_log_level level, const char* func, const char* file,
 
 void start_udf_dup_res(rw_request* rw, as_transaction* tr);
 void start_udf_repl_write(rw_request* rw, as_transaction* tr);
+void start_udf_repl_write_forget(rw_request* rw, as_transaction* tr);
 bool udf_dup_res_cb(rw_request* rw);
 void udf_repl_write_after_dup_res(rw_request* rw, as_transaction* tr);
+void udf_repl_write_forget_after_dup_res(rw_request* rw, as_transaction* tr);
 void udf_repl_write_cb(rw_request* rw);
 
 void send_udf_response(as_transaction* tr, cf_dyn_buf* db);
@@ -329,6 +331,14 @@ as_udf_start(as_transaction* tr)
 		return TRANS_DONE_SUCCESS;
 	}
 
+	// If we don't need to wait for replica write acks, fire and forget.
+	if (respond_on_master_complete(tr)) {
+		start_udf_repl_write_forget(rw, tr);
+		send_udf_response(tr, &rw->response_db);
+		rw_request_hash_delete(&hkey, rw);
+		return TRANS_DONE_SUCCESS;
+	}
+
 	start_udf_repl_write(rw, tr);
 
 	// Started replica write.
@@ -374,8 +384,6 @@ start_udf_dup_res(rw_request* rw, as_transaction* tr)
 
 	dup_res_make_message(rw, tr);
 
-	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
-
 	pthread_mutex_lock(&rw->lock);
 
 	dup_res_setup_rw(rw, tr, udf_dup_res_cb, udf_timeout_cb);
@@ -392,20 +400,22 @@ start_udf_repl_write(rw_request* rw, as_transaction* tr)
 
 	repl_write_make_message(rw, tr);
 
-	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
-
-	if (rw->respond_client_on_master_completion) {
-		// Don't wait for replication. When replication is complete, we won't
-		// call send_udf_response() again.
-		send_udf_response(tr, &rw->response_db);
-	}
-
 	pthread_mutex_lock(&rw->lock);
 
 	repl_write_setup_rw(rw, tr, udf_repl_write_cb, udf_timeout_cb);
 	send_rw_messages(rw);
 
 	pthread_mutex_unlock(&rw->lock);
+}
+
+
+void
+start_udf_repl_write_forget(rw_request* rw, as_transaction* tr)
+{
+	// Construct and send repl-write message. No need to finish rw setup.
+
+	repl_write_make_message(rw, tr);
+	send_rw_messages_forget(rw);
 }
 
 
@@ -443,6 +453,13 @@ udf_dup_res_cb(rw_request* rw)
 		return true;
 	}
 
+	// If we don't need to wait for replica write acks, fire and forget.
+	if (respond_on_master_complete(&tr)) {
+		udf_repl_write_forget_after_dup_res(rw, &tr);
+		send_udf_response(&tr, &rw->response_db);
+		return true;
+	}
+
 	udf_repl_write_after_dup_res(rw, &tr);
 
 	// Started replica write - don't delete rw_request from hash.
@@ -457,15 +474,19 @@ udf_repl_write_after_dup_res(rw_request* rw, as_transaction* tr)
 	// replica writes. Note - we are under the rw_request lock here!
 
 	repl_write_make_message(rw, tr);
-
-	if (rw->respond_client_on_master_completion) {
-		// Don't wait for replication. When replication is complete, we won't
-		// call send_udf_response() again.
-		send_udf_response(tr, &rw->response_db);
-	}
-
 	repl_write_reset_rw(rw, tr, udf_repl_write_cb);
 	send_rw_messages(rw);
+}
+
+
+void
+udf_repl_write_forget_after_dup_res(rw_request* rw, as_transaction* tr)
+{
+	// Send replica writes. Not waiting for acks, so need to reset rw_request.
+	// Note - we are under the rw_request lock here!
+
+	repl_write_make_message(rw, tr);
+	send_rw_messages_forget(rw);
 }
 
 
@@ -540,7 +561,7 @@ send_udf_response(as_transaction* tr, cf_dyn_buf* db)
 		break;
 	}
 
-	tr->from.any = NULL; // needed only for respond-on-master-complete
+	tr->from.any = NULL; // pattern, not needed
 }
 
 
@@ -957,8 +978,6 @@ update_lua_complete_stats(uint8_t origin, as_namespace* ns, udf_optype op,
 			cf_atomic_int_incr(&ns->n_udf_sub_lang_error);
 		}
 		break;
-	case FROM_BATCH:
-	case FROM_NSUP:
 	default:
 		cf_crash(AS_UDF, "unexpected transaction origin %u", origin);
 		break;

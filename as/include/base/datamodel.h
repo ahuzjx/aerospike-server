@@ -879,8 +879,6 @@ struct as_namespace_s {
 	uint64_t		n_retransmit_udf_sub_dup_res;
 	uint64_t		n_retransmit_udf_sub_repl_write;
 
-	uint64_t		n_retransmit_nsup_repl_write;
-
 	// Scan stats.
 
 	cf_atomic64		n_scan_basic_complete;

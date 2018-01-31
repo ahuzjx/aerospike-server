@@ -122,7 +122,6 @@ typedef struct rw_request_s {
 	uint32_t			wait_queue_depth;
 
 	bool				is_set_up; // TODO - redundant with timeout_cb
-	bool				respond_client_on_master_completion;
 
 	// Store pickled data, for use in replica write.
 	uint8_t*			pickled_buf;

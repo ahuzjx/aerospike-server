@@ -85,6 +85,7 @@ typedef struct now_times_s {
 
 bool xdr_allows_write(struct as_transaction_s* tr);
 void send_rw_messages(struct rw_request_s* rw);
+void send_rw_messages_forget(struct rw_request_s* rw);
 bool generation_check(const struct as_index_s* r, const struct as_msg_s* m);
 int set_set_from_msg(struct as_index_s* r, struct as_namespace_s* ns, struct as_msg_s* m);
 int set_delete_durablility(const struct as_transaction_s* tr, struct as_storage_rd_s* rd);

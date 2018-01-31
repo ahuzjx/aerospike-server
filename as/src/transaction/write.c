@@ -70,8 +70,10 @@
 
 void start_write_dup_res(rw_request* rw, as_transaction* tr);
 void start_write_repl_write(rw_request* rw, as_transaction* tr);
+void start_write_repl_write_forget(rw_request* rw, as_transaction* tr);
 bool write_dup_res_cb(rw_request* rw);
 void write_repl_write_after_dup_res(rw_request* rw, as_transaction* tr);
+void write_repl_write_forget_after_dup_res(rw_request* rw, as_transaction* tr);
 void write_repl_write_cb(rw_request* rw);
 
 void send_write_response(as_transaction* tr, cf_dyn_buf* db);
@@ -236,6 +238,14 @@ as_write_start(as_transaction* tr)
 		return TRANS_DONE_SUCCESS;
 	}
 
+	// If we don't need to wait for replica write acks, fire and forget.
+	if (respond_on_master_complete(tr)) {
+		start_write_repl_write_forget(rw, tr);
+		send_write_response(tr, &rw->response_db);
+		rw_request_hash_delete(&hkey, rw);
+		return TRANS_DONE_SUCCESS;
+	}
+
 	start_write_repl_write(rw, tr);
 
 	// Started replica write.
@@ -254,8 +264,6 @@ start_write_dup_res(rw_request* rw, as_transaction* tr)
 
 	dup_res_make_message(rw, tr);
 
-	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
-
 	pthread_mutex_lock(&rw->lock);
 
 	dup_res_setup_rw(rw, tr, write_dup_res_cb, write_timeout_cb);
@@ -272,20 +280,22 @@ start_write_repl_write(rw_request* rw, as_transaction* tr)
 
 	repl_write_make_message(rw, tr);
 
-	rw->respond_client_on_master_completion = respond_on_master_complete(tr);
-
-	if (rw->respond_client_on_master_completion) {
-		// Don't wait for replication. When replication is complete, we won't
-		// call send_write_response() again.
-		send_write_response(tr, &rw->response_db);
-	}
-
 	pthread_mutex_lock(&rw->lock);
 
 	repl_write_setup_rw(rw, tr, write_repl_write_cb, write_timeout_cb);
 	send_rw_messages(rw);
 
 	pthread_mutex_unlock(&rw->lock);
+}
+
+
+void
+start_write_repl_write_forget(rw_request* rw, as_transaction* tr)
+{
+	// Construct and send repl-write message. No need to finish rw setup.
+
+	repl_write_make_message(rw, tr);
+	send_rw_messages_forget(rw);
 }
 
 
@@ -321,6 +331,13 @@ write_dup_res_cb(rw_request* rw)
 		return true;
 	}
 
+	// If we don't need to wait for replica write acks, fire and forget.
+	if (respond_on_master_complete(&tr)) {
+		write_repl_write_forget_after_dup_res(rw, &tr);
+		send_write_response(&tr, &rw->response_db);
+		return true;
+	}
+
 	write_repl_write_after_dup_res(rw, &tr);
 
 	// Started replica write - don't delete rw_request from hash.
@@ -335,15 +352,19 @@ write_repl_write_after_dup_res(rw_request* rw, as_transaction* tr)
 	// replica writes. Note - we are under the rw_request lock here!
 
 	repl_write_make_message(rw, tr);
-
-	if (rw->respond_client_on_master_completion) {
-		// Don't wait for replication. When replication is complete, we won't
-		// call send_write_response() again.
-		send_write_response(tr, &rw->response_db);
-	}
-
 	repl_write_reset_rw(rw, tr, write_repl_write_cb);
 	send_rw_messages(rw);
+}
+
+
+void
+write_repl_write_forget_after_dup_res(rw_request* rw, as_transaction* tr)
+{
+	// Send replica writes. Not waiting for acks, so need to reset rw_request.
+	// Note - we are under the rw_request lock here!
+
+	repl_write_make_message(rw, tr);
+	send_rw_messages_forget(rw);
 }
 
 
@@ -410,7 +431,7 @@ send_write_response(as_transaction* tr, cf_dyn_buf* db)
 		break;
 	}
 
-	tr->from.any = NULL; // needed only for respond-on-master-complete
+	tr->from.any = NULL; // pattern, not needed
 }
 
 

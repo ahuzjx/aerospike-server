@@ -369,10 +369,6 @@ update_retransmit_stats(const rw_request* rw)
 			ns->n_retransmit_udf_sub_repl_write++;
 		}
 		break;
-	case FROM_NSUP:
-		// nsup deletes don't duplicate resolve.
-		ns->n_retransmit_nsup_repl_write++;
-		break;
 	default:
 		cf_crash(AS_RW, "unexpected transaction origin %u", rw->origin);
 		break;
