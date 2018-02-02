@@ -2603,7 +2603,7 @@ ssd_write_header(drv_ssd *ssd, ssd_device_header *header, off_t offset,
 {
 	int fd = ssd_fd_get(ssd);
 
-	if (lseek(fd, offset, SEEK_SET) != 0) {
+	if (lseek(fd, offset, SEEK_SET) != offset) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED seek: errno %d (%s)",
 				ssd->name, errno, cf_strerror(errno));
 	}
@@ -2625,7 +2625,7 @@ ssd_write_header(drv_ssd *ssd, ssd_device_header *header, off_t offset,
 
 	fd = ssd_shadow_fd_get(ssd);
 
-	if (lseek(fd, offset, SEEK_SET) != 0) {
+	if (lseek(fd, offset, SEEK_SET) != offset) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED seek: errno %d (%s)",
 				ssd->shadow_name, errno, cf_strerror(errno));
 	}
