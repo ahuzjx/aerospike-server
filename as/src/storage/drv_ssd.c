@@ -2598,16 +2598,19 @@ ssd_empty_header(int fd, const char* device_name)
 
 
 void
-ssd_write_header(drv_ssd *ssd, ssd_device_header *header, size_t size)
+ssd_write_header(drv_ssd *ssd, ssd_device_header *header, off_t offset,
+		size_t size)
 {
 	int fd = ssd_fd_get(ssd);
 
-	if (lseek(fd, 0, SEEK_SET) != 0) {
+	if (lseek(fd, offset, SEEK_SET) != 0) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED seek: errno %d (%s)",
 				ssd->name, errno, cf_strerror(errno));
 	}
 
-	ssize_t sz = write(fd, (void*)header, size);
+	uint8_t *from = (uint8_t*)header + offset;
+
+	ssize_t sz = write(fd, (void*)from, size);
 
 	if (sz != (ssize_t)size) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED write: errno %d (%s)",
@@ -2622,12 +2625,12 @@ ssd_write_header(drv_ssd *ssd, ssd_device_header *header, size_t size)
 
 	fd = ssd_shadow_fd_get(ssd);
 
-	if (lseek(fd, 0, SEEK_SET) != 0) {
+	if (lseek(fd, offset, SEEK_SET) != 0) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED seek: errno %d (%s)",
 				ssd->shadow_name, errno, cf_strerror(errno));
 	}
 
-	sz = write(fd, (void*)header, size);
+	sz = write(fd, (void*)from, size);
 
 	if (sz != (ssize_t)size) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED write: errno %d (%s)",
@@ -4071,7 +4074,7 @@ as_storage_defrag_sweep_ssd(as_namespace *ns)
 //
 
 void
-as_storage_info_set_ssd(as_namespace *ns, const as_partition *p)
+as_storage_info_set_ssd(as_namespace *ns, const as_partition *p, bool flush)
 {
 	drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 	info_buf *b = (info_buf*)
@@ -4079,6 +4082,24 @@ as_storage_info_set_ssd(as_namespace *ns, const as_partition *p)
 
 	b->unused = 0;
 	b->version = p->version;
+
+	if (flush) {
+		// TODO - in future storage format change, arrange for each stride to
+		// never cross an io-min-size boundary, so we can do less math here.
+
+		uint64_t offset = (uint8_t*)b - (uint8_t*)ssds->header;
+		uint64_t end_offset = offset + SSD_HEADER_INFO_STRIDE;
+
+		for (int i = 0; i < ssds->n_ssds; i++) {
+			drv_ssd *ssd = &ssds->ssds[i];
+
+			uint64_t flush_offset = BYTES_DOWN_TO_IO_MIN(ssd, offset);
+			uint64_t flush_end_offset = BYTES_UP_TO_IO_MIN(ssd, end_offset);
+
+			ssd_write_header(ssd, ssds->header,
+					flush_offset, flush_end_offset - flush_offset);
+		}
+	}
 }
 
 
@@ -4101,7 +4122,7 @@ as_storage_info_flush_ssd(as_namespace *ns)
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
-		ssd_write_header(ssd, ssds->header, SSD_HEADER_SIZE);
+		ssd_write_header(ssd, ssds->header, 0, SSD_HEADER_SIZE);
 	}
 
 	return 0;
@@ -4123,7 +4144,7 @@ as_storage_save_evict_void_time_ssd(as_namespace *ns, uint32_t evict_void_time)
 		drv_ssd* ssd = &ssds->ssds[i];
 		size_t peek_size = BYTES_UP_TO_IO_MIN(ssd, sizeof(ssd_device_header));
 
-		ssd_write_header(ssd, ssds->header, peek_size);
+		ssd_write_header(ssd, ssds->header, 0, peek_size);
 	}
 }
 

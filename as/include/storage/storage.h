@@ -102,7 +102,7 @@ extern bool as_storage_has_space(struct as_namespace_s *ns);
 extern void as_storage_defrag_sweep(struct as_namespace_s *ns);
 
 // Storage of generic data into device headers.
-extern void as_storage_info_set(struct as_namespace_s *ns, const struct as_partition_s *p);
+extern void as_storage_info_set(struct as_namespace_s *ns, const struct as_partition_s *p, bool flush);
 extern void as_storage_info_get(struct as_namespace_s *ns, struct as_partition_s *p);
 extern int as_storage_info_flush(struct as_namespace_s *ns);
 extern void as_storage_save_evict_void_time(struct as_namespace_s *ns, uint32_t evict_void_time);
@@ -167,7 +167,7 @@ extern bool as_storage_overloaded_ssd(struct as_namespace_s *ns);
 extern bool as_storage_has_space_ssd(struct as_namespace_s *ns);
 extern void as_storage_defrag_sweep_ssd(struct as_namespace_s *ns);
 
-extern void as_storage_info_set_ssd(struct as_namespace_s *ns, const struct as_partition_s *p);
+extern void as_storage_info_set_ssd(struct as_namespace_s *ns, const struct as_partition_s *p, bool flush);
 extern void as_storage_info_get_ssd(struct as_namespace_s *ns, struct as_partition_s *p);
 extern int as_storage_info_flush_ssd(struct as_namespace_s *ns);
 extern void as_storage_save_evict_void_time_ssd(struct as_namespace_s *ns, uint32_t evict_void_time);
