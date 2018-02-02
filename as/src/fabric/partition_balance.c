@@ -104,7 +104,6 @@ static sl_ix_t g_full_sl_ix_table[AS_CLUSTER_SZ * AS_PARTITIONS];
 extern cf_node* as_exchange_succession();
 
 // Helpers - generic.
-void set_partition_storage_info(as_namespace* ns, const as_partition* p, bool flush);
 void pb_task_init(pb_task* task, cf_node dest, as_namespace* ns, uint32_t pid, uint64_t cluster_key, pb_task_type type, uint32_t tx_flags);
 void drop_trees(as_partition* p, as_namespace* ns);
 
@@ -435,7 +434,7 @@ as_partition_emigrate_done(as_namespace* ns, uint32_t pid,
 		}
 		// else - must already be a parent.
 
-		set_partition_storage_info(ns, p, true);
+		as_storage_info_set(ns, p, true);
 	}
 
 	if (client_replica_maps_update(ns, pid)) {
@@ -506,7 +505,7 @@ as_partition_immigrate_start(as_namespace* ns, uint32_t pid,
 		p->version.subset = 1;
 		// Leave evade flag as-is.
 
-		set_partition_storage_info(ns, p, true);
+		as_storage_info_set(ns, p, true);
 	}
 
 	pthread_mutex_unlock(&p->lock);
@@ -549,7 +548,7 @@ as_partition_immigrate_done(as_namespace* ns, uint32_t pid,
 	if (p->pending_immigrations == 0 &&
 			! as_partition_version_same(&p->version, &p->final_version)) {
 		p->version = p->final_version;
-		set_partition_storage_info(ns, p, true);
+		as_storage_info_set(ns, p, true);
 	}
 
 	if (! is_self_final_master(p)) {
@@ -568,7 +567,7 @@ as_partition_immigrate_done(as_namespace* ns, uint32_t pid,
 
 		if (! as_partition_version_same(&p->version, &p->final_version)) {
 			p->version = p->final_version;
-			set_partition_storage_info(ns, p, true);
+			as_storage_info_set(ns, p, true);
 		}
 	}
 	else {
@@ -643,7 +642,7 @@ as_partition_migrations_all_done(as_namespace* ns, uint32_t pid,
 	// Not a replica - drop partition.
 	if (! is_self_replica(p)) {
 		p->version = ZERO_VERSION;
-		set_partition_storage_info(ns, p, true);
+		as_storage_info_set(ns, p, true);
 		drop_trees(p, ns);
 	}
 
@@ -656,17 +655,6 @@ as_partition_migrations_all_done(as_namespace* ns, uint32_t pid,
 //==========================================================
 // Local helpers - generic.
 //
-
-void
-set_partition_storage_info(as_namespace* ns, const as_partition* p, bool flush)
-{
-	as_storage_info_set(ns, p);
-
-	if (flush) {
-		as_storage_info_flush(ns);
-	}
-}
-
 
 void
 pb_task_init(pb_task* task, cf_node dest, as_namespace* ns,
@@ -935,7 +923,7 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 				// No migrations required - drop superfluous non-replica
 				// partitions immediately.
 				p->version = ZERO_VERSION;
-				set_partition_storage_info(ns, p, false);
+				as_storage_info_set(ns, p, false);
 				drop_trees(p, ns);
 			}
 		}
@@ -945,7 +933,7 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 		}
 
 		if (! as_partition_version_is_null(&p->version)) {
-			set_partition_storage_info(ns, p, false);
+			as_storage_info_set(ns, p, false);
 		}
 
 		ns_pending_immigrations += (uint32_t)p->pending_immigrations;

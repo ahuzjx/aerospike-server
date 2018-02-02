@@ -398,17 +398,17 @@ as_storage_defrag_sweep(as_namespace *ns)
 // as_storage_info_set
 //
 
-typedef void (*as_storage_info_set_fn)(as_namespace *ns, const as_partition *p);
+typedef void (*as_storage_info_set_fn)(as_namespace *ns, const as_partition *p, bool flush);
 static const as_storage_info_set_fn as_storage_info_set_table[AS_NUM_STORAGE_ENGINES] = {
 	NULL, // memory doesn't support info
 	as_storage_info_set_ssd
 };
 
 void
-as_storage_info_set(as_namespace *ns, const as_partition *p)
+as_storage_info_set(as_namespace *ns, const as_partition *p, bool flush)
 {
 	if (as_storage_info_set_table[ns->storage_type]) {
-		as_storage_info_set_table[ns->storage_type](ns, p);
+		as_storage_info_set_table[ns->storage_type](ns, p, flush);
 	}
 }
 
