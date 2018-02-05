@@ -1496,6 +1496,7 @@ info_service_config_get(cf_dyn_buf *db)
 	info_append_uint32(db, "migrate-max-num-incoming", g_config.migrate_max_num_incoming);
 	info_append_uint32(db, "migrate-threads", g_config.n_migrate_threads);
 	info_append_uint32(db, "min-cluster-size", g_config.clustering_config.cluster_size_min);
+	info_append_uint64_x(db, "node-id", g_config.self_node); // may be configured or auto-generated
 	info_append_string_safe(db, "node-id-interface", g_config.node_id_interface);
 	info_append_uint32(db, "nsup-delete-sleep", g_config.nsup_delete_sleep);
 	info_append_uint32(db, "nsup-period", g_config.nsup_period);

@@ -280,6 +280,7 @@ typedef enum {
 	CASE_SERVICE_MIGRATE_MAX_NUM_INCOMING,
 	CASE_SERVICE_MIGRATE_THREADS,
 	CASE_SERVICE_MIN_CLUSTER_SIZE,
+	CASE_SERVICE_NODE_ID,
 	CASE_SERVICE_NODE_ID_INTERFACE,
 	CASE_SERVICE_NSUP_DELETE_SLEEP,
 	CASE_SERVICE_NSUP_PERIOD,
@@ -770,6 +771,7 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "migrate-max-num-incoming",		CASE_SERVICE_MIGRATE_MAX_NUM_INCOMING },
 		{ "migrate-threads",				CASE_SERVICE_MIGRATE_THREADS },
 		{ "min-cluster-size",				CASE_SERVICE_MIN_CLUSTER_SIZE },
+		{ "node-id",						CASE_SERVICE_NODE_ID },
 		{ "node-id-interface",				CASE_SERVICE_NODE_ID_INTERFACE },
 		{ "nsup-delete-sleep",				CASE_SERVICE_NSUP_DELETE_SLEEP },
 		{ "nsup-period",					CASE_SERVICE_NSUP_PERIOD },
@@ -1700,6 +1702,49 @@ cfg_int_val3(const cfg_line* p_line, int min, int max)
 }
 
 uint64_t
+cfg_x64_anyval_no_checks(const cfg_line* p_line, char* val_tok)
+{
+	if (*val_tok == '\0') {
+		cf_crash_nostack(AS_CFG, "line %d :: %s must specify a hex value",
+				p_line->num, p_line->name_tok);
+	}
+
+	uint64_t value;
+
+	if (0 != cf_str_atoi_x64(val_tok, &value)) {
+		cf_crash_nostack(AS_CFG, "line %d :: %s must be a 64-bit hex number, not %s",
+				p_line->num, p_line->name_tok, val_tok);
+	}
+
+	return value;
+}
+
+uint64_t
+cfg_x64_no_checks(const cfg_line* p_line)
+{
+	return cfg_x64_anyval_no_checks(p_line, p_line->val_tok_1);
+}
+
+uint64_t
+cfg_x64(const cfg_line* p_line, uint64_t min, uint64_t max)
+{
+	uint64_t value = cfg_x64_no_checks(p_line);
+
+	if (min == 0) {
+		if (value > max) {
+			cf_crash_nostack(AS_CFG, "line %d :: %s must be <= %lx, not %lx",
+					p_line->num, p_line->name_tok, max, value);
+		}
+	}
+	else if (value < min || value > max) {
+		cf_crash_nostack(AS_CFG, "line %d :: %s must be >= %lx and <= %lx, not %lx",
+				p_line->num, p_line->name_tok, min, max, value);
+	}
+
+	return value;
+}
+
+uint64_t
 cfg_u64_anyval_no_checks(const cfg_line* p_line, char* val_tok)
 {
 	if (*val_tok == '\0') {
@@ -2163,6 +2208,9 @@ as_config_init(const char* config_file)
 				break;
 			case CASE_SERVICE_MIN_CLUSTER_SIZE:
 				c->clustering_config.cluster_size_min = cfg_u32(&line, 0, AS_CLUSTER_SZ);
+				break;
+			case CASE_SERVICE_NODE_ID:
+				c->self_node = cfg_x64(&line, 1, UINT64_MAX);
 				break;
 			case CASE_SERVICE_NODE_ID_INTERFACE:
 				c->node_id_interface = cfg_strdup_no_checks(&line);
@@ -3588,10 +3636,16 @@ as_config_post_process(as_config* c, const char* config_file)
 	// Setup performance metrics histograms.
 	cfg_create_all_histograms();
 
-	cf_ip_port id_port = c->fabric.bind_port != 0 ? c->fabric.bind_port : c->tls_fabric.bind_port;
+	// If node-id was not configured, generate one.
+	if (c->self_node == 0) {
+		cf_ip_port id_port = c->fabric.bind_port != 0 ? c->fabric.bind_port : c->tls_fabric.bind_port;
 
-	if (cf_node_id_get(id_port, c->node_id_interface, &c->self_node) < 0) {
-		cf_crash_nostack(AS_CFG, "could not get node id");
+		if (cf_node_id_get(id_port, c->node_id_interface, &c->self_node) < 0) {
+			cf_crash_nostack(AS_CFG, "could not get node id");
+		}
+	}
+	else if (c->node_id_interface) {
+		cf_crash_nostack(AS_CFG, "may not configure both 'node-id' and ''node-id-interface");
 	}
 
 	cf_info(AS_CFG, "node-id %lx", c->self_node);
