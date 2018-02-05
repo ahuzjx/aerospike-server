@@ -45,6 +45,7 @@
 #include "base/datamodel.h"
 #include "base/index.h"
 #include "fabric/exchange.h"
+#include "fabric/hb.h"
 #include "fabric/migrate.h"
 #include "fabric/partition.h"
 #include "storage/storage.h"

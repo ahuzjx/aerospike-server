@@ -53,6 +53,7 @@
 #include "base/rec_props.h"
 #include "base/transaction_policy.h"
 #include "base/truncate.h"
+#include "fabric/hb.h"
 #include "fabric/partition.h"
 #include "storage/storage.h"
 

@@ -37,6 +37,7 @@
 #include "aerospike/as_integer.h"
 #include "aerospike/as_stringmap.h"
 #include "citrusleaf/cf_clock.h"
+#include "citrusleaf/cf_queue.h"
 #include "citrusleaf/cf_rchash.h"
 
 #include "msg.h"
@@ -47,6 +48,7 @@
 #include "base/system_metadata.h"
 #include "fabric/exchange.h"
 #include "fabric/fabric.h"
+#include "fabric/hb.h"
 #include "jansson.h"
 
 

@@ -35,8 +35,6 @@
 #include "socket.h"
 #include "tls.h"
 
-#include "fabric/hb.h"
-
 
 //==========================================================
 // Typedefs & constants.

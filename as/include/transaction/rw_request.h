@@ -43,6 +43,7 @@
 #include "base/proto.h"
 #include "base/rec_props.h"
 #include "base/transaction.h"
+#include "fabric/hb.h"
 #include "fabric/partition.h"
 
 

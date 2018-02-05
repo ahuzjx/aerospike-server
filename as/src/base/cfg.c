@@ -68,6 +68,7 @@
 #include "base/xdr_config.h"
 #include "base/xdr_serverside.h"
 #include "fabric/fabric.h"
+#include "fabric/hb.h"
 #include "fabric/migrate.h"
 #include "fabric/partition_balance.h"
 #include "storage/drv_ssd.h"
