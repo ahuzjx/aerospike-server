@@ -338,10 +338,6 @@ as_partition_balance()
 	g_init_balance_done = true;
 	cf_atomic32_incr(&g_partition_generation);
 
-	for (uint32_t ns_ix = 0; ns_ix < g_config.n_namespaces; ns_ix++) {
-		as_storage_info_flush(g_config.namespaces[ns_ix]);
-	}
-
 	g_allow_migrations = true;
 	cf_detail(AS_PARTITION, "allow migrations");
 
@@ -952,6 +948,10 @@ balance_namespace(as_namespace* ns, cf_queue* mq)
 
 		pthread_mutex_unlock(&p->lock);
 	}
+
+	// Commit partition versions to device.
+	// TODO - always flush each partition's version on storage format change.
+	as_storage_info_flush(ns);
 
 	cf_info(AS_PARTITION, "{%s} rebalanced: expected-migrations (%u,%u) expected-signals %u fresh-partitions %u",
 			ns->name, ns_pending_emigrations, ns_pending_immigrations,
