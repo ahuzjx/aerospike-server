@@ -62,7 +62,7 @@ struct pb_task_s;
 // For receiver-side migration flow-control.
 // TODO - move to namespace? Go even lower than 4?
 #define AS_MIGRATE_DEFAULT_MAX_NUM_INCOMING 4
-#define AS_MIGRATE_LIMIT_MAX_NUM_INCOMING 64
+#define AS_MIGRATE_LIMIT_MAX_NUM_INCOMING 256
 
 // Maximum permissible number of migrate xmit threads.
 #define MAX_NUM_MIGRATE_XMIT_THREADS 100
