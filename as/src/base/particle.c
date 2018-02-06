@@ -877,7 +877,7 @@ as_bin_particle_alloc_from_msgpack(as_bin *b, const uint8_t *packed, uint32_t pa
 	}
 
 	if (type == AS_PARTICLE_TYPE_NULL) {
-		return 0;
+		return AS_PROTO_RESULT_OK;
 	}
 
 	uint32_t mem_size = particle_vtable[type]->size_from_msgpack_fn(packed, packed_size);
@@ -891,7 +891,7 @@ as_bin_particle_alloc_from_msgpack(as_bin *b, const uint8_t *packed, uint32_t pa
 	// Set the bin's iparticle metadata.
 	as_bin_state_set_from_type(b, type);
 
-	return 0;
+	return AS_PROTO_RESULT_OK;
 }
 
 //------------------------------------------------

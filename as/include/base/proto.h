@@ -1,7 +1,7 @@
 /*
  * proto.h
  *
- * Copyright (C) 2008-2015 Aerospike, Inc.
+ * Copyright (C) 2008-2017 Aerospike, Inc.
  *
  * Portions may be licensed to Aerospike, Inc. under one or more contributor
  * license agreements.
@@ -561,32 +561,77 @@ typedef enum result_type_e {
 	RESULT_TYPE_REVRANK_RANGE	= 12,
 } result_type_t;
 
+typedef enum {
+	AS_CDT_OP_FLAG_RESULT_MASK = 0x0000ffff,
+	AS_CDT_OP_FLAG_INVERTED = 0x00010000
+} as_cdt_op_flags;
+
+typedef enum {
+	AS_CDT_SORT_ASCENDING = 0,
+	AS_CDT_SORT_DESCENDING = 1,
+	AS_CDT_SORT_DROP_DUPLICATES = 2
+} as_cdt_sort_flags;
+
+typedef enum {
+	AS_CDT_LIST_MODIFY_DEFAULT = 0x00,
+	AS_CDT_LIST_ADD_UNIQUE = 0x01,
+	AS_CDT_LIST_INSERT_BOUNDED = 0x02
+} as_cdt_list_modify_flags;
+
 typedef enum as_cdt_optype_e {
 	// ------------------------------------------------------------------------
 	// List Operation
 
-	// Add to list
+	AS_CDT_OP_LIST_SET_TYPE      = 0,
+
+	// Adds
 	AS_CDT_OP_LIST_APPEND        = 1,
 	AS_CDT_OP_LIST_APPEND_ITEMS  = 2,
 	AS_CDT_OP_LIST_INSERT        = 3,
 	AS_CDT_OP_LIST_INSERT_ITEMS  = 4,
 
-	// Remove from list
+	// Removes
 	AS_CDT_OP_LIST_POP           = 5,
 	AS_CDT_OP_LIST_POP_RANGE     = 6,
 	AS_CDT_OP_LIST_REMOVE        = 7,
 	AS_CDT_OP_LIST_REMOVE_RANGE  = 8,
 
-	// Other list modifies
+	// Modifies
 	AS_CDT_OP_LIST_SET           = 9,
 	AS_CDT_OP_LIST_TRIM          = 10,
 	AS_CDT_OP_LIST_CLEAR         = 11,
 	AS_CDT_OP_LIST_INCREMENT     = 12,
 
-	// Read from list
+	AS_CDT_OP_LIST_SORT          = 13,
+
+	// Reads
 	AS_CDT_OP_LIST_SIZE          = 16,
 	AS_CDT_OP_LIST_GET           = 17,
 	AS_CDT_OP_LIST_GET_RANGE     = 18,
+
+	// GET_BYs
+	AS_CDT_OP_LIST_GET_BY_INDEX             = 19,
+	AS_CDT_OP_LIST_GET_BY_VALUE             = 20,
+	AS_CDT_OP_LIST_GET_BY_RANK              = 21,
+
+	AS_CDT_OP_LIST_GET_ALL_BY_VALUE         = 22,
+	AS_CDT_OP_LIST_GET_ALL_BY_VALUE_LIST    = 23,
+
+	AS_CDT_OP_LIST_GET_BY_INDEX_RANGE       = 24,
+	AS_CDT_OP_LIST_GET_BY_VALUE_INTERVAL    = 25,
+	AS_CDT_OP_LIST_GET_BY_RANK_RANGE        = 26,
+
+	// REMOVE_BYs
+	AS_CDT_OP_LIST_REMOVE_BY_INDEX          = 32,
+	AS_CDT_OP_LIST_REMOVE_BY_VALUE          = 33,
+	AS_CDT_OP_LIST_REMOVE_BY_RANK           = 34,
+
+	AS_CDT_OP_LIST_REMOVE_ALL_BY_VALUE      = 35,
+	AS_CDT_OP_LIST_REMOVE_ALL_BY_VALUE_LIST = 36,
+
+	AS_CDT_OP_LIST_REMOVE_BY_INDEX_RANGE    = 37,
+	AS_CDT_OP_LIST_REMOVE_BY_VALUE_INTERVAL = 38,
+	AS_CDT_OP_LIST_REMOVE_BY_RANK_RANGE     = 39,
 
 	// ------------------------------------------------------------------------
 	// Map Operation
@@ -640,6 +685,9 @@ typedef enum as_cdt_optype_e {
 	AS_CDT_OP_MAP_GET_BY_VALUE_INTERVAL				= 105,
 	AS_CDT_OP_MAP_GET_BY_RANK_RANGE					= 106,
 
+	AS_CDT_OP_MAP_GET_BY_KEY_LIST					= 107,
+	AS_CDT_OP_MAP_GET_BY_VALUE_LIST					= 108,
+
 } as_cdt_optype;
 
-#define AS_CDT_OP_LIST_LAST	AS_CDT_OP_LIST_GET_RANGE
+#define AS_CDT_OP_LIST_LAST AS_CDT_OP_LIST_REMOVE_BY_RANK_RANGE
