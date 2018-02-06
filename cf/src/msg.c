@@ -809,7 +809,8 @@ msg_get_buf(const msg *m, int field_id, uint8_t **buf_r, size_t *sz_r,
 }
 
 int
-msg_get_uint32_array(const msg *m, int field_id, uint32_t index, uint32_t *val_r)
+msg_get_uint32_array(const msg *m, int field_id, uint32_t index,
+		uint32_t *val_r)
 {
 	const msg_field *mf = &m->f[field_id];
 
@@ -837,7 +838,8 @@ msg_get_uint64_array_count(const msg *m, int field_id, uint32_t *count_r)
 }
 
 int
-msg_get_uint64_array(const msg *m, int field_id, uint32_t index, uint64_t *val_r)
+msg_get_uint64_array(const msg *m, int field_id, uint32_t index,
+		uint64_t *val_r)
 {
 	const msg_field *mf = &m->f[field_id];
 
@@ -891,9 +893,11 @@ msg_msgpack_container_get_count(const msg *m, int field_id, uint32_t *count_r)
 }
 
 bool
-msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t **buf_r,
+msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t *buf_r,
 		uint32_t *count_r)
 {
+	cf_assert(buf_r, CF_MSG, "buf_r is null");
+
 	const msg_field *mf = &m->f[field_id];
 
 	if (! mf->is_set) {
@@ -923,15 +927,7 @@ msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t **buf_r,
 		return false;
 	}
 
-	bool need_free = false;
-
-	if (! *buf_r) {
-		// FIXME - need a sanity check for this size (count)?
-		*buf_r = cf_malloc(sizeof(uint64_t) * (size_t)count);
-		*count_r = (uint32_t)count;
-		need_free = true;
-	}
-	else if (*count_r < (uint32_t)count) {
+	if (*count_r < (uint32_t)count) {
 		cf_warning(CF_MSG, "count_r %u < %ld too small", *count_r, count);
 		return false;
 	}
@@ -941,17 +937,11 @@ msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t **buf_r,
 		int ret = as_unpack_uint64(&pk, &val);
 
 		if (ret != 0 || (val & (0xFFFFffffUL << 32)) != 0) {
-			if (need_free) {
-				cf_free(*buf_r);
-				*buf_r = NULL;
-				*count_r = 0;
-			}
-
 			cf_warning(CF_MSG, "i %ld/%ld invalid packed uint32 ret %d val 0x%lx", i, count, ret, val);
 			return false;
 		}
 
-		(*buf_r)[i] = (uint32_t)val;
+		buf_r[i] = (uint32_t)val;
 	}
 
 	*count_r = (uint32_t)count;

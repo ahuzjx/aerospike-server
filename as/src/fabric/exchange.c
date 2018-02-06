@@ -2240,9 +2240,9 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 		}
 
 		uint32_t num_rack_ids = num_namespaces_sent;
-		uint32_t* rack_ids_array = rack_ids;
+
 		if (!msg_msgpack_list_get_uint32_array(msg_event->msg,
-				AS_EXCHANGE_MSG_NS_RACK_IDS, &rack_ids_array, &num_rack_ids)) {
+				AS_EXCHANGE_MSG_NS_RACK_IDS, rack_ids, &num_rack_ids)) {
 			WARNING("received invalid cluster groups from node %"PRIx64,
 					msg_event->msg_source);
 			goto Exit;

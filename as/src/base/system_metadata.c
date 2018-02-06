@@ -806,7 +806,7 @@ smd_msg_read_items(as_smd_msg_t *sm, const msg *m, const cf_vector *mod_vec,
 
 	uint32_t check = sm->num_items;
 
-	if (! msg_msgpack_list_get_uint32_array(m, AS_SMD_MSG_GEN_LIST, &gen_list,
+	if (! msg_msgpack_list_get_uint32_array(m, AS_SMD_MSG_GEN_LIST, gen_list,
 			&check) || check != sm->num_items) {
 		cf_warning(AS_SMD, "GEN_LIST invalid with count %u num_items %u", check, sm->num_items);
 		return false;
@@ -931,10 +931,9 @@ smd_new_create_msg_event(as_smd_msg_t *sm, cf_node node_id, msg *m)
 		}
 
 		uint32_t check = SMD_MAX_STACK_MODULES;
-		uint32_t *p_counts = counts;
 
 		if (! msg_msgpack_list_get_uint32_array(m, AS_SMD_MSG_MODULE_COUNTS,
-				&p_counts, &check) ||
+				counts, &check) ||
 				check != cf_vector_size(&mod_vec)) {
 			cf_warning(AS_SMD, "MODULE_COUNTS invalid with counts %u vector_size(mod_vec) %u", check, cf_vector_size(&mod_vec));
 			return false;

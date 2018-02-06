@@ -215,7 +215,7 @@ int msg_get_uint64_array_count(const msg *m, int field_id, uint32_t *count_r);
 int msg_get_uint64_array(const msg *m, int field_id, uint32_t idx, uint64_t *val_r);
 
 bool msg_msgpack_container_get_count(const msg *m, int field_id, uint32_t *count_r);
-bool msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t **buf_r, uint32_t *count_r);
+bool msg_msgpack_list_get_uint32_array(const msg *m, int field_id, uint32_t *buf_r, uint32_t *count_r);
 bool msg_msgpack_list_get_buf_array(const msg *m, int field_id, cf_vector *v_r, bool init_vec);
 
 static inline bool
