@@ -824,6 +824,12 @@ struct as_namespace_s {
 	cf_atomic64		n_client_delete_timeout;
 	cf_atomic64		n_client_delete_not_found;
 
+	// Subset of n_client_delete_... above, respectively.
+	cf_atomic64		n_xdr_delete_success;
+	cf_atomic64		n_xdr_delete_error;
+	cf_atomic64		n_xdr_delete_timeout;
+	cf_atomic64		n_xdr_delete_not_found;
+
 	cf_atomic64		n_client_udf_complete;
 	cf_atomic64		n_client_udf_error;
 	cf_atomic64		n_client_udf_timeout;

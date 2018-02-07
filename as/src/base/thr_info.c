@@ -5471,6 +5471,12 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 	info_append_uint64(db, "client_delete_timeout", ns->n_client_delete_timeout);
 	info_append_uint64(db, "client_delete_not_found", ns->n_client_delete_not_found);
 
+	// Subset of n_client_delete_... above, respectively.
+	info_append_uint64(db, "xdr_delete_success", ns->n_xdr_delete_success);
+	info_append_uint64(db, "xdr_delete_error", ns->n_xdr_delete_error);
+	info_append_uint64(db, "xdr_delete_timeout", ns->n_xdr_delete_timeout);
+	info_append_uint64(db, "xdr_delete_not_found", ns->n_xdr_delete_not_found);
+
 	info_append_uint64(db, "client_udf_complete", ns->n_client_udf_complete);
 	info_append_uint64(db, "client_udf_error", ns->n_client_udf_error);
 	info_append_uint64(db, "client_udf_timeout", ns->n_client_udf_timeout);

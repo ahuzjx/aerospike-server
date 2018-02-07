@@ -91,6 +91,7 @@ void log_line_memory_usage(as_namespace* ns, size_t total_mem, size_t index_mem,
 void log_line_device_usage(as_namespace* ns);
 
 void log_line_client(as_namespace* ns);
+void log_line_xdr_client(as_namespace* ns);
 void log_line_batch_sub(as_namespace* ns);
 void log_line_scan(as_namespace* ns);
 void log_line_query(as_namespace* ns);
@@ -198,6 +199,7 @@ log_ticker_frame(uint64_t delta_time)
 		log_line_device_usage(ns);
 
 		log_line_client(ns);
+		log_line_xdr_client(ns);
 		log_line_batch_sub(ns);
 		log_line_scan(ns);
 		log_line_query(ns);
@@ -531,6 +533,30 @@ log_line_client(as_namespace* ns)
 			n_delete_success, n_delete_error, n_delete_timeout, n_delete_not_found,
 			n_udf_complete, n_udf_error, n_udf_timeout,
 			n_lang_read_success, n_lang_write_success, n_lang_delete_success, n_lang_error
+			);
+}
+
+
+void
+log_line_xdr_client(as_namespace* ns)
+{
+	uint64_t n_write_success = ns->n_xdr_write_success;
+	uint64_t n_write_error = ns->n_xdr_write_error;
+	uint64_t n_write_timeout = ns->n_xdr_write_timeout;
+	uint64_t n_delete_success = ns->n_xdr_delete_success;
+	uint64_t n_delete_error = ns->n_xdr_delete_error;
+	uint64_t n_delete_timeout = ns->n_xdr_delete_timeout;
+	uint64_t n_delete_not_found = ns->n_xdr_delete_not_found;
+
+	if ((n_write_success | n_write_error | n_write_timeout |
+			n_delete_success | n_delete_error | n_delete_timeout | n_delete_not_found) == 0) {
+		return;
+	}
+
+	cf_info(AS_INFO, "{%s} xdr-client: write (%lu,%lu,%lu) delete (%lu,%lu,%lu,%lu)",
+			ns->name,
+			n_write_success, n_write_error, n_write_timeout,
+			n_delete_success, n_delete_error, n_delete_timeout, n_delete_not_found
 			);
 }
 
