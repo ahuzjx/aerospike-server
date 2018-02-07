@@ -97,9 +97,11 @@ char *cf_fault_context_strings[] = {
 		"predexp",
 		"proto",
 		"proxy",
+		"proxy-divert",
 		"query",
 		"record",
 		"rw",
+		"rw-client",
 		"scan",
 		"security",
 		"sindex",
@@ -558,7 +560,7 @@ cf_fault_event(const cf_fault_context context, const cf_fault_severity severity,
  * used in other contexts as a hex number).
  */
 int
-generate_packed_hex_string(void *mem_ptr, uint32_t len, char* output)
+generate_packed_hex_string(const void *mem_ptr, uint32_t len, char* output)
 {
 	uint8_t *d = (uint8_t *) mem_ptr;
 	char* p = output;
@@ -581,7 +583,7 @@ generate_packed_hex_string(void *mem_ptr, uint32_t len, char* output)
  * e.g. fc 86 e8 3a 6d 6d 30 24 65 9e 6f e4 8c 35 1a aa f6 e9 64 a5
  */
 int
-generate_spaced_hex_string(void *mem_ptr, uint32_t len, char* output)
+generate_spaced_hex_string(const void *mem_ptr, uint32_t len, char* output)
 {
 	uint8_t *d = (uint8_t *) mem_ptr;
 	char* p = output;
@@ -604,7 +606,7 @@ generate_spaced_hex_string(void *mem_ptr, uint32_t len, char* output)
  * f6e9 64a5
  */
 int
-generate_column_hex_string(void *mem_ptr, uint32_t len, char* output)
+generate_column_hex_string(const void *mem_ptr, uint32_t len, char* output)
 {
 	uint8_t *d = (uint8_t *) mem_ptr;
 	char* p = output;
@@ -638,7 +640,7 @@ generate_column_hex_string(void *mem_ptr, uint32_t len, char* output)
  * Base 64 Chars:     T(19)      W(22)      F(5)      u(46)
  * and so this string is converted into the Base 64 string: "TWFu"
  */
-int generate_base64_string(void *mem_ptr, uint32_t len, char output_buf[])
+int generate_base64_string(const void *mem_ptr, uint32_t len, char output_buf[])
 {
 	uint32_t encoded_len = cf_b64_encoded_len(len);
 	// TODO - check that output_buf is big enough, and/or truncate.
@@ -656,7 +658,7 @@ int generate_base64_string(void *mem_ptr, uint32_t len, char output_buf[])
  * Print the bits left to right (big to small).
  * This is assuming BIG ENDIAN representation (most significant bit is left).
  */
-int generate_4spaced_bits_string(void *mem_ptr, uint32_t len, char* output)
+int generate_4spaced_bits_string(const void *mem_ptr, uint32_t len, char* output)
 {
 	uint8_t *d = (uint8_t *) mem_ptr;
 	char* p = output;
@@ -683,7 +685,7 @@ int generate_4spaced_bits_string(void *mem_ptr, uint32_t len, char* output)
  * four bit groups.  Columns will be 8 columns of 4 bits.
  * (1 32 bit word per row)
  */
-int generate_column_bits_string(void *mem_ptr, uint32_t len, char* output)
+int generate_column_bits_string(const void *mem_ptr, uint32_t len, char* output)
 {
 	uint8_t *d = (uint8_t *) mem_ptr;
 	char* p = output;
@@ -730,7 +732,7 @@ int generate_column_bits_string(void *mem_ptr, uint32_t len, char* output)
 void
 cf_fault_event2(const cf_fault_context context,
 		const cf_fault_severity severity, const char *file_name, const int line,
-		void * mem_ptr, size_t len, cf_display_type dt, const char *msg, ...)
+		const void *mem_ptr, size_t len, cf_display_type dt, const char *msg, ...)
 {
 	va_list argp;
 	char mbuf[MAX_BINARY_BUF_SZ];

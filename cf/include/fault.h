@@ -183,9 +183,11 @@ typedef enum {
 	AS_PREDEXP,
 	AS_PROTO,
 	AS_PROXY,
+	AS_PROXY_DIVERT, // special detail context
 	AS_QUERY,
 	AS_RECORD,
 	AS_RW,
+	AS_RW_CLIENT, // special detail context
 	AS_SCAN,
 	AS_SECURITY,
 	AS_SINDEX,
@@ -285,7 +287,7 @@ extern void cf_fault_event(const cf_fault_context,
 // binary object (often a digest).
 extern void cf_fault_event2(const cf_fault_context,
 		const cf_fault_severity severity, const char *file_name, const int line,
-		void * mem_ptr, size_t len, cf_display_type dt, const char *msg, ...)
+		const void *mem_ptr, size_t len, cf_display_type dt, const char *msg, ...)
 		__attribute__ ((format (printf, 8, 9)));
 
 extern void cf_fault_event_nostack(const cf_fault_context,
@@ -411,7 +413,7 @@ extern bool cf_context_at_severity(const cf_fault_context context, const cf_faul
 
 extern void cf_fault_init();
 
-int generate_packed_hex_string(void *mem_ptr, uint32_t len, char* output);
+int generate_packed_hex_string(const void *mem_ptr, uint32_t len, char* output);
 
 // For now there's only one cache, dumped by the ticker.
 extern void cf_fault_dump_cache();

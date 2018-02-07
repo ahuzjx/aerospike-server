@@ -208,7 +208,7 @@ as_proxy_init()
 	pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
 
 	if (pthread_create(&thread, &attrs, run_proxy_timeout, NULL) != 0) {
-		cf_crash(AS_RW, "failed to create proxy timeout thread");
+		cf_crash(AS_PROXY, "failed to create proxy timeout thread");
 	}
 
 	as_fabric_register_msg_fn(M_TYPE_PROXY, proxy_mt, sizeof(proxy_mt),
@@ -227,6 +227,24 @@ as_proxy_hash_count()
 void
 as_proxy_divert(cf_node dst, as_transaction* tr, as_namespace* ns)
 {
+	// Special log detail.
+	switch (tr->origin) {
+	case FROM_CLIENT:
+		cf_detail_digest(AS_PROXY_DIVERT, &tr->keyd,
+				"{%s} diverting from client %s to node %lx ",
+				ns->name, tr->from.proto_fd_h->client, dst);
+		break;
+	case FROM_BATCH:
+		cf_detail_digest(AS_PROXY_DIVERT, &tr->keyd,
+				"{%s} diverting batch-sub from client %s to node %lx ",
+				ns->name, as_batch_get_fd_h(tr->from.batch_shared)->client,
+				dst);
+		break;
+	default:
+		cf_crash(AS_PROXY, "unexpected transaction origin %u", tr->origin);
+		break;
+	}
+
 	// Get a fabric message and fill it out.
 
 	msg* m = as_fabric_msg_get(M_TYPE_PROXY);
