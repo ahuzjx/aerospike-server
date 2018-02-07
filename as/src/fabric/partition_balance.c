@@ -1096,12 +1096,12 @@ rack_aware_adjust_row(cf_node* ns_node_seq, sl_ix_t* ns_sl_ix,
 	for (uint32_t cur_n = start_n; cur_n < n_needed; cur_n++) {
 		uint32_t cur_rack_id = RACK_ID(cur_n);
 
-		// If cur_rack_id is unique for nodes < cur_i, continue to next node.
+		// If cur_rack_id is unique for nodes < cur_n, continue to next node.
 		if (is_rack_distinct_before_n(ns_sl_ix, rack_ids, cur_rack_id, cur_n)) {
 			continue;
 		}
 
-		// Find group after cur_i that's unique for rack-ids before cur_i.
+		// Find group after cur_n that's unique for rack-ids before cur_n.
 		uint32_t swap_n = cur_n; // if swap cannot be found then no change
 
 		while (next_n < n_ids) {
