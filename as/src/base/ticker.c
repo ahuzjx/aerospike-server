@@ -97,6 +97,7 @@ void log_line_scan(as_namespace* ns);
 void log_line_query(as_namespace* ns);
 void log_line_udf_sub(as_namespace* ns);
 void log_line_retransmits(as_namespace* ns);
+void log_line_special_errors(as_namespace* ns);
 
 void dump_global_histograms();
 void dump_namespace_histograms(as_namespace* ns);
@@ -205,6 +206,7 @@ log_ticker_frame(uint64_t delta_time)
 		log_line_query(ns);
 		log_line_udf_sub(ns);
 		log_line_retransmits(ns);
+		log_line_special_errors(ns);
 
 		dump_namespace_histograms(ns);
 	}
@@ -704,6 +706,25 @@ log_line_retransmits(as_namespace* ns)
 			n_client_udf_dup_res, n_client_udf_repl_write,
 			n_batch_sub_dup_res,
 			n_udf_sub_dup_res, n_udf_sub_repl_write
+			);
+}
+
+
+void
+log_line_special_errors(as_namespace* ns)
+{
+	uint64_t n_fail_key_busy = ns->n_fail_key_busy;
+	uint64_t n_fail_record_too_big = ns->n_fail_record_too_big;
+
+	if ((n_fail_key_busy |
+			n_fail_record_too_big) == 0) {
+		return;
+	}
+
+	cf_info(AS_INFO, "{%s} special-errors: key-busy %lu record-too-big %lu",
+			ns->name,
+			n_fail_key_busy,
+			n_fail_record_too_big
 			);
 }
 

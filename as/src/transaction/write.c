@@ -723,6 +723,8 @@ write_master_failed(as_transaction* tr, as_index_ref* r_ref,
 		bool record_created, as_index_tree* tree, as_storage_rd* rd,
 		int result_code)
 {
+	as_namespace* ns = tr->rsv.ns;
+
 	if (r_ref) {
 		if (record_created) {
 			as_index_delete(tree, &tr->keyd);
@@ -732,15 +734,16 @@ write_master_failed(as_transaction* tr, as_index_ref* r_ref,
 			as_storage_record_close(rd);
 		}
 
-		as_record_done(r_ref, tr->rsv.ns);
+		as_record_done(r_ref, ns);
 	}
 
 	switch (result_code) {
 	case AS_PROTO_RESULT_FAIL_GENERATION:
-		cf_atomic64_incr(&tr->rsv.ns->n_fail_generation);
+		cf_atomic64_incr(&ns->n_fail_generation);
 		break;
 	case AS_PROTO_RESULT_FAIL_RECORD_TOO_BIG:
-		cf_atomic64_incr(&tr->rsv.ns->n_fail_record_too_big);
+		cf_detail_digest(AS_RW, &tr->keyd, "{%s} write_master: record too big ", ns->name);
+		cf_atomic64_incr(&ns->n_fail_record_too_big);
 		break;
 	default:
 		// These either log warnings or aren't interesting enough to count.

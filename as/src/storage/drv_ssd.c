@@ -1626,7 +1626,7 @@ ssd_write_bins(as_storage_rd *rd)
 	uint32_t write_size = ssd_write_calculate_size(rd);
 
 	if (write_size > ssd->write_block_size) {
-		cf_warning_digest(AS_DRV_SSD, &r->keyd, "write: size %u - rejecting ",
+		cf_detail_digest(AS_DRV_SSD, &r->keyd, "write: size %u - rejecting ",
 				write_size);
 		return -AS_PROTO_RESULT_FAIL_RECORD_TOO_BIG;
 	}
