@@ -749,9 +749,8 @@ map_from_asval(const as_val *val, as_particle **pp)
 	bool success;
 
 	if (sz < CDT_MAX_STACK_OBJ_SZ) {
-		memcpy(buf + sizeof(packed_map_op), p_map_mem->data, sz);
-		success = packed_map_init(map, buf + sizeof(packed_map_op), sz,
-				false);
+		memcpy(buf + sizeof(packed_map), p_map_mem->data, sz);
+		success = packed_map_init(map, buf + sizeof(packed_map), sz, false);
 	}
 	else {
 		temp_mem = cf_malloc(sz);

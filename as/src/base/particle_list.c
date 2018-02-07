@@ -1596,10 +1596,7 @@ packed_list_trim(const packed_list *list, as_bin *b, rollback_alloc *alloc_buf,
 		list_mem *p_list_mem = list_create(result->alloc, rm_count,
 				offset0 + tail_sz);
 
-		if (! p_list_mem) {
-			return -AS_PROTO_RESULT_FAIL_UNKNOWN;
-		}
-
+		cf_assert(p_list_mem, AS_PARTICLE, "NULL list");
 		result->result->particle = (as_particle *)p_list_mem;
 
 		uint8_t *ptr = p_list_mem->data;
@@ -1609,6 +1606,8 @@ packed_list_trim(const packed_list *list, as_bin *b, rollback_alloc *alloc_buf,
 		memcpy(ptr, list->contents, offset0);
 		ptr += offset0;
 		memcpy(ptr, list->contents + offset1, tail_sz);
+
+		as_bin_state_set_from_type(result->result, AS_PARTICLE_TYPE_LIST);
 
 		break;
 	}
