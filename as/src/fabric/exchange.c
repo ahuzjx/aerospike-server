@@ -2248,6 +2248,8 @@ exchange_exchanging_data_msg_handle(as_exchange_event* msg_event)
 			goto Exit;
 		}
 
+		node_state.data->num_namespaces = 0;
+
 		for (uint32_t i = 0; i < num_namespaces_sent; i++) {
 			msg_buf_ele* namespace_name_element = cf_vector_getp(
 					&namespace_list, i);
