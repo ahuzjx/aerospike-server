@@ -3130,7 +3130,7 @@ as_config_init(const char* config_file)
 				ns->storage_min_avail_pct = cfg_u32(&line, 0, 100);
 				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_POST_WRITE_QUEUE:
-				ns->storage_post_write_queue = cfg_u32(&line, 0, 2 * 1024);
+				ns->storage_post_write_queue = cfg_u32(&line, 0, 4 * 1024);
 				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_TOMB_RAIDER_SLEEP:
 				cfg_enterprise_only(&line);

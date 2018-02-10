@@ -2937,8 +2937,8 @@ info_command_config_set_threadsafe(char *name, char *params, cf_dyn_buf *db)
 				cf_warning(AS_INFO, "ns %s, post-write-queue %s is not a number", ns->name, context);
 				goto Error;
 			}
-			if ((uint32_t)val > (2 * 1024)) {
-				cf_warning(AS_INFO, "ns %s, post-write-queue %u must be < 2K", ns->name, val);
+			if ((uint32_t)val > (4 * 1024)) {
+				cf_warning(AS_INFO, "ns %s, post-write-queue %u must be < 4K", ns->name, val);
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of post-write-queue of ns %s from %d to %d ", ns->name, ns->storage_post_write_queue, val);
