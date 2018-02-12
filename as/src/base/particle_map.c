@@ -4182,6 +4182,7 @@ packed_map_get_remove_all(const packed_map *map, as_bin *b,
 
 		cdt_container_builder_add_int_range(&builder, 0, map->ele_count,
 				map->ele_count, is_rev);
+		cdt_container_builder_set_result(&builder, result);
 		break;
 	}
 	case RESULT_TYPE_COUNT:
