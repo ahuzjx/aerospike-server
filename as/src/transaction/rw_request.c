@@ -146,11 +146,11 @@ rw_request_destroy(rw_request* rw)
 
 	cf_dyn_buf_free(&rw->response_db);
 
-	if (rw->is_set_up) {
-		if (rw->dest_msg) {
-			as_fabric_msg_put(rw->dest_msg);
-		}
+	if (rw->dest_msg) {
+		as_fabric_msg_put(rw->dest_msg);
+	}
 
+	if (rw->is_set_up) {
 		if (rw->best_dup_msg) {
 			as_fabric_msg_put(rw->best_dup_msg);
 		}
