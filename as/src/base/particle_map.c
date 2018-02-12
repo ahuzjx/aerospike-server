@@ -6245,8 +6245,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_KEY: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t op_flags;
@@ -6263,8 +6262,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_INDEX: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6281,8 +6279,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_VALUE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6300,8 +6297,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_RANK: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6318,8 +6314,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_KEY_LIST: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6336,8 +6331,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_ALL_BY_VALUE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6355,8 +6349,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_VALUE_LIST: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6373,8 +6366,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_KEY_INTERVAL: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6394,8 +6386,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_INDEX_RANGE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6413,8 +6404,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_VALUE_INTERVAL: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6434,8 +6424,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_REMOVE_BY_RANK_RANGE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -6453,8 +6442,7 @@ cdt_process_state_packed_map_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_MAP_CLEAR: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		ret = map_clear(b, alloc_buf, result.result);

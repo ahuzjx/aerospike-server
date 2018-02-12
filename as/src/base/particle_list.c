@@ -1639,6 +1639,12 @@ packed_list_get_remove_by_index_range(const packed_list *list, as_bin *b,
 			return -AS_PROTO_RESULT_FAIL_PARAMETER;
 		}
 
+		if (result_data_is_return_index_range(result) ||
+				result_data_is_return_rank_range(result)) {
+			cf_warning(AS_PARTICLE, "packed_list_get_remove_by_index_range() result_type %d not supported with INVERTED flag", result->type);
+			return -AS_PROTO_RESULT_FAIL_PARAMETER;
+		}
+
 		result->flags &= ~AS_CDT_OP_FLAG_INVERTED;
 
 		if (count32 == 0) {
@@ -1716,7 +1722,7 @@ packed_list_get_remove_by_index_range(const packed_list *list, as_bin *b,
 
 				cdt_payload value = {
 						.ptr = list->contents + op.seg1_sz,
-						.sz = op.new_content_sz
+						.sz = list->content_sz - op.new_content_sz
 				};
 
 				if (! packed_list_find_rank_range_by_value_interval_unordered(
@@ -1736,7 +1742,7 @@ packed_list_get_remove_by_index_range(const packed_list *list, as_bin *b,
 
 		as_unpacker pk = {
 				.buffer = list->contents + op.seg1_sz,
-				.length = op.new_content_sz
+				.length = list->content_sz - op.new_content_sz
 		};
 
 		uint32_t rm_count = list->ele_count - op.new_ele_count;
@@ -3495,8 +3501,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	case AS_CDT_OP_LIST_REMOVE:
 	case AS_CDT_OP_LIST_POP: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		int64_t index;
@@ -3514,8 +3519,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	case AS_CDT_OP_LIST_REMOVE_RANGE:
 	case AS_CDT_OP_LIST_POP_RANGE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		int64_t index;
@@ -3533,8 +3537,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_TRIM: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		int64_t index;
@@ -3553,8 +3556,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_CLEAR: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		packed_list list;
@@ -3607,8 +3609,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_BY_INDEX: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3626,8 +3627,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	case AS_CDT_OP_LIST_REMOVE_ALL_BY_VALUE:
 	case AS_CDT_OP_LIST_REMOVE_BY_VALUE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3646,8 +3646,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_BY_RANK: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3664,8 +3663,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_ALL_BY_VALUE_LIST: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3682,8 +3680,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_BY_INDEX_RANGE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3701,8 +3698,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_BY_VALUE_INTERVAL: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -3722,8 +3718,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 	}
 	case AS_CDT_OP_LIST_REMOVE_BY_RANK_RANGE: {
 		if (! as_bin_inuse(b)) {
-			cdt_udata->ret_code = -AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE;
-			return false;
+			return true; // no-op
 		}
 
 		uint64_t result_type;
@@ -4346,6 +4341,7 @@ list_result_data_set_values_by_ordidx(cdt_result_data *rd,
 	rd->result->particle = list_simple_create(rd->alloc, count, sz,
 			&ptr);
 	order_index_write_eles(ordidx, count, full_offidx, ptr, false);
+	as_bin_state_set_from_type(rd->result, AS_PARTICLE_TYPE_LIST);
 
 	return true;
 }
