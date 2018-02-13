@@ -222,7 +222,7 @@ int immigration_dump_reduce_fn(const void *key, uint32_t keylen, void *object, v
 // LDT-related.
 int as_ldt_fill_mig_msg(const emigration *emig, msg *m, const pickled_record *pr, uint16_t ldt_bits, uint32_t *info);
 void as_ldt_fill_precord(pickled_record *pr, uint16_t ldt_bits, as_storage_rd *rd, const emigration *emig);
-int as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c, msg *m);
+void as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c, msg *m);
 
 
 static inline uint32_t
@@ -1639,11 +1639,9 @@ immigration_handle_insert_request(cf_node src, msg *m)
 					set_name_len, key, key_size, ldt_bits);
 		}
 
-		if (as_ldt_get_migrate_info(immig, &c, m)) {
-			immigration_release(immig);
-			as_fabric_msg_put(m);
-			return;
-		}
+		// Even if LDT is disabled, fill info for incoming LDT records. They
+		// will be ignored but acknowledged below (so immigration keeps going).
+		as_ldt_get_migrate_info(immig, &c, m);
 
 		if (immigration_ignore_pickle(c.record_buf, m)) {
 			cf_warning_digest(AS_MIGRATE, keyd, "handle insert: binless pickle, dropping ");
@@ -2088,11 +2086,9 @@ as_ldt_fill_precord(pickled_record *pr, uint16_t ldt_bits, as_storage_rd *rd,
 
 
 // Extracts ldt related infrom the migration messages
-// return <0 in case of some sort of failure
-// returns 0 for success
 //
 // side effect component will be filled up
-int
+void
 as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c,
 		msg *m)
 {
@@ -2102,10 +2098,6 @@ as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c,
 	c->version     = 0;
 	c->pgeneration = 0;
 	c->pvoid_time  = 0;
-
-	if (! immig->rsv.ns->ldt_enabled) {
-		return 0;
-	}
 
 	uint32_t info;
 
@@ -2154,6 +2146,4 @@ as_ldt_get_migrate_info(immigration *immig, as_record_merge_component *c,
 			immig->rx_state = AS_MIGRATE_RX_STATE_RECORD;
 		}
 	}
-
-	return 0;
 }
