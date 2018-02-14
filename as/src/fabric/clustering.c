@@ -7670,18 +7670,18 @@ clustering_cluster_reform()
 	cf_vector* dead_nodes = vector_stack_lockless_create(cf_node);
 	clustering_dead_nodes_find(dead_nodes);
 
-	log_cf_node_vector("dead nodes before reformation:", dead_nodes,
+	log_cf_node_vector("recluster: dead nodes - ", dead_nodes,
 			cf_vector_size(dead_nodes) > 0 ? CF_INFO : CF_DEBUG);
 
 	cf_vector* faulty_nodes = vector_stack_lockless_create(cf_node);
 	clustering_faulty_nodes_find(faulty_nodes);
 
-	log_cf_node_vector("faulty nodes before reformation:", faulty_nodes,
+	log_cf_node_vector("recluster: faulty nodes - ", faulty_nodes,
 			cf_vector_size(faulty_nodes) > 0 ? CF_INFO : CF_DEBUG);
 
 	cf_vector* new_nodes = vector_stack_lockless_create(cf_node);
 	clustering_nodes_to_add_get(new_nodes);
-	log_cf_node_vector("join requests before reformation:", new_nodes,
+	log_cf_node_vector("recluster: pending join requests - ", new_nodes,
 			cf_vector_size(new_nodes) > 0 ? CF_INFO : CF_DEBUG);
 
 	if (!clustering_is_running() || !clustering_is_principal()
@@ -7689,7 +7689,7 @@ clustering_cluster_reform()
 			|| cf_vector_size(faulty_nodes) > 0
 			|| cf_vector_size(new_nodes) > 0) {
 		INFO(
-				"cluster reformation skipped - principal:%s, dead_nodes:%d, faulty_nodes:%d, new_nodes:%d",
+				"recluster: skipped - principal %s dead_nodes %d faulty_nodes %d new_nodes %d",
 				clustering_is_principal() ? "true" : "false",
 				cf_vector_size(dead_nodes), cf_vector_size(faulty_nodes),
 				cf_vector_size(new_nodes));
@@ -7706,7 +7706,7 @@ clustering_cluster_reform()
 	vector_copy(succession_list, &g_register.succession_list);
 
 	log_cf_node_vector(
-			"principal node - reforming new cluster with succession list:",
+			"recluster: principal node - reforming new cluster with succession list:",
 			succession_list, CF_INFO);
 
 	as_paxos_start_result result = paxos_proposer_proposal_start(
@@ -7718,10 +7718,10 @@ clustering_cluster_reform()
 	rv = (result == AS_PAXOS_RESULT_STARTED) ? 0 : -1;
 
 	if (rv == -1) {
-		INFO("cluster reformation skipped");
+		INFO("recluster: skipped");
 	}
 	else {
-		INFO("cluster reformation triggered...");
+		INFO("recluster: triggered...");
 	}
 
 	cf_vector_destroy(succession_list);
