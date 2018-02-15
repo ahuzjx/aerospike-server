@@ -38,6 +38,7 @@
 #include "citrusleaf/cf_hash_math.h"
 #include "citrusleaf/cf_queue.h"
 
+#include "compare.h"
 #include "fault.h"
 #include "node.h"
 
