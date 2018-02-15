@@ -257,7 +257,7 @@ void result_data_set_int_list_by_mask(cdt_result_data *rd, const uint64_t *mask,
 // as_bin
 void as_bin_set_int(as_bin *b, int64_t value);
 void as_bin_set_double(as_bin *b, double value);
-void as_bin_set_empty_list(as_bin *b, rollback_alloc *alloc_buf);
+void as_bin_set_unordered_empty_list(as_bin *b, rollback_alloc *alloc_buf);
 void as_bin_set_empty_packed_map(as_bin *b, rollback_alloc *alloc_buf, uint8_t flags);
 
 // cdt_delta_value

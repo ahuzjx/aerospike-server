@@ -348,7 +348,7 @@ result_data_set_not_found(cdt_result_data *rd, int64_t index)
 	case RESULT_TYPE_RANK:
 	case RESULT_TYPE_REVRANK:
 		if (rd->is_multi) {
-			as_bin_set_empty_list(rd->result, rd->alloc);
+			as_bin_set_unordered_empty_list(rd->result, rd->alloc);
 			break;
 		}
 
@@ -360,7 +360,7 @@ result_data_set_not_found(cdt_result_data *rd, int64_t index)
 	case RESULT_TYPE_KEY:
 	case RESULT_TYPE_VALUE:
 		if (rd->is_multi) {
-			as_bin_set_empty_list(rd->result, rd->alloc);
+			as_bin_set_unordered_empty_list(rd->result, rd->alloc);
 		}
 		break;
 	case RESULT_TYPE_MAP:
