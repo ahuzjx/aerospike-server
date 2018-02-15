@@ -34,7 +34,7 @@
 //
 
 static inline int
-compare_uint64_desc(const void* pa, const void* pb)
+cf_compare_uint64_desc(const void* pa, const void* pb)
 {
 	uint64_t a = *(const uint64_t*)pa;
 	uint64_t b = *(const uint64_t*)pb;
@@ -43,7 +43,7 @@ compare_uint64_desc(const void* pa, const void* pb)
 }
 
 static inline int
-compare_uint32_desc(const void* pa, const void* pb)
+cf_compare_uint32_desc(const void* pa, const void* pb)
 {
 	uint32_t a = *(const uint32_t*)pa;
 	uint32_t b = *(const uint32_t*)pb;

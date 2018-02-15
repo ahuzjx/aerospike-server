@@ -38,7 +38,6 @@
 #include "citrusleaf/cf_hash_math.h"
 #include "citrusleaf/cf_queue.h"
 
-#include "compare.h"
 #include "fault.h"
 #include "node.h"
 
@@ -741,7 +740,7 @@ fill_global_tables()
 
 		// Sort the hashed node values.
 		qsort(&FULL_NODE_SEQ(pid, 0), g_cluster_size, sizeof(cf_node),
-				compare_uint64_desc);
+				cf_node_compare_desc);
 
 		// Overwrite the sorted hash values with the original node IDs.
 		for (uint32_t n = 0; n < g_cluster_size; n++) {
@@ -973,7 +972,7 @@ rack_count(const as_namespace* ns)
 	uint32_t ids[ns->cluster_size];
 
 	memcpy(ids, ns->rack_ids, sizeof(ids));
-	qsort(ids, ns->cluster_size, sizeof(uint32_t), compare_uint32_desc);
+	qsort(ids, ns->cluster_size, sizeof(uint32_t), cf_compare_uint32_desc);
 
 	if (ids[0] == ids[ns->cluster_size - 1]) {
 		return 1; // common path - not rack-aware

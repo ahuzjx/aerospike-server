@@ -25,6 +25,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "compare.h"
+
 typedef uint64_t cf_node;
 
 uint32_t cf_nodeid_shash_fn(const void *key);
@@ -59,4 +61,11 @@ remove_node(cf_node* nodes, uint32_t n_nodes, cf_node node)
 	}
 
 	return n_nodes;
+}
+
+static inline int
+cf_node_compare_desc(const void* pa, const void* pb)
+{
+	// Relies on cf_node being uint64_t.
+	return cf_compare_uint64_desc(pa, pb);
 }
