@@ -242,6 +242,7 @@ static uint32_t list_pack_header(uint8_t *buf, uint32_t ele_count);
 static void list_pack_empty_index(as_packer *pk, uint32_t ele_count, const uint8_t *contents, uint32_t content_sz, bool is_ordered);
 
 // as_bin
+static inline void as_bin_set_empty_list(as_bin *b, rollback_alloc *alloc_buf, bool is_ordered);
 static void as_bin_set_ordered_empty_list(as_bin *b, rollback_alloc *alloc_buf);
 static inline void as_bin_set_temp_list_if_notinuse(as_bin *b, uint64_t create_flags);
 
@@ -792,8 +793,19 @@ list_pack_empty_index(as_packer *pk, uint32_t ele_count,
 // as_bin
 //
 
+static inline void
+as_bin_set_empty_list(as_bin *b, rollback_alloc *alloc_buf, bool is_ordered)
+{
+	if (is_ordered) {
+		as_bin_set_ordered_empty_list(b, alloc_buf);
+	}
+	else {
+		as_bin_set_unordered_empty_list(b, alloc_buf);
+	}
+}
+
 void
-as_bin_set_empty_list(as_bin *b, rollback_alloc *alloc_buf)
+as_bin_set_unordered_empty_list(as_bin *b, rollback_alloc *alloc_buf)
 {
 	b->particle = list_simple_create_from_buf(alloc_buf, 0, NULL, 0);
 	as_bin_state_set_from_type(b, AS_PARTICLE_TYPE_LIST);
@@ -1469,7 +1481,7 @@ packed_list_remove_by_idx(const packed_list *list, as_bin *b,
 	}
 
 	if (op.new_ele_count == 0) {
-		as_bin_set_empty_list(b, alloc_buf);
+		as_bin_set_empty_list(b, alloc_buf, list_is_ordered(list));
 	}
 	else {
 		uint8_t *ptr = list_setup_bin(b, alloc_buf, list->ext_flags,
@@ -1685,7 +1697,7 @@ packed_list_get_remove_by_index_range(const packed_list *list, as_bin *b,
 
 	if (b) {
 		if (op.new_ele_count == 0) {
-			as_bin_set_empty_list(b, alloc_buf);
+			as_bin_set_empty_list(b, alloc_buf, list_is_ordered(list));
 		}
 		else {
 			uint8_t *ptr = list_setup_bin(b, alloc_buf, list->ext_flags,
@@ -1860,7 +1872,7 @@ packed_list_get_remove_by_value_interval(const packed_list *list, as_bin *b,
 
 	if (b) {
 		if (rm_count == list->ele_count) {
-			as_bin_set_empty_list(b, alloc_buf);
+			as_bin_set_ordered_empty_list(b, alloc_buf);
 		}
 		else if (rm_count != 0) {
 			int ret;
@@ -2106,7 +2118,7 @@ packed_list_get_remove_all_by_value_list_ordered(const packed_list *list,
 
 	if (b) {
 		if (rm_count == list->ele_count) {
-			as_bin_set_empty_list(b, alloc_buf);
+			as_bin_set_ordered_empty_list(b, alloc_buf);
 		}
 		else if (rm_count != 0) {
 			int ret = packed_list_remove_by_mask(list, b, alloc_buf, rm_mask,
@@ -2228,7 +2240,7 @@ packed_list_get_remove_all_by_value_list(const packed_list *list, as_bin *b,
 
 	if (b) {
 		if (rm_count == list->ele_count) {
-			as_bin_set_empty_list(b, alloc_buf);
+			as_bin_set_unordered_empty_list(b, alloc_buf);
 		}
 		else if (rm_count != 0) {
 			int ret = packed_list_remove_by_mask(list, b, alloc_buf, rm_mask,
@@ -3567,12 +3579,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 			return false;
 		}
 
-		if (list_is_ordered(&list)) {
-			as_bin_set_ordered_empty_list(b, alloc_buf);
-		}
-		else {
-			as_bin_set_empty_list(b, alloc_buf);
-		}
+		as_bin_set_empty_list(b, alloc_buf, list_is_ordered(&list));
 		break;
 	}
 	case AS_CDT_OP_LIST_INCREMENT: {
@@ -3750,7 +3757,7 @@ cdt_process_state_packed_list_modify_optype(cdt_process_state *state,
 
 	// In case of no-op.
 	if (b->particle == (const as_particle *)&list_mem_empty) {
-		as_bin_set_empty_list(b, alloc_buf);
+		as_bin_set_unordered_empty_list(b, alloc_buf);
 	}
 	else if (b->particle == (const as_particle *)&list_ordered_empty) {
 		as_bin_set_ordered_empty_list(b, alloc_buf);
