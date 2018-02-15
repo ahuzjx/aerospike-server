@@ -1036,7 +1036,7 @@ typedef struct rack_node_s {
 	cf_node node;
 } rack_node;
 
-// A comparison_fn_t used with qsort().
+// A comparison_fn_t used with qsort() - yields ascending rack-id order.
 static inline int
 compare_rack_nodes(const void* pa, const void* pb)
 {

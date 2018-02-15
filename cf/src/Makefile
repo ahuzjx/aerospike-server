@@ -8,7 +8,7 @@ ifeq ($(USE_EE),1)
   include $(EEREPO)/cf/make_in/Makefile.vars
 endif
 
-HEADERS += arenax.h bits.h cf_mutex.h cf_str.h daemon.h dynbuf.h
+HEADERS += arenax.h bits.h cf_mutex.h cf_str.h compare.h daemon.h dynbuf.h
 HEADERS += enhanced_alloc.h fault.h hist.h hist_track.h linear_hist.h mem_count.h
 HEADERS += meminfo.h msg.h node.h olock.h shash.h socket.h tls.h
 HEADERS += vmapx.h

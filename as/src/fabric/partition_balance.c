@@ -38,6 +38,7 @@
 #include "citrusleaf/cf_hash_math.h"
 #include "citrusleaf/cf_queue.h"
 
+#include "compare.h"
 #include "fault.h"
 #include "node.h"
 
@@ -147,26 +148,6 @@ is_family_same(const as_partition_version* v1, const as_partition_version* v2)
 {
 	return v1->ckey == v2->ckey && v1->family == v2->family &&
 			v1->family != VERSION_FAMILY_UNIQUE;
-}
-
-// A comparison_fn_t used with qsort().
-static inline int
-compare_hashed_nodes(const void* pa, const void* pb)
-{
-	uint64_t a = *(const uint64_t*)pa;
-	uint64_t b = *(const uint64_t*)pb;
-
-	return a > b ? -1 : (a == b ? 0 : 1);
-}
-
-// A comparison_fn_t used with qsort().
-static inline int
-compare_rack_ids(const void* pa, const void* pb)
-{
-	uint32_t a = *(const uint32_t*)pa;
-	uint32_t b = *(const uint32_t*)pb;
-
-	return a > b ? -1 : (a == b ? 0 : 1);
 }
 
 // Define macros for accessing the full node-seq and sl-ix arrays.
@@ -760,7 +741,7 @@ fill_global_tables()
 
 		// Sort the hashed node values.
 		qsort(&FULL_NODE_SEQ(pid, 0), g_cluster_size, sizeof(cf_node),
-				compare_hashed_nodes);
+				compare_uint64_desc);
 
 		// Overwrite the sorted hash values with the original node IDs.
 		for (uint32_t n = 0; n < g_cluster_size; n++) {
@@ -992,7 +973,7 @@ rack_count(const as_namespace* ns)
 	uint32_t ids[ns->cluster_size];
 
 	memcpy(ids, ns->rack_ids, sizeof(ids));
-	qsort(ids, ns->cluster_size, sizeof(uint32_t), compare_rack_ids);
+	qsort(ids, ns->cluster_size, sizeof(uint32_t), compare_uint32_desc);
 
 	if (ids[0] == ids[ns->cluster_size - 1]) {
 		return 1; // common path - not rack-aware
