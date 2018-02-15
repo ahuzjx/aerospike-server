@@ -1872,7 +1872,7 @@ packed_list_get_remove_by_value_interval(const packed_list *list, as_bin *b,
 
 	if (b) {
 		if (rm_count == list->ele_count) {
-			as_bin_set_ordered_empty_list(b, alloc_buf);
+			as_bin_set_unordered_empty_list(b, alloc_buf);
 		}
 		else if (rm_count != 0) {
 			int ret;
