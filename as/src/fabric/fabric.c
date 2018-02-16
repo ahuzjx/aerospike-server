@@ -632,6 +632,28 @@ as_fabric_info_peer_endpoints_get(cf_dyn_buf *db)
 	}
 }
 
+bool
+as_fabric_is_published_endpoint_list(const as_endpoint_list *list)
+{
+	return as_endpoint_lists_are_equal(g_published_endpoint_list, list);
+}
+
+// Used by heartbeat subsystem only, for duplicate node-id detection.
+as_endpoint_list *
+as_fabric_hb_plugin_get_endpoint_list(as_hb_plugin_node_data *plugin_data)
+{
+	return (plugin_data && plugin_data->data_size != 0) ?
+			(as_endpoint_list *)plugin_data->data : NULL;
+}
+
+void
+as_fabric_rate_capture(fabric_rate *rate)
+{
+	pthread_mutex_lock(&g_fabric.node_hash_lock);
+	cf_rchash_reduce(g_fabric.node_hash, fabric_rate_node_reduce_fn, rate);
+	pthread_mutex_unlock(&g_fabric.node_hash_lock);
+}
+
 void
 as_fabric_dump(bool verbose)
 {
@@ -667,14 +689,6 @@ as_fabric_dump(bool verbose)
 
 		fabric_node_release(node); // node_get
 	}
-}
-
-void
-as_fabric_rate_capture(fabric_rate *rate)
-{
-	pthread_mutex_lock(&g_fabric.node_hash_lock);
-	cf_rchash_reduce(g_fabric.node_hash, fabric_rate_node_reduce_fn, rate);
-	pthread_mutex_unlock(&g_fabric.node_hash_lock);
 }
 
 

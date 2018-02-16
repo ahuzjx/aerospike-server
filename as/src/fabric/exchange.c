@@ -1921,6 +1921,23 @@ exchange_reset_for_new_round(cf_vector* new_succession_list,
 }
 
 /**
+ * Commit exchange state to reflect self node being an orphan.
+ */
+static void
+exchange_orphan_commit()
+{
+	EXCHANGE_LOCK();
+	g_exchange.committed_cluster_key = 0;
+	g_exchange.committed_cluster_size = 0;
+	g_exchange.committed_principal = 0;
+	vector_clear(&g_exchange.committed_succession_list);
+	WARNING("blocking client transactions in orphan state!");
+	as_partition_balance_revert_to_orphan();
+	g_exchange.orphan_state_are_transactions_blocked = true;
+	EXCHANGE_UNLOCK();
+}
+
+/**
  * Receive an orphaned event and abort current round.
  */
 static void
@@ -1943,10 +1960,12 @@ exchange_orphaned_handle(as_clustering_event* orphaned_event)
 	as_partition_balance_disallow_migrations();
 	as_partition_balance_synchronize_migrations();
 
-	// We have not yet blocked transactions for this orphan transition.
-	g_exchange.orphan_state_are_transactions_blocked = false;
 	// Update the time this node got into orphan state.
 	g_exchange.orphan_state_start_time = cf_getms();
+
+	// Potentially temporary orphan state. We will timeout and commit orphan
+	// state if this persists for long.
+	g_exchange.orphan_state_are_transactions_blocked = false;
 
 	EXCHANGE_UNLOCK();
 }
@@ -2008,6 +2027,7 @@ exchange_clustering_event_handle(as_exchange_event* exchange_clustering_event)
  * Orphan state event handling
  * ----------------------------------------------------------------------------
  */
+
 /**
  * The wait time in orphan state after which client transactions and transaction
  * related interactions (e.g. valid partitoion map publishing) should be
@@ -2025,43 +2045,19 @@ exchange_orphan_transaction_block_timeout()
 }
 
 /**
- * Commit exchange state to reflect self node being an orphan.
- */
-static void
-exchange_orphan_commit()
-{
-	EXCHANGE_LOCK();
-	g_exchange.committed_cluster_key = 0;
-	g_exchange.committed_cluster_size = 0;
-	g_exchange.committed_principal = 0;
-	vector_clear(&g_exchange.committed_succession_list);
-	EXCHANGE_UNLOCK();
-}
-
-/**
  * Handle the timer event and if we have been an orphan for too long, block
  * client transactions.
  */
 static void
 exchange_orphan_timer_event_handle()
 {
-	bool invoke_transaction_block = false;
 	uint32_t timeout = exchange_orphan_transaction_block_timeout();
 	EXCHANGE_LOCK();
 	if (!g_exchange.orphan_state_are_transactions_blocked
 			&& g_exchange.orphan_state_start_time + timeout < cf_getms()) {
-		g_exchange.orphan_state_are_transactions_blocked = true;
 		exchange_orphan_commit();
-		invoke_transaction_block = true;
 	}
 	EXCHANGE_UNLOCK();
-
-	if (invoke_transaction_block) {
-		WARNING(
-				"blocking client transactions - in orphan state for more than %d milliseconds!",
-				timeout);
-		as_partition_balance_revert_to_orphan();
-	}
 }
 
 /**

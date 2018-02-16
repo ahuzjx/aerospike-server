@@ -34,6 +34,7 @@
 
 #include "fault.h"
 #include "msg.h"
+#include "node.h"
 #include "shash.h"
 
 #include "base/cfg.h"
@@ -3005,24 +3006,6 @@ clustering_cluster_key_generate(as_cluster_key current_cluster_key)
 }
 
 /**
- * Descending order comparator function for cf_node.
- */
-static int
-clustering_nodeid_comparator_desc(const void* a, const void* b)
-{
-	cf_node aNode = *(cf_node*)a;
-	cf_node bNode = *(cf_node*)b;
-	if (aNode < bNode) {
-		return 1;
-	}
-	else {
-		// 'a' is greater than or equal to 'b'. Its ok for it to preceed b in
-		// the sorted result.
-		return -1;
-	}
-}
-
-/**
  * Indicates if this node is an orphan. A node is deemed orphan if it is not a
  * memeber of any cluster.
  */
@@ -3202,8 +3185,7 @@ clustering_neighboring_principals_get(cf_vector* neighboring_principals)
 	as_hb_plugin_data_iterate_all(AS_HB_PLUGIN_CLUSTERING,
 			clustering_neighboring_principals_find, neighboring_principals);
 
-	vector_sort_unique(neighboring_principals,
-			clustering_nodeid_comparator_desc);
+	vector_sort_unique(neighboring_principals, cf_node_compare_desc);
 
 	CLUSTERING_UNLOCK();
 }
@@ -3837,7 +3819,7 @@ msg_succession_list_field_get(msg* msg, cf_vector* succession_list,
 		cf_vector_append(succession_list, &succession_buffer[i]);
 	}
 
-	vector_sort_unique(succession_list, clustering_nodeid_comparator_desc);
+	vector_sort_unique(succession_list, cf_node_compare_desc);
 
 	return 0;
 }
@@ -6201,7 +6183,7 @@ clustering_orphan_join_request_attempt()
 			"clique based evicted nodes for potential cluster:");
 
 	// Sort the new succession list.
-	vector_sort_unique(new_succession_list, clustering_nodeid_comparator_desc);
+	vector_sort_unique(new_succession_list, cf_node_compare_desc);
 
 	as_clustering_join_request_result rv =
 			AS_CLUSTERING_JOIN_REQUEST_NO_PRINCIPALS;
@@ -6328,8 +6310,11 @@ clustering_cluster_form()
 	bool paxos_proposal_started = false;
 	cf_vector* new_succession_list = vector_stack_lockless_create(cf_node);
 	cf_vector* expected_succession_list = vector_stack_lockless_create(cf_node);
+	cf_vector* orphans = vector_stack_lockless_create(cf_node);
 
-	clustering_neighboring_orphans_get(new_succession_list);
+	clustering_neighboring_orphans_get(orphans);
+	vector_copy(new_succession_list, orphans);
+
 	log_cf_node_vector("neighboring orphans for cluster formation:",
 			new_succession_list,
 			cf_vector_size(new_succession_list) > 0 ? CF_INFO : CF_DEBUG);
@@ -6346,20 +6331,27 @@ clustering_cluster_form()
 			"clique based evicted nodes at cluster formation:");
 
 	// Sort the new succession list.
-	vector_sort_unique(new_succession_list, clustering_nodeid_comparator_desc);
+	vector_sort_unique(new_succession_list, cf_node_compare_desc);
 
 	cf_vector_append(expected_succession_list, &self_nodeid);
 	vector_copy_unique(expected_succession_list,
 			&g_clustering.pending_join_requests);
 	// Sort the expected succession list.
-	vector_sort_unique(expected_succession_list,
-			clustering_nodeid_comparator_desc);
+	vector_sort_unique(expected_succession_list, cf_node_compare_desc);
 	// The result should match the pending join requests exactly to consider the
 	// new succession list.
 	if (!vector_equals(expected_succession_list, new_succession_list)) {
 		log_cf_node_vector(
 				"skipping forming cluster - cannot form new cluster from pending join requests",
 				&g_clustering.pending_join_requests, CF_INFO);
+		goto Exit;
+	}
+
+	if (cf_vector_size(orphans) > 0
+			&& cf_vector_size(new_succession_list) == 1) {
+		log_cf_node_vector(
+				"skipping forming cluster - there are neighboring orphans that cannot be clustered with",
+				orphans, CF_INFO);
 		goto Exit;
 	}
 
@@ -6408,6 +6400,7 @@ Exit:
 
 	cf_vector_destroy(rejected_nodes);
 
+	cf_vector_destroy(orphans);
 	cf_vector_destroy(expected_succession_list);
 	cf_vector_destroy(new_succession_list);
 
@@ -6492,8 +6485,10 @@ clustering_nodes_to_add_get(cf_vector* nodes_to_add)
 static void
 clustering_orphan_quantum_interval_start_handle()
 {
-	// Try to join a cluster or form a new one.
-	clustering_join_or_form_cluster();
+	if (!as_hb_self_is_duplicate()) {
+		// Try to join a cluster or form a new one.
+		clustering_join_or_form_cluster();
+	}
 }
 
 /**
@@ -6814,6 +6809,12 @@ clustering_principal_quantum_interval_start_handle(
 {
 	DETAIL("principal node quantum wakeup");
 
+	if (as_hb_self_is_duplicate()) {
+		// Cluster is in a bad shape and self node has a duplicate node-id.
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
+		return;
+	}
+
 	CLUSTERING_LOCK();
 	bool paxos_proposal_started = false;
 
@@ -6850,7 +6851,7 @@ clustering_principal_quantum_interval_start_handle(
 	cf_node self_nodeid = config_self_nodeid_get();
 	cf_vector_append_unique(new_succession_list, &self_nodeid);
 
-	vector_sort_unique(new_succession_list, clustering_nodeid_comparator_desc);
+	vector_sort_unique(new_succession_list, cf_node_compare_desc);
 	uint32_t num_evicted = clustering_succession_list_clique_evict(
 			new_succession_list,
 			"clique based evicted nodes at quantum start:");
@@ -7059,7 +7060,7 @@ clustering_non_principal_preferred_principal_update()
 			"clique based evicted nodes while updating preferred principal:");
 
 	// Sort the new succession list.
-	vector_sort_unique(new_succession_list, clustering_nodeid_comparator_desc);
+	vector_sort_unique(new_succession_list, cf_node_compare_desc);
 
 	cf_node preferred_principal = 0;
 	int new_cluster_size = cf_vector_size(new_succession_list);
@@ -7089,6 +7090,12 @@ clustering_non_principal_quantum_interval_start_handle()
 {
 	// Reject all accumulated join requests since we are no longer a principal.
 	clustering_join_requests_reject_all();
+
+	if (as_hb_self_is_duplicate()) {
+		// Cluster is in a bad shape and self node has a duplicate node-id.
+		register_become_orphan (AS_CLUSTERING_MEMBERSHIP_LOST);
+		return;
+	}
 
 	// Update the preferred principal.
 	clustering_non_principal_preferred_principal_update();

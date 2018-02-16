@@ -232,6 +232,7 @@ info_get_stats(char *name, cf_dyn_buf *db)
 	info_append_uint64_x(db, "cluster_key", as_exchange_cluster_key()); // not in ticker
 	info_append_bool(db, "cluster_integrity", as_clustering_has_integrity()); // not in ticker
 	info_append_bool(db, "cluster_is_member", ! as_clustering_is_orphan());
+	as_hb_info_duplicates_get(db);
 
 	info_append_uint64(db, "uptime", (cf_getms() - g_start_ms) / 1000); // not in ticker
 
@@ -271,6 +272,7 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	info_append_uint64(db, "heartbeat_received_self", g_stats.heartbeat_received_self);
 	info_append_uint64(db, "heartbeat_received_foreign", g_stats.heartbeat_received_foreign);
+
 
 	info_append_uint64(db, "reaped_fds", g_stats.reaper_count); // not in ticker
 
@@ -614,7 +616,7 @@ Exit:
 }
 
 /*
- *  Command Format:  "tip-clear:{host-port-list=<hpl>}" [the "host-port-list" argument is optional]
+ *  Command Format:  "tip-clear:{host-port-list=<hpl>}"
  *
  *  where <hpl> is either "all" or else a comma-separated list of items of the form: <HostIPAddr>:<PortNum>
  */

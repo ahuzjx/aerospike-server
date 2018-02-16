@@ -392,6 +392,8 @@ void as_hb_start();
 
 void as_hb_shutdown();
 
+bool as_hb_self_is_duplicate();
+
 bool as_hb_node_is_adjacent(cf_node nodeid);
 
 typedef void (*as_hb_event_fn)(int nevents, as_hb_event_node* events, void* udata);
@@ -451,6 +453,8 @@ void as_hb_info_config_get(cf_dyn_buf* db);
 void as_hb_info_endpoints_get(cf_dyn_buf* db);
 
 void as_hb_info_listen_addr_get(as_hb_mode* mode, char* addr_port, size_t addr_port_capacity);
+
+void as_hb_info_duplicates_get(cf_dyn_buf* db);
 
 /*
  * -----------------------------------------------------------------

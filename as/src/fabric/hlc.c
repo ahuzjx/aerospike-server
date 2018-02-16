@@ -402,12 +402,12 @@ as_hlc_timestamp_order_get(as_hlc_timestamp ts1, as_hlc_timestamp ts2)
 }
 
 /**
- * Substract milliseconds worth of time from the timestamp.
+ * Subtract milliseconds worth of time from the timestamp.
  * @param timestamp the input timestamp.
- * @param ms the number of milliseconds to substract.
+ * @param ms the number of milliseconds to subtract.
  */
 as_hlc_timestamp
-as_hlc_timestamp_substract_ms(as_hlc_timestamp timestamp, int ms)
+as_hlc_timestamp_subtract_ms(as_hlc_timestamp timestamp, int ms)
 {
 	cf_clock physical_ts = hlc_physical_ts_get(timestamp);
 	uint16_t logical_ts = hlc_logical_ts_get(timestamp);
