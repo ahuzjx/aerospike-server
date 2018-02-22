@@ -29,6 +29,7 @@
 #include <inttypes.h>
 #include <malloc.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -842,10 +843,9 @@ realloc(void *p, size_t sz)
 	return p2;
 }
 
-char *
-strdup(const char *s)
+static char *
+do_strdup(const char *s, size_t n, const void *ra)
 {
-	size_t n = strlen(s);
 	size_t sz = n + 1;
 	size_t ext_sz = want_debug(-1) ? sz + sizeof(uint32_t) : sz;
 
@@ -853,11 +853,17 @@ strdup(const char *s)
 	cf_assert(s2, CF_ALLOC, "strdup failed len %zu", n);
 
 	if (want_debug(-1)) {
-		hook_handle_alloc(__builtin_return_address(0), s2, sz);
+		hook_handle_alloc(ra, s2, sz);
 	}
 
 	memcpy(s2, s, sz);
 	return s2;
+}
+
+char *
+strdup(const char *s)
+{
+	return do_strdup(s, strlen(s), __builtin_return_address(0));
 }
 
 char *
@@ -883,6 +889,26 @@ strndup(const char *s, size_t n)
 	s2[n2] = 0;
 
 	return s2;
+}
+
+int32_t
+asprintf(char **res, const char *form, ...)
+{
+	char buff[25000];
+
+	va_list va;
+	va_start(va, form);
+
+	int32_t n = vsnprintf(buff, sizeof(buff), form, va);
+
+	va_end(va);
+
+	if ((size_t)n >= sizeof(buff)) {
+		cf_crash(CF_ALLOC, "asprintf overflow len %d", n);
+	}
+
+	*res = do_strdup(buff, (size_t)n, __builtin_return_address(0));
+	return n;
 }
 
 int32_t
