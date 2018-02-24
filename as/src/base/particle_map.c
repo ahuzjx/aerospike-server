@@ -2424,6 +2424,9 @@ packed_map_find_rank_indexed(const packed_map *map, map_ele_find *find)
 
 // Find (closest) rank given value.
 // Find closest rank for find->idx (0 means first instance of value).
+// FIXME - this is mechanically different from order_index_find_rank_by_value()
+//  where target = ele_count finds the largest rank; here it finds the largest
+//  rank + 1 in the case that the value exist; fix to conform.
 // Return true on success.
 static bool
 packed_map_find_rank_by_value_indexed(const packed_map *map, map_ele_find *find,

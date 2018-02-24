@@ -726,6 +726,13 @@ mod_flags_is_bounded(uint64_t flags)
 	return (flags & AS_CDT_LIST_INSERT_BOUNDED) != 0;
 }
 
+static inline int
+mod_flags_return_exists(uint64_t flags)
+{
+	// TODO - modify for NOFAIL flag later.
+	return -AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS;
+}
+
 static inline uint8_t
 strip_ext_flags(uint8_t flags)
 {
@@ -972,12 +979,19 @@ packed_list_find_by_value_ordered(const packed_list *list,
 		return false;
 	}
 
-	as_unpacker pk_start = {
-			.buffer = value->ptr,
-			.length = value->sz
-	};
+	if (offset_index_is_full(offidx) || find->result < last - 1 ||
+			(find->found && (find->target > list->ele_count ||
+					find->result >= find->target))) {
+		return true;
+	}
 
-	if (! offset_index_is_full(offidx) && find->result == last) {
+	if (find->result == list->ele_count || find->result == last ||
+			find->result < find->target) {
+		as_unpacker pk_start = {
+				.buffer = value->ptr,
+				.length = value->sz
+		};
+
 		as_unpacker pk_buf = {
 				.buffer = list->contents,
 				.offset = offset_index_get_const(offidx, last - 1),
@@ -1005,11 +1019,13 @@ packed_list_find_by_value_ordered(const packed_list *list,
 					continue;
 				}
 
-				cmp = MSGPACK_COMPARE_LESS;
+				find->result = i;
+				offset_index_set_filled(offidx, MIN(i + 2, list->ele_count));
+				break;
 			}
 
 			if (cmp == MSGPACK_COMPARE_LESS) {
-				find->result = i;
+				find->result = i - (find->found ? 1 : 0);
 				offset_index_set_filled(offidx, MIN(i + 2, list->ele_count));
 				break;
 			}
@@ -1210,7 +1226,7 @@ packed_list_find_rank_range_by_value_interval_ordered(const packed_list *list,
 			}
 
 			if (find.found) {
-				*count_r = find.result - *rank_r;
+				*count_r = find.result - *rank_r + 1;
 			}
 			else {
 				*count_r = 1;
@@ -2392,7 +2408,8 @@ packed_list_insert(const packed_list *list, as_bin *b,
 			}
 
 			if (param_count == rm_count) {
-				return AS_PROTO_RESULT_OK; // no-op
+				as_bin_set_int(result->result, list->ele_count);
+				return mod_flags_return_exists(mod_flags);
 			}
 		}
 		else {
@@ -2405,7 +2422,8 @@ packed_list_insert(const packed_list *list, as_bin *b,
 			}
 
 			if (count != 0) {
-				return AS_PROTO_RESULT_OK; // no-op
+				as_bin_set_int(result->result, list->ele_count);
+				return mod_flags_return_exists(mod_flags);
 			}
 		}
 	}
@@ -2487,7 +2505,7 @@ packed_list_add_ordered(const packed_list *list, as_bin *b,
 	}
 
 	if (find.found && unique) {
-		return AS_PROTO_RESULT_OK; // no-op
+		return -AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS;
 	}
 
 	return packed_list_insert(list, b, alloc_buf, (int64_t)find.result, payload,
@@ -2569,7 +2587,8 @@ packed_list_add_items_ordered(const packed_list *list, as_bin *b,
 		}
 
 		if (unique && find.found) {
-			order_index_set(&val_ord, i, val_count);
+			// TODO - order_index_set(&val_ord, i, val_count) for NOFAIL later.
+			return -AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS;
 		}
 		else {
 			order_index_set(&insert_idx, i, find.result);
@@ -2677,14 +2696,7 @@ packed_list_replace_ordered(const packed_list *list, as_bin *b,
 			return AS_PROTO_RESULT_OK; // no-op
 		}
 
-		uint8_t *ptr = list_setup_bin(b, alloc_buf, list->ext_flags,
-				op.new_content_sz, op.new_ele_count, index, &list->offidx,
-				NULL);
-
-		ptr += packed_list_op_write_seg1(&op, ptr);
-		packed_list_op_write_seg2(&op, ptr);
-
-		return AS_PROTO_RESULT_OK;
+		return mod_flags_return_exists(mod_flags);
 	}
 
 	uint32_t new_ele_count = list->ele_count;
@@ -3099,7 +3111,7 @@ list_set(as_bin *b, rollback_alloc *alloc_buf, int64_t index,
 
 		if (count != 0) {
 			if (idx != (uint64_t)index) {
-				return -AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS;
+				return mod_flags_return_exists(mod_flags);
 			}
 
 			// Need second scan since the dup found is at the index being set.
@@ -3109,7 +3121,7 @@ list_set(as_bin *b, rollback_alloc *alloc_buf, int64_t index,
 			}
 
 			if (count > 1) {
-				return -AS_PROTO_RESULT_FAIL_ELEMENT_EXISTS;
+				return mod_flags_return_exists(mod_flags);
 			}
 		}
 	}
@@ -4295,7 +4307,6 @@ list_result_data_set_values_by_idxcount(cdt_result_data *rd,
 
 		for (uint32_t j = 0; j < count; j++) {
 			sz += offset_index_get_delta_const(full_offidx, idx + j);
-			count++;
 		}
 	}
 
