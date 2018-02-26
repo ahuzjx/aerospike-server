@@ -2125,6 +2125,11 @@ packed_list_get_remove_all_by_value_list_ordered(const packed_list *list,
 	cond_define_cdt_idx_mask(rm_mask, list->ele_count, need_mask);
 
 	if (inverted) {
+		if (! list_full_offset_index_fill_all(list_full_offidx_p(list))) {
+			cf_warning(AS_PARTICLE, "packed_list_get_remove_all_by_value_list_ordered() invalid list");
+			return -AS_PROTO_RESULT_FAIL_PARAMETER;
+		}
+
 		rm_count = list->ele_count - rm_count;
 	}
 
@@ -2595,6 +2600,11 @@ packed_list_add_items_ordered(const packed_list *list, as_bin *b,
 			new_content_sz += sz;
 			new_ele_count++;
 		}
+	}
+
+	if (! list_full_offset_index_fill_all(full.offidx)) {
+		cf_warning(AS_PARTICLE, "packed_list_add_items_ordered() invalid list");
+		return -AS_PROTO_RESULT_FAIL_PARAMETER;
 	}
 
 	// Construct new list.
@@ -4097,7 +4107,6 @@ list_full_offset_index_fill_to(offset_index *offidx, uint32_t index)
 bool
 list_full_offset_index_fill_all(offset_index *offidx)
 {
-	offset_index_set_filled(offidx, 1);
 	return list_full_offset_index_fill_to(offidx, offidx->_.ele_count);
 }
 
