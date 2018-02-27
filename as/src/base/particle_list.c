@@ -1015,7 +1015,8 @@ packed_list_find_by_value_ordered(const packed_list *list,
 			if (cmp == MSGPACK_COMPARE_EQUAL) {
 				find->found = true;
 
-				if (i < find->target && find->target <= list->ele_count) {
+				if (i != list->ele_count - 1 && i < find->target &&
+						find->target <= list->ele_count) {
 					continue;
 				}
 
