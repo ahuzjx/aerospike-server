@@ -2327,6 +2327,7 @@ packed_list_insert(const packed_list *list, as_bin *b,
 		}
 
 		if (payload_count == 0) {
+			result_data_set_int(result, list->ele_count);
 			return AS_PROTO_RESULT_OK;
 		}
 
@@ -2345,6 +2346,7 @@ packed_list_insert(const packed_list *list, as_bin *b,
 	}
 
 	if (mod_flags_is_bounded(mod_flags) && (uint32_t)index > list->ele_count) {
+		result_data_set_int(result, list->ele_count);
 		return AS_PROTO_RESULT_OK; // no-op
 	}
 
@@ -2408,8 +2410,11 @@ packed_list_insert(const packed_list *list, as_bin *b,
 					}
 				}
 				else {
-					rm_sz += val.sz;
-					rm_count++;
+					// TODO - support NOFAIL
+					//rm_sz += val.sz;
+					//rm_count++;
+					as_bin_set_int(result->result, list->ele_count);
+					return mod_flags_return_exists(mod_flags);
 				}
 			}
 
