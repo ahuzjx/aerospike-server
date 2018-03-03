@@ -980,8 +980,9 @@ packed_list_find_by_value_ordered(const packed_list *list,
 	}
 
 	if (offset_index_is_full(offidx) || find->result < last - 1 ||
-			(find->found && (find->target > list->ele_count ||
-					find->result >= find->target))) {
+			(! find->found && find->result < last) || (find->found &&
+					(find->target > list->ele_count ||
+							find->result >= find->target))) {
 		return true;
 	}
 
