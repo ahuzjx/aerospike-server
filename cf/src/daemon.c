@@ -32,14 +32,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#if ! defined(__FreeBSD__)
 #include <linux/capability.h>
 #include <sys/prctl.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 
 #include "fault.h"
 
+#if ! defined(__FreeBSD__)
 extern int capset(cap_user_header_t header, cap_user_data_t data);
+#endif
 
 
 static bool g_hold_caps = false;
@@ -53,6 +57,7 @@ cf_process_privsep(uid_t uid, gid_t gid)
 		return;
 	}
 
+#if ! defined(__FreeBSD__)
 	// If appropriate, make all capabilities survive the UID/GID switch.
 	if (g_hold_caps) {
 		if (0 > prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0)) {
@@ -61,6 +66,7 @@ cf_process_privsep(uid_t uid, gid_t gid)
 
 		g_clear_caps = true;
 	}
+#endif
 
 	// Drop all auxiliary groups.
 	if (0 > setgroups(0, (const gid_t *)0)) {
@@ -95,7 +101,7 @@ cf_process_clearcap(void)
 	if (! g_clear_caps) {
 		return;
 	}
-
+#if ! defined(__FreeBSD__)
 	struct __user_cap_header_struct cap_head = {
 		.version = _LINUX_CAPABILITY_VERSION_2
 	};
@@ -105,6 +111,7 @@ cf_process_clearcap(void)
 	if (0 > capset(&cap_head, cap_data)) {
 		cf_crash(CF_MISC, "capset: %s", cf_strerror(errno));
 	}
+#endif
 }
 
 

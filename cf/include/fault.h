@@ -407,7 +407,11 @@ do { \
 #define cf_detail_digest(...)  __DIGEST_SEVLOG(CF_DETAIL, ##__VA_ARGS__)
 
 // _GNU_SOURCE gives us a strerror_r() that returns (char *).
+#if ! defined(__FreeBSD__)
 #define cf_strerror(err) strerror_r(err, (char *)alloca(200), 200)
+#else
+#define cf_strerror(err) strerror(err)
+#endif
 
 /* cf_context_at_severity
  * Return whether the given context is set to this severity level or higher. */
