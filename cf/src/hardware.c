@@ -35,7 +35,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if ! defined(__FreeBSD__)
 #include <syscall.h>
+#else
+#include <sys/syscall.h>
+#endif
 #include <unistd.h>
 
 #include <sys/ioctl.h>
@@ -43,11 +47,21 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#if ! defined(__FreeBSD__)
 #include <linux/ethtool.h>
 #include <linux/if.h>
 #include <linux/limits.h>
 #include <linux/mempolicy.h>
 #include <linux/sockios.h>
+#else
+#include <net/if.h>
+#include <net/ethernet.h>
+#include <sys/limits.h>
+#include <sys/memdesc.h>
+#include <sys/memrange.h>
+#include <sys/sockio.h>
+#include <sys/cpuset.h>
+#endif
 
 #include "daemon.h"
 #include "fault.h"
@@ -67,6 +81,10 @@
 #define POLICY_SCRIPT "/etc/aerospike/irqbalance-ban.sh"
 
 #define MEM_PAGE_SIZE (4096L)
+#if defined(__FreeBSD__)
+typedef cpuset_t cpu_set_t;
+#endif
+
 
 typedef enum {
 	FILE_RES_OK,
