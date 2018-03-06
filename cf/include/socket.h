@@ -22,13 +22,20 @@
 
 #pragma once
 
+#if ! defined(__FreeBSD__)
 #include <alloca.h>
+#endif
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <netinet/in.h>
+#if ! defined(__FreeBSD__)
 #include <sys/epoll.h>
+#else
+#include <sys/types.h>
+#include <sys/event.h>
+#endif
 #include <sys/socket.h>
 
 #include "fault.h"
