@@ -32,9 +32,13 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#include <linux/futex.h>
 #include <sys/syscall.h>
-
+#if ! defined(__FreeBSD__)
+#include <linux/futex.h>
+#else
+#include <sys/types.h>
+#include <sys/umtx.h>
+#endif
 #include "fault.h"
 
 
@@ -49,11 +53,22 @@
 // Inlines & macros.
 //
 
+#if ! defined(__FreeBSD__)
 inline static void
 sys_futex(void *uaddr, int op, int val)
 {
 	syscall(SYS_futex, uaddr, op, val, NULL, NULL, 0);
 }
+#else
+inline static void
+sys_futex(void *uaddr, int op, int val)
+{
+	_umtx_op(uaddr, op, val, NULL, NULL);
+}
+
+#define FUTEX_WAIT_PRIVATE 	UMTX_OP_WAIT_UINT_PRIVATE
+#define FUTEX_WAKE_PRIVATE	UMTX_OP_WAKE_PRIVATE
+#endif
 
 #define xchg(__ptr, __val) __sync_lock_test_and_set(__ptr, __val)
 #define cmpxchg(__ptr, __cmp, __set) __sync_val_compare_and_swap(__ptr, __cmp, __set)
