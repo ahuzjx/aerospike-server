@@ -27,13 +27,19 @@
 #include <stdint.h>
 #include <string.h>
 #include <arpa/inet.h>
+#if ! defined(__FreeBSD__)
 #include <asm/byteorder.h>
+#else
+#define _BSD_VISIBLE
+#endif
 
 #include <citrusleaf/alloc.h>
 
 #include "cf_str.h"
 
-
+#if defined(__FreeBSD__)
+#define  __swab64(x) __bswap64(x)
+#endif
 #define MAX_BACKOFF (1024 * 256)
 
 size_t
