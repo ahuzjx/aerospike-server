@@ -67,7 +67,7 @@ cf_arenax_sizeof()
 const char*
 cf_arenax_errstr(cf_arenax_err err)
 {
-	if (err < 0 || err > CF_ARENAX_ERR_UNKNOWN) {
+	if (err > CF_ARENAX_ERR_UNKNOWN) {
 		err = CF_ARENAX_ERR_UNKNOWN;
 	}
 

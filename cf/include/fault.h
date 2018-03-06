@@ -22,7 +22,9 @@
 
 #pragma once
 
+#if ! defined(__FreeBSD__)
 #include <alloca.h>
+#endif
 #include <execinfo.h>
 #include <stdbool.h>
 #include <stddef.h>

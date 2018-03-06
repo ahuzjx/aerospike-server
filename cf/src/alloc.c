@@ -27,7 +27,9 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#if ! defined(__FreeBSD__)
 #include <malloc.h>
+#endif
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -149,7 +151,11 @@ static pid_t
 hook_gettid(void)
 {
 	if (g_tid == 0) {
+#if ! defined(__FreeBSD__)
 		g_tid = (pid_t)syscall(SYS_gettid);
+#else
+		g_tid = (pid_t)pthread_getthreadid_np();
+#endif
 	}
 
 	return g_tid;

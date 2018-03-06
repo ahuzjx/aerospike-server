@@ -26,7 +26,11 @@
 // Includes.
 //
 
+#if ! defined(__FreeBSD__)
 #include <malloc.h>
+#else
+#include <stdlib.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
