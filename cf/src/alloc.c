@@ -31,6 +31,9 @@
 #include <malloc.h>
 #endif
 #include <pthread.h>
+#if defined(__FreeBSD__)
+#include <pthread_np.h>
+#endif
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
