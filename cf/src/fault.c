@@ -36,6 +36,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 
 #include "aerospike/as_log.h"
 #include "citrusleaf/alloc.h"
