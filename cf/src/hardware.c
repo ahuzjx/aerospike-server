@@ -61,6 +61,7 @@
 #include <sys/memrange.h>
 #include <sys/sockio.h>
 #include <sys/cpuset.h>
+#include <sched.h>
 #endif
 
 #include "daemon.h"
@@ -280,15 +281,22 @@ path_exists(const char *path)
 static void
 set_mempolicy_safe(uint32_t mode, uint64_t *node_mask, size_t max_node)
 {
+#if ! defined(__FreeBSD__)
 	if (syscall(__NR_set_mempolicy, mode, node_mask, max_node) < 0) {
 		cf_crash(CF_HARDWARE, "set_mempolicy() system call failed: %d (%s)",
 				errno, cf_strerror(errno));
 	}
+#else
+	(void)mode;
+	(void)node_mask;
+	(void)max_node;
+#endif
 }
 
 static void
 migrate_pages_safe(pid_t pid, size_t max_node, uint64_t *from_mask, uint64_t *to_mask)
 {
+#if ! defined(__FreeBSD__)
 	int64_t res = syscall(__NR_migrate_pages, pid, max_node, from_mask, to_mask);
 
 	if (res < 0) {
@@ -299,6 +307,12 @@ migrate_pages_safe(pid_t pid, size_t max_node, uint64_t *from_mask, uint64_t *to
 	if (res > 0) {
 		cf_warning(CF_HARDWARE, "could not NUMA-migrate %" PRId64 " page(s)", res);
 	}
+#else
+	(void)pid;
+	(void)max_node;
+	(void)from_mask;
+	(void)to_mask;
+#endif
 }
 
 static void
@@ -651,6 +665,7 @@ detect(cf_topo_numa_node_index a_numa_node)
 static void
 pin_to_numa_node(cf_topo_numa_node_index a_numa_node)
 {
+#if ! defined(__FreeBSD__)
 	cf_info(CF_HARDWARE, "pinning to NUMA node %hu", a_numa_node);
 
 	// Move the current thread (and all of its future descendants) to the CPUs
@@ -684,6 +699,9 @@ pin_to_numa_node(cf_topo_numa_node_index a_numa_node)
 
 	// Make sure we can migrate shared memory that we later attach and map.
 	cf_process_holdcap();
+#else
+	(void)a_numa_node;
+#endif
 }
 
 static uint32_t
@@ -692,7 +710,7 @@ pick_random(uint32_t limit)
 	static __thread uint64_t state = 0;
 
 	if (state == 0) {
-		state = (uint64_t)syscall(SYS_gettid);
+		state = (uint64_t)__rdtsc();
 	}
 
 	state = state * 6364136223846793005 + 1;
@@ -1397,6 +1415,7 @@ config_rfs(const char *if_name, bool enable)
 static void
 enable_coalescing(const char *if_name)
 {
+#if ! defined(__FreeBSD__)
 	cf_detail(CF_HARDWARE, "enabling interrupt coalescing for interface %s", if_name);
 	int32_t sock = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -1451,6 +1470,9 @@ enable_coalescing(const char *if_name)
 
 cleanup1:
 	CF_NEVER_FAILS(close(sock));
+#else
+	(void)if_name;
+#endif
 }
 
 static void
