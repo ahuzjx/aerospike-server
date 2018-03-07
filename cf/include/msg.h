@@ -32,6 +32,10 @@
 
 #include "dynbuf.h"
 
+#if defined(__FreeBSD__)
+#define __bswap_64(x) bswap64(x)
+#include <arpa/inet.h>
+#endif
 
 //==========================================================
 // Typedefs & constants.
