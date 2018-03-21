@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#if ! defined(__FreeBSD__)
 #include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -45,6 +46,15 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#else
+#include <sys/types.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#endif
 
 #include "fault.h"
 #include "tls.h"
