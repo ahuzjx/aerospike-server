@@ -93,16 +93,13 @@ cf_meminfo(uint64_t *physmem, uint64_t *freemem, int *freepct, bool *swapping)
 	int pos = 0, lim = sizeof(buf);
 	int rv = 0;
 	do {
-
 		rv = read(fd, &buf[pos], lim - pos);
-		if (rv > 0)
-			pos += rv;
-		else if (rv < 0) {
+		if (rv < 0) {
 			fprintf(stderr, "meminfo failed: read returned %d errno %d pos %d\n",rv,errno,pos);
 			close(fd);
 			return(-1);
 		}
-
+		pos += rv;
 	} while ((rv > 0) && (pos < lim));
 
 	close(fd);
