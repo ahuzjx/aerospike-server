@@ -1076,7 +1076,11 @@ socket_wait(const cf_socket *sock, uint16_t events, int32_t timeout)
 	cf_detail(CF_SOCKET, "Waiting for events 0x%x on FD %d with timeout %d",
 			events, sock->fd, timeout);
 
+#if ! defined(__FreeBSD__)
 	struct pollfd pfd = { .fd = sock->fd, .events = events | POLLRDHUP };
+#else
+	struct pollfd pfd = { .fd = sock->fd, .events = events | POLLHUP };
+#endif
 
 	while (true) {
 		int32_t count = poll(&pfd, 1, timeout);
