@@ -54,6 +54,9 @@
 #include <sys/event.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <poll.h>
+
+#define SOL_TCP IPPROTO_TCP
 #endif
 
 #include "fault.h"
@@ -490,6 +493,7 @@ safe_getsockopt(int32_t fd, int32_t level, int32_t name, void *val, socklen_t *l
 	}
 }
 
+#if ! defined(__FreeBSD__)
 static int32_t
 safe_wait(int32_t efd, struct epoll_event *events, int32_t max, int32_t timeout)
 {
@@ -510,6 +514,36 @@ safe_wait(int32_t efd, struct epoll_event *events, int32_t max, int32_t timeout)
 		return count;
 	}
 }
+#else
+static int32_t
+safe_wait(int32_t kq, struct kevent *events, int32_t max, int32_t timeout)
+{
+	while (true) {
+		int count;
+		struct timespec tv;
+
+		memset(&tv, 0, sizeof(tv));
+		if (timeout > 0) {
+			tv.tv_sec = timeout / 1000;
+			tv.tv_nsec = (timeout % 1000) * 1000000;
+		}
+		cf_debug(CF_SOCKET, "Waiting on kqueue FD %d", kq);
+
+		count = kevent(kq, NULL, 0, events, max,
+		    timeout == 0 ? NULL : &tv);
+		if (count < 0) {
+			if (errno == EINTR) {
+				cf_debug(CF_SOCKET, "Interrupted");
+				continue;
+			}
+
+			cf_crash(CF_SOCKET, "kevent(2) failed on kqueue FD %d: %d (%s)",
+			    kq, errno, cf_strerror(errno));
+		}
+		return count;
+	}
+}
+#endif
 
 static void
 safe_close(int32_t fd)
@@ -588,7 +622,12 @@ cf_socket_set_receive_buffer(cf_socket *sock, int32_t size)
 void
 cf_socket_set_window(cf_socket *sock, int32_t size)
 {
+#if ! defined(__FreeBSD__)
 	safe_setsockopt(sock->fd, SOL_TCP, TCP_WINDOW_CLAMP, &size, sizeof(size));
+#else
+	(void)sock;
+	(void)size;
+#endif
 }
 
 void
@@ -713,6 +752,7 @@ connect_socket(const cf_socket *sock, struct sockaddr *sa, int32_t timeout)
 	cf_debug(CF_SOCKET, "Connecting FD %d", sock->fd);
 	int32_t res = -1;
 	int32_t rv = connect(sock->fd, sa, cf_socket_addr_len(sa));
+	int32_t efd = -1;
 
 	if (rv == 0) {
 		cf_debug(CF_SOCKET, "FD %d connected [1]", sock->fd);
@@ -731,19 +771,33 @@ connect_socket(const cf_socket *sock, struct sockaddr *sa, int32_t timeout)
 		goto cleanup0;
 	}
 
-	int32_t efd = epoll_create(1);
-
+#if ! defined(__FreeBSD__)
+	efd = epoll_create(1);
+#else
+	efd = kqueue();
+#endif
 	if (efd < 0) {
+#if ! defined(__FreeBSD__)
 		cf_crash(CF_SOCKET, "epoll_create() failed: %d (%s)", errno, cf_strerror(errno));
+#else
+		cf_crash(CF_SOCKET, "kqueue(2) failed: %d (%s)", errno, cf_strerror(errno));
+#endif
 	}
-
+#if ! defined(__FreeBSD__)
 	struct epoll_event event = { .data.fd = sock->fd, .events = EPOLLOUT };
 
 	if (epoll_ctl(efd, EPOLL_CTL_ADD, sock->fd, &event) < 0) {
 		cf_crash(CF_SOCKET, "epoll_ctl() failed for FD %d: %d (%s)",
 				sock->fd, errno, cf_strerror(errno));
 	}
-
+#else
+	struct kevent event;
+	EV_SET(&event, sock->fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+	if (kevent(efd, &event, 1, NULL, 0, NULL) < 0) {
+		cf_crash(CF_SOCKET, "kevent(2) failed for FD %d: %d (%s)",
+				sock->fd, errno, cf_strerror(errno));
+	}
+#endif
 	int32_t count = safe_wait(efd, &event, 1, timeout);
 
 	if (count == 0) {
@@ -764,10 +818,18 @@ connect_socket(const cf_socket *sock, struct sockaddr *sa, int32_t timeout)
 	res = 0;
 
 cleanup1:
+#if ! defined(__FreeBSD__)
 	if (epoll_ctl(efd, EPOLL_CTL_DEL, sock->fd, NULL) < 0) {
 		cf_crash(CF_SOCKET, "epoll_ctl() failed for FD %d: %d (%s)",
 				sock->fd, errno, cf_strerror(errno));
 	}
+#else
+	EV_SET(&event, sock->fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+	if (kevent(efd, &event, 1, NULL, 0, NULL) < 0) {
+		cf_crash(CF_SOCKET, "kevent(2) failed for FD %d: %d (%s)",
+				sock->fd, errno, cf_strerror(errno));
+	}
+#endif
 
 	safe_close(efd);
 
