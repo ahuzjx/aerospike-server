@@ -31,7 +31,44 @@
 #include <string.h>
 #include <unistd.h>
 
+#if defined(__FreeBSD__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <sys/vmmeter.h>
+#include <vm/vm_param.h>
 
+int
+cf_meminfo(uint64_t *physmem, uint64_t *freemem, int *freepct, bool *swapping)
+{
+	long pagesize;
+	size_t len;
+	uint64_t realsize;
+	struct vmtotal vmtotal;
+
+	pagesize = sysconf(_SC_PAGESIZE);
+	if (pagesize < 0)
+		return (-1);
+
+	len = sizeof(vmtotal);
+	if (sysctlbyname("vm.vmtotal", &vmtotal, &len, NULL, 0) != 0) {
+		perror("sysctl");
+		return (-1);
+	}
+
+	len = sizeof(realsize);
+	if (sysctlbyname("hw.physmem", &realsize, &len, NULL, 0) != 0) {
+		perror("sysctl");
+		return (-1);
+	}
+
+	*physmem = realsize;
+	*freemem = (uint64_t)vmtotal.t_free * pagesize;
+	*freepct = (int)vmtotal.t_free;
+	*swapping = vmtotal.t_sw > 0;
+	return (0);
+}
+
+#else
 int
 cf_meminfo(uint64_t *physmem, uint64_t *freemem, int *freepct, bool *swapping)
 {
@@ -150,3 +187,4 @@ cf_meminfo(uint64_t *physmem, uint64_t *freemem, int *freepct, bool *swapping)
 
 	return(0);
 }
+#endif
