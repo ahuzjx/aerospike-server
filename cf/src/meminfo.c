@@ -45,6 +45,11 @@ cf_meminfo(uint64_t *physmem, uint64_t *freemem, int *freepct, bool *swapping)
 	uint64_t realsize;
 	struct vmtotal vmtotal;
 
+	*physmem = 0;
+	*freemem = 0;
+	*freepct = 0;
+	*swapping = 0;
+
 	pagesize = sysconf(_SC_PAGESIZE);
 	if (pagesize < 0)
 		return (-1);
